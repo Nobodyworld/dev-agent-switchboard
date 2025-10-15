@@ -1,10 +1,11 @@
 
 import datetime as dt
 from typing import List, Tuple, Optional
-from sqlalchemy import select, delete, update
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from .models import Task, TaskDependency, Lease
+from .models import Task, TaskDependency, Lease, PlanVersion
 LEASE_SECONDS = 300
+PLAN_VERSION_ROW_ID = 1
 
 async def get_dependencies(session: AsyncSession, task_id: int) -> List[int]:
     rows = (await session.execute(select(TaskDependency.depends_on_task_id).where(TaskDependency.task_id == task_id))).all()
@@ -77,7 +78,36 @@ async def abandon(session: AsyncSession, agent_id: str, task_id: int) -> bool:
     return True
 
 async def plan_version(session: AsyncSession) -> int:
-    # simple version: sum of task updated_at timestamps
-    res = (await session.execute(select(Task.updated_at))).all()
-    total = sum(int(r[0].timestamp()) for r in res) if res else 0
-    return total
+    return await current_plan_version(session)
+
+
+async def _ensure_plan_version_row(session: AsyncSession) -> PlanVersion:
+    row = await session.get(PlanVersion, PLAN_VERSION_ROW_ID)
+    if row is None:
+        row = PlanVersion(id=PLAN_VERSION_ROW_ID, value=0)
+        session.add(row)
+        await session.flush()
+    return row
+
+
+async def increment_plan_version(session: AsyncSession) -> int:
+    await _ensure_plan_version_row(session)
+    row = (
+        await session.execute(
+            select(PlanVersion)
+            .where(PlanVersion.id == PLAN_VERSION_ROW_ID)
+            .with_for_update()
+        )
+    ).scalar_one()
+    row.value += 1
+    await session.flush()
+    return row.value
+
+
+async def current_plan_version(session: AsyncSession) -> int:
+    row = await _ensure_plan_version_row(session)
+    return row.value
+
+
+def plan_version_counter(session: AsyncSession):
+    return current_plan_version(session)
