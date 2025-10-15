@@ -1,0 +1,15 @@
+
+services:
+  switchboard:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - ../storage:/app/storage
+      - ../.agent:/app/.agent
+      - ../AGENTS.md:/app/AGENTS.md:ro
+      - ../README.md:/app/README.md:ro
+    environment:
+      - TZ=UTC

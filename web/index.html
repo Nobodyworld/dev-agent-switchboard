@@ -1,0 +1,99 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Switchboard</title>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <div class="max-w-5xl mx-auto p-6">
+    <h1 class="text-3xl font-bold mb-4">Switchboard</h1>
+    <p class="mb-6">Real-time task switchboard & live file host for agents.</p>
+
+    <section class="mb-8 p-4 bg-white rounded-xl shadow">
+      <h2 class="text-xl font-semibold mb-2">Create Task</h2>
+      <form id="createTask" class="space-y-2" hx-post="/api/tasks" hx-trigger="submit" hx-target="#tasks" hx-swap="outerHTML">
+        <input class="border rounded p-2 w-full" name="title" placeholder="Title" required />
+        <textarea class="border rounded p-2 w-full" name="description" placeholder="Description"></textarea>
+        <input class="border rounded p-2 w-full" name="depends_on" placeholder="Dependencies (comma ids)" />
+        <button class="px-3 py-2 rounded bg-blue-600 text-white">Add</button>
+      </form>
+    </section>
+
+    <section class="p-4 bg-white rounded-xl shadow">
+      <h2 class="text-xl font-semibold mb-2">Tasks</h2>
+      <div id="tasks">
+        <!-- Rendered via htmx refresh -->
+      </div>
+      <button class="mt-4 px-3 py-2 rounded bg-gray-800 text-white" onclick="refreshTasks()">Refresh</button>
+    </section>
+  </div>
+
+<script>
+async function refreshTasks(){
+  const res = await fetch('/api/tasks');
+  const tasks = await res.json();
+  const el = document.getElementById('tasks');
+  el.innerHTML = renderTasks(tasks);
+}
+function renderTasks(tasks){
+  let rows = tasks.map(t => `<tr>
+    <td class="border px-2 py-1">${t.id}</td>
+    <td class="border px-2 py-1">${t.title}</td>
+    <td class="border px-2 py-1">${t.status}</td>
+    <td class="border px-2 py-1">${t.depends_on.join(', ')}</td>
+    <td class="border px-2 py-1">
+      <button class="px-2 py-1 bg-green-600 text-white rounded" onclick="complete(${t.id})">Complete</button>
+      <button class="px-2 py-1 bg-red-600 text-white rounded" onclick="del(${t.id})">Delete</button>
+    </td>
+  </tr>`).join('');
+  return `<table class="w-full text-sm border-collapse">
+    <thead><tr class="bg-gray-100">
+      <th class="border px-2 py-1">ID</th>
+      <th class="border px-2 py-1">Title</th>
+      <th class="border px-2 py-1">Status</th>
+      <th class="border px-2 py-1">Depends On</th>
+      <th class="border px-2 py-1">Actions</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+async function complete(id){
+  await fetch('/api/tasks/'+id+'/complete?agent_id=admin', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({notes:'UI complete'})});
+  refreshTasks();
+}
+async function del(id){
+  await fetch('/api/tasks/'+id, {method:'DELETE'});
+  refreshTasks();
+}
+
+let ws;
+function connectWS(){
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/plan');
+  ws.onopen = () => console.log('ws open');
+  ws.onmessage = (ev) => {
+    try { const msg = JSON.parse(ev.data);
+      if (msg.type === 'plan_version') refreshTasks();
+    } catch {}
+  };
+  ws.onclose = () => setTimeout(connectWS, 2000);
+}
+connectWS();
+refreshTasks();
+
+document.getElementById('createTask').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const title = form.title.value;
+  const description = form.description.value;
+  const deps = form.depends_on.value.trim() ? form.depends_on.value.split(',').map(s => parseInt(s.trim())).filter(n=>!isNaN(n)) : [];
+  await fetch('/api/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, description, depends_on: deps})});
+  form.reset();
+  refreshTasks();
+});
+</script>
+</body>
+</html>
