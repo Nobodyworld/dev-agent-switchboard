@@ -25,9 +25,11 @@ def dry_run(client: SwitchboardClient, args: argparse.Namespace) -> None:
 
     planned_task: Optional[dict] = None
     try:
-        tasks = client.list_tasks(status="available")
-        if tasks:
-            planned_task = tasks[0]
+        tasks = client.list_tasks()
+        for task in tasks:
+            if task.get("status") == "pending":
+                planned_task = task
+                break
     except Exception as exc:  # noqa: BLE001 - surface the failure in output
         print(f"[dry-run] Unable to fetch available tasks: {exc}")
 
