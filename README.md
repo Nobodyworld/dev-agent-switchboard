@@ -6,6 +6,7 @@ Switchboard is a small, production‑leaning FastAPI service that:
 - Hosts a **live, editable plan** (DAG of tasks with dependencies) that agents can **discover, check out, heartbeat, complete, or abandon**.
 - Broadcasts **real‑time updates** (WebSockets) when tasks change state or plans/files update.
 - Serves a **live file mirror** under predictable URLs so any LLM/agent can retrieve the latest docs **without re‑uploading**.
+- Ships a lightweight admin UI with color-coded status badges and a friendly empty state so task filters always communicate what you're seeing.
 - Ships with **AGENTS.md** and a **.agent/PLANS.md** template aligned with the ExecPlan pattern.
 - Includes a **Python client** for agent integrations and **Docker** packaging.
 
