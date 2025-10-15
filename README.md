@@ -2,6 +2,7 @@
 # Switchboard — Real‑Time Agent Task Switchboard & Live File Host
 
 Switchboard is a small, production‑leaning FastAPI service that:
+
 - Hosts a **live, editable plan** (DAG of tasks with dependencies) that agents can **discover, check out, heartbeat, complete, or abandon**.
 - Broadcasts **real‑time updates** (WebSockets) when tasks change state or plans/files update.
 - Serves a **live file mirror** under predictable URLs so any LLM/agent can retrieve the latest docs **without re‑uploading**.
@@ -24,15 +25,17 @@ pip install -r server/requirements.txt
 uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Open the admin UI: http://localhost:8000/
+Open the admin UI: <http://localhost:8000/>
 
 ### Seed a plan
+
 ```bash
 curl -X POST http://localhost:8000/api/tasks \  -H "Content-Type: application/json" \  -d '{"title":"Initial plan setup","description":"Create seed tasks","depends_on":[]}'
 curl -X POST http://localhost:8000/api/tasks \  -H "Content-Type: application/json" \  -d '{"title":"Implement feature A","description":"Build A","depends_on":[1]}'
 ```
 
 ### Agent checkout & heartbeat (example)
+
 ```bash
 # agent registers
 curl -X POST http://localhost:8000/api/agents -H "Content-Type: application/json" -d '{"agent_name":"codex-1"}'
@@ -48,6 +51,7 @@ curl -X POST "http://localhost:8000/api/tasks/1/complete?agent_id=codex-1" -H "C
 ```
 
 ### Live files
+
 ```bash
 # write/update a live file
 curl -X PUT http://localhost:8000/api/files/docs/AGENTS.md -H "Content-Type: text/markdown" --data-binary @AGENTS.md
@@ -57,12 +61,14 @@ curl http://localhost:8000/live/docs/AGENTS.md
 ```
 
 ## Docker
+
 ```bash
 cp ops/.env.example ops/.env
 docker compose -f ops/docker-compose.yml up --build
 ```
 
 ## Project structure
+
 - `AGENTS.md` — guidance for agents, including ExecPlan trigger.
 - `.agent/PLANS.md` — the ExecPlan spec template the agents can fill/obey.
 - `server/` — FastAPI app, SQLite via SQLAlchemy, WebSockets, HTMX UI.

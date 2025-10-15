@@ -16,11 +16,11 @@
     <section class="mb-8 p-4 bg-white rounded-xl shadow">
       <h2 class="text-xl font-semibold mb-2">Create Task</h2>
       <form id="createTask" class="space-y-2" hx-post="/api/tasks" hx-trigger="submit" hx-target="#tasks" hx-swap="outerHTML">
-        <input class="border rounded p-2 w-full" name="title" placeholder="Title" required />
-        <textarea class="border rounded p-2 w-full" name="description" placeholder="Description"></textarea>
-        <input class="border rounded p-2 w-full" name="depends_on" placeholder="Dependencies (comma ids)" />
-        <button class="px-3 py-2 rounded bg-blue-600 text-white">Add</button>
-      </form>
+          <input class="border rounded p-2 w-full" name="title" placeholder="Title" required />
+          <textarea class="border rounded p-2 w-full" name="description" placeholder="Description"></textarea>
+          <input class="border rounded p-2 w-full" name="depends_on" placeholder="Dependencies (comma ids)" />
+          <button type="submit" class="px-3 py-2 rounded bg-blue-600 text-white">Add</button>
+        </form>
     </section>
 
     <section class="p-4 bg-white rounded-xl shadow">
