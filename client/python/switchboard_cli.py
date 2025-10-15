@@ -74,21 +74,27 @@ def process_task(client: SwitchboardClient, task: dict, heartbeat_interval: floa
             if command in {"complete", "c"}:
                 if not notes:
                     notes = input("Completion notes (optional): ") or None
-                loop.stop()
-                loop.join()
-                if confirm_completion(client, task_id, notes):
-                    print("Task marked complete.")
-                    return True
-                print("Completion failed; heartbeat loop stopped.")
-                return False
+                try:
+                    if confirm_completion(client, task_id, notes):
+                        loop.stop()
+                        loop.join()
+                        print("Task marked complete.")
+                        return True
+                    print("Completion failed; heartbeat loop still running.")
+                except requests.RequestException as exc:
+                    print(f"Completion request failed: {exc}", file=sys.stderr)
+                continue
             if command in {"abandon", "a"}:
-                loop.stop()
-                loop.join()
-                if client.abandon(task_id):
-                    print("Task abandoned.")
-                    return True
-                print("Abandon failed; heartbeat loop stopped.")
-                return False
+                try:
+                    if client.abandon(task_id):
+                        loop.stop()
+                        loop.join()
+                        print("Task abandoned.")
+                        return True
+                    print("Abandon failed; heartbeat loop still running.")
+                except requests.RequestException as exc:
+                    print(f"Abandon request failed: {exc}", file=sys.stderr)
+                continue
             if command in {"heartbeat", "h"}:
                 ok = client.heartbeat(task_id)
                 print("Manual heartbeat sent", "(ok)" if ok else "(rejected)")
