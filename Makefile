@@ -6,8 +6,8 @@ PLAN_REMOTE_PATH?=docs/PLANS.md
 .PHONY: setup run test openapi publish-plan docker-up
 
 setup:
-	$(PYTHON) -m venv .venv
-	. .venv/bin/activate && pip install -r server/requirements.txt
+        $(PYTHON) -m venv .venv
+        . .venv/bin/activate && pip install -r server/requirements-dev.txt
 
 run:
 	. .venv/bin/activate && uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
