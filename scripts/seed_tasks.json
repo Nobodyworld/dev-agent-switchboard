@@ -1,0 +1,17 @@
+[
+  {
+    "title": "Initial plan setup",
+    "description": "Create a baseline Switchboard plan and confirm the seed runs end-to-end.",
+    "depends_on": []
+  },
+  {
+    "title": "Implement feature A",
+    "description": "Build the first feature once the initial plan is ready.",
+    "depends_on_titles": ["Initial plan setup"]
+  },
+  {
+    "title": "QA feature A",
+    "description": "Test feature A before release.",
+    "depends_on_titles": ["Implement feature A"]
+  }
+]
