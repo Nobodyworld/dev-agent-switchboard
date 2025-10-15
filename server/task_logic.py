@@ -91,7 +91,14 @@ async def _ensure_plan_version_row(session: AsyncSession) -> PlanVersion:
 
 
 async def increment_plan_version(session: AsyncSession) -> int:
-    row = await _ensure_plan_version_row(session)
+    await _ensure_plan_version_row(session)
+    row = (
+        await session.execute(
+            select(PlanVersion)
+            .where(PlanVersion.id == PLAN_VERSION_ROW_ID)
+            .with_for_update()
+        )
+    ).scalar_one()
     row.value += 1
     await session.flush()
     return row.value
