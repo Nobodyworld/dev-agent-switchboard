@@ -19,7 +19,7 @@ CONTENT_TYPE="text/markdown"
 
 echo "Publishing ${PLAN_PATH} to ${BASE_URL}/api/files/${REMOTE_PATH}"
 
-curl -sS -X PUT "${BASE_URL}/api/files/${REMOTE_PATH}" \
+curl --fail -sS -X PUT "${BASE_URL}/api/files/${REMOTE_PATH}" \
   -H "Content-Type: ${CONTENT_TYPE}" \
   --data-binary @"${PLAN_PATH}"
 
