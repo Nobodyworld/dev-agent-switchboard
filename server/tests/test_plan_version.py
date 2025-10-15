@@ -1,9 +1,16 @@
 import asyncio
 
-import pytest
 from starlette.requests import Request
 
-from server.app import checkout, create_task, delete_task, get_plan, put_live_file, register_agent
+from server.app import (
+    abandon,
+    checkout,
+    create_task,
+    delete_task,
+    get_plan,
+    put_live_file,
+    register_agent,
+)
 from server.db import AsyncSessionLocal
 from server.schema import AgentIn, TaskIn
 
@@ -56,7 +63,6 @@ def test_plan_version_increases_on_task_update():
             before = await _fetch_plan_version(session)
             await register_agent(AgentIn(agent_name="agent"), session=session)
             await session.commit()
-            await asyncio.sleep(1.1)
             await checkout(agent_id="agent", session=session)
             await session.commit()
             after = await _fetch_plan_version(session)
@@ -65,7 +71,6 @@ def test_plan_version_increases_on_task_update():
     asyncio.run(scenario())
 
 
-@pytest.mark.xfail(reason="Plan version currently decreases after deletions", strict=True)
 def test_plan_version_increases_on_task_delete():
     async def scenario():
         async with AsyncSessionLocal() as session:
@@ -80,7 +85,6 @@ def test_plan_version_increases_on_task_delete():
     asyncio.run(scenario())
 
 
-@pytest.mark.xfail(reason="Plan version does not change when live files are updated", strict=True)
 def test_plan_version_increases_on_live_file_put():
     async def scenario():
         async with AsyncSessionLocal() as session:
@@ -90,5 +94,33 @@ def test_plan_version_increases_on_live_file_put():
             await session.commit()
             after = await _fetch_plan_version(session)
             assert after > before
+
+    asyncio.run(scenario())
+
+
+def test_plan_version_increases_on_repeated_task_updates():
+    async def scenario():
+        async with AsyncSessionLocal() as session:
+            created = await create_task(
+                TaskIn(title="task", description="", depends_on=[]),
+                session=session,
+            )
+            await session.commit()
+
+            await register_agent(AgentIn(agent_name="agent"), session=session)
+            await session.commit()
+
+            base_version = await _fetch_plan_version(session)
+
+            checkout_result = await checkout(agent_id="agent", session=session)
+            await session.commit()
+            after_checkout = await _fetch_plan_version(session)
+            assert after_checkout > base_version
+
+            assert checkout_result.task is not None
+            await abandon(task_id=checkout_result.task.id, agent_id="agent", session=session)
+            await session.commit()
+            after_abandon = await _fetch_plan_version(session)
+            assert after_abandon > after_checkout
 
     asyncio.run(scenario())

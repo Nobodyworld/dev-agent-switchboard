@@ -104,7 +104,7 @@ If no task is available, `task` is `null` and `reason` is set to `"no_available_
 
 | Field | Type | Description |
 | ----- | ---- | ----------- |
-| `version` | integer | Monotonic snapshot number derived from task timestamps. |
+| `version` | integer | Monotonic counter that increases whenever tasks or live files change. |
 | `tasks` | array&lt;TaskOut&gt; | All tasks in the plan. |
 
 ### `CompleteIn`
@@ -118,6 +118,19 @@ If no task is available, `task` is `null` and `reason` is set to `"no_available_
 | Field | Type | Description |
 | ----- | ---- | ----------- |
 | `notes` | string | Completion notes (defaults to empty string). |
+
+## Plan Version Semantics
+
+Clients rely on the `PlanOut.version` field to detect when the plan has changed. The server now persists this value in a dedicat
+ed `plan_versions` table that stores a single monotonic counter. The counter starts at `0` and increments within the same transa
+ction whenever:
+
+- Tasks are created, updated (for example via checkout, completion, or abandonment), or deleted.
+- Live files are uploaded via `PUT /api/files/{path}`.
+
+Because the counter lives in its own table and is only incremented, each change produces a strictly increasing version number.
+This guarantees that clients observing plan updates over REST or WebSocket can safely compare version numbers to determine whet
+her they have the latest state.
 
 ### `HTTPValidationError`
 
