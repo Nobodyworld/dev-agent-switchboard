@@ -43,8 +43,17 @@ tion by importing the class:
 ```python
 from switchboard_client import SwitchboardClient
 
-client = SwitchboardClient("http://localhost:8000", "my-agent")
+client = SwitchboardClient(
+    "http://localhost:8000",
+    "my-agent",
+    timeout=5.0,  # seconds; defaults to 10.0
+)
 task = client.checkout()
 ```
 
-See `examples/agent_example.py` for a simple polling loop that completes tasks after a simulated workload.
+The constructor accepts an optional `requests.Session` so callers can reuse
+connection pools and authentication headers. The same timeout value is applied
+to every HTTP request issued by the client, and registration can be skipped by
+passing `auto_register=False` when you need to defer the initial API call. See
+`examples/agent_example.py` for a simple polling loop that completes tasks after
+a simulated workload.
