@@ -54,16 +54,6 @@ def format_task(task: dict) -> str:
     return "\n".join(lines)
 
 
-def stop_heartbeat(loop: "HeartbeatLoop") -> None:
-    loop.stop()
-    loop.join(HEARTBEAT_SHUTDOWN_TIMEOUT)
-    if loop.is_alive():
-        print(
-            "Heartbeat thread is still stopping; proceeding without waiting for it.",
-            file=sys.stderr,
-        )
-
-
 def process_task(client: SwitchboardClient, task: dict, heartbeat_interval: float) -> bool:
     task_id = task["id"]
     print()
@@ -87,6 +77,27 @@ def process_task(client: SwitchboardClient, task: dict, heartbeat_interval: floa
             if command in {"complete", "c"}:
                 if not notes:
                     notes = input("Completion notes (optional): ") or None
+                try:
+                    if confirm_completion(client, task_id, notes):
+                        loop.stop()
+                        loop.join()
+                        print("Task marked complete.")
+                        return True
+                    print("Completion failed; heartbeat loop still running.")
+                except requests.RequestException as exc:
+                    print(f"Completion request failed: {exc}", file=sys.stderr)
+                continue
+            if command in {"abandon", "a"}:
+                try:
+                    if client.abandon(task_id):
+                        loop.stop()
+                        loop.join()
+                        print("Task abandoned.")
+                        return True
+                    print("Abandon failed; heartbeat loop still running.")
+                except requests.RequestException as exc:
+                    print(f"Abandon request failed: {exc}", file=sys.stderr)
+                continue
                 stop_heartbeat(loop)
                 if confirm_completion(client, task_id, notes):
                     print("Task marked complete.")
@@ -118,6 +129,8 @@ def process_task(client: SwitchboardClient, task: dict, heartbeat_interval: floa
             print(f"Unknown command: {command}")
     finally:
         if loop.is_alive():
+            loop.stop()
+            loop.join()
             stop_heartbeat(loop)
 
 

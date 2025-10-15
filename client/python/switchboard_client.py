@@ -11,6 +11,7 @@ class SwitchboardClient:
         self.base = base_url.rstrip('/')
         self.agent_id = agent_id
         self.last_checkout_reason: Optional[str] = None
+        r = requests.post(f"{self.base}/api/agents", json={"agent_name": agent_id})
         self._timeout = request_timeout
         r = requests.post(f"{self.base}/api/agents", json={"agent_name": agent_id}, timeout=self._timeout)
         r.raise_for_status()
