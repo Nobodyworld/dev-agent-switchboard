@@ -13,3 +13,15 @@ services:
       - ../README.md:/app/README.md:ro
     environment:
       - TZ=UTC
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >
+          import sys, urllib.request;
+          sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).status == 200 else 1)
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
