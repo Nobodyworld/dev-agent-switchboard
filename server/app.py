@@ -6,7 +6,7 @@ from fastapi import FastAPI, Depends, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from jinja2 import Environment, FileSystemLoader
 
@@ -116,7 +116,15 @@ async def create_task(task: TaskIn, session: AsyncSession = Depends(get_session)
 
 @app.delete("/api/tasks/{task_id}", response_model=StatusResponse)
 async def delete_task(task_id: int, session: AsyncSession = Depends(get_session)):
-    await session.execute(delete(TaskDependency).where(TaskDependency.task_id == task_id))
+    await session.execute(
+        delete(TaskDependency).where(
+            # Remove both outbound and inbound edges to keep the dependency graph consistent.
+            or_(
+                TaskDependency.task_id == task_id,
+                TaskDependency.depends_on_task_id == task_id,
+            )
+        )
+    )
     await session.execute(delete(Task).where(Task.id == task_id))
     await session.execute(delete(Lease).where(Lease.task_id == task_id))
     await broadcast_plan()
