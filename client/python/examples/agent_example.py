@@ -1,21 +1,75 @@
 
+import argparse
 import time
+from typing import Optional
+
 from switchboard_client import SwitchboardClient
 
-if __name__ == "__main__":
-    client = SwitchboardClient("http://localhost:8000", "codex-1")
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Example agent loop for Switchboard")
+    parser.add_argument("--base-url", default="http://localhost:8000", help="Switchboard server base URL")
+    parser.add_argument("--agent-id", default="codex-1", help="Agent identifier to use when talking to the server")
+    parser.add_argument("--heartbeat-count", type=int, default=3, help="Number of heartbeats to send before completing a task")
+    parser.add_argument("--heartbeat-interval", type=float, default=2.0, help="Seconds to wait between heartbeats")
+    parser.add_argument("--sleep-interval", type=float, default=5.0, help="Seconds to sleep when no tasks are available")
+    parser.add_argument("--completion-notes", default="done", help="Notes to include when completing a task")
+    parser.add_argument("--dry-run", action="store_true", help="Print planned actions without mutating server state")
+    return parser.parse_args()
+
+
+def dry_run(client: SwitchboardClient, args: argparse.Namespace) -> None:
+    base = client.base
+    agent = client.agent_id
+    print(f"[dry-run] Would POST {base}/api/agents with {{'agent_name': '{agent}'}}")
+
+    planned_task: Optional[dict] = None
+    try:
+        tasks = client.list_tasks(status="available")
+        if tasks:
+            planned_task = tasks[0]
+    except Exception as exc:  # noqa: BLE001 - surface the failure in output
+        print(f"[dry-run] Unable to fetch available tasks: {exc}")
+
+    checkout_url = f"{base}/api/tasks/checkout?agent_id={agent}"
+    if planned_task:
+        tid = planned_task["id"]
+        title = planned_task.get("title", "")
+        print(f"[dry-run] Would POST {checkout_url} -> task {tid} {title!r}")
+        for i in range(args.heartbeat_count):
+            hb_url = f"{base}/api/tasks/{tid}/heartbeat?agent_id={agent}"
+            print(f"[dry-run] Would POST {hb_url} (heartbeat {i + 1}/{args.heartbeat_count})")
+        complete_url = f"{base}/api/tasks/{tid}/complete?agent_id={agent}"
+        print(
+            f"[dry-run] Would POST {complete_url} with notes={args.completion_notes!r}"
+        )
+    else:
+        print(f"[dry-run] Would POST {checkout_url} -> no tasks available")
+
+    print(f"[dry-run] Would sleep {args.sleep_interval} seconds before polling again")
+
+
+def run(client: SwitchboardClient, args: argparse.Namespace) -> None:
     while True:
         task = client.checkout()
         if not task:
             print("No tasks available; sleeping...")
-            time.sleep(5)
+            time.sleep(args.sleep_interval)
             continue
         tid = task["id"]
         print("Checked out:", task)
-        # simulate work loop with heartbeats
-        for _ in range(3):
+        for _ in range(args.heartbeat_count):
             ok = client.heartbeat(tid)
             print("heartbeat", ok)
-            time.sleep(2)
-        ok = client.complete(tid, notes="done")
+            time.sleep(args.heartbeat_interval)
+        ok = client.complete(tid, notes=args.completion_notes)
         print("complete", ok)
+
+
+if __name__ == "__main__":
+    cli_args = parse_args()
+    client = SwitchboardClient(cli_args.base_url, cli_args.agent_id, auto_register=not cli_args.dry_run)
+    if cli_args.dry_run:
+        dry_run(client, cli_args)
+    else:
+        run(client, cli_args)
