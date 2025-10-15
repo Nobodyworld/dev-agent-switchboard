@@ -1,5 +1,6 @@
 
 import os, datetime as dt
+import inspect
 from typing import List, Optional
 from fastapi import FastAPI, Depends, UploadFile, WebSocket, WebSocketDisconnect, Request, Response
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, PlainTextResponse
@@ -25,6 +26,16 @@ from .schema import (
 )
 from .task_logic import checkout_task, heartbeat as lease_heartbeat, complete as complete_task, abandon as abandon_task, get_dependencies, plan_version
 from .file_store import put_file, full_path, ensure_root
+
+try:  # optional plan version helper
+    from .task_logic import plan_version_counter  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover - helper may be absent
+    plan_version_counter = None  # type: ignore[assignment]
+
+try:  # optional live file ETag helper
+    from .file_store import etag_for_path  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover - helper may be absent
+    etag_for_path = None  # type: ignore[assignment]
 
 app = FastAPI(title="Switchboard", version="0.1.0")
 
@@ -148,7 +159,14 @@ async def get_plan(session: AsyncSession = Depends(get_session)):
     outs = []
     for t in tasks:
         outs.append(task_to_out(t, await get_dependencies(session, t.id)))
-    version = await plan_version(session)
+    if plan_version_counter:
+        version_candidate = plan_version_counter(session)
+        if inspect.isawaitable(version_candidate):
+            version = await version_candidate
+        else:
+            version = version_candidate
+    else:
+        version = await plan_version(session)
     return PlanOut(version=version, tasks=outs)
 
 # -------- WebSockets --------
@@ -183,7 +201,14 @@ async def get_live_file(path: str):
     fp = full_path(path)
     if not os.path.exists(fp):
         return JSONResponse({"error":"not_found"}, status_code=404)
-    return FileResponse(fp)
+    response = FileResponse(fp)
+    if etag_for_path:
+        etag_value = etag_for_path(path)
+        if inspect.isawaitable(etag_value):
+            etag_value = await etag_value
+        if etag_value:
+            response.headers.setdefault("ETag", etag_value)
+    return response
 
 # -------- UI Helpers --------
 @app.get("/health", response_class=PlainTextResponse)
