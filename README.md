@@ -62,10 +62,32 @@ curl http://localhost:8000/live/docs/AGENTS.md
 
 ## Docker
 
-```bash
-cp ops/.env.example ops/.env
-docker compose -f ops/docker-compose.yml up --build
-```
+The Docker setup in `ops/` bind-mounts host directories so you can persist
+Switchboard data between container runs. To start it locally:
+
+1. Create the directories that are mounted into the container (from the repo
+   root):
+
+   ```bash
+   mkdir -p storage .agent
+   ```
+
+2. Copy the example environment file and adjust `PORT` if you already have a
+   service listening on port 8000:
+
+   ```bash
+   cp ops/.env.example ops/.env
+   # edit ops/.env if you need to change PORT
+   ```
+
+3. Build and launch the stack:
+
+   ```bash
+   docker compose -f ops/docker-compose.yml up --build
+   ```
+
+The compose file defines a health check that waits for `http://localhost:8000/health`
+to return `200 OK` before marking the container as healthy.
 
 ## Project structure
 
