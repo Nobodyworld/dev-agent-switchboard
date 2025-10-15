@@ -24,32 +24,66 @@
     </section>
 
     <section class="p-4 bg-white rounded-xl shadow">
-      <h2 class="text-xl font-semibold mb-2">Tasks</h2>
-      <div id="tasks">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 class="text-xl font-semibold">Tasks</h2>
+        <div class="flex flex-wrap items-center gap-3">
+          <label for="statusFilter" class="text-sm font-medium text-gray-700">Status</label>
+          <select id="statusFilter" class="border rounded px-2 py-1 text-sm">
+            <option value="all">All</option>
+            <option value="pending">Pending</option>
+            <option value="in_progress">In Progress</option>
+            <option value="completed">Completed</option>
+          </select>
+          <button class="px-3 py-2 rounded bg-gray-800 text-white" onclick="refreshTasks()">Refresh</button>
+        </div>
+      </div>
+      <div id="tasks" class="mt-4">
         <!-- Rendered via htmx refresh -->
       </div>
-      <button class="mt-4 px-3 py-2 rounded bg-gray-800 text-white" onclick="refreshTasks()">Refresh</button>
     </section>
   </div>
 
 <script>
+let allTasks = [];
+let currentStatusFilter = 'all';
+
 async function refreshTasks(){
   const res = await fetch('/api/tasks');
-  const tasks = await res.json();
+  allTasks = await res.json();
+  renderTaskList();
+}
+function renderTaskList(){
   const el = document.getElementById('tasks');
+  const tasks = currentStatusFilter === 'all'
+    ? allTasks
+    : allTasks.filter(t => t.status === currentStatusFilter);
   el.innerHTML = renderTasks(tasks);
 }
 function renderTasks(tasks){
-  let rows = tasks.map(t => `<tr>
-    <td class="border px-2 py-1">${t.id}</td>
-    <td class="border px-2 py-1">${t.title}</td>
-    <td class="border px-2 py-1">${t.status}</td>
-    <td class="border px-2 py-1">${t.depends_on.join(', ')}</td>
-    <td class="border px-2 py-1">
-      <button class="px-2 py-1 bg-green-600 text-white rounded" onclick="complete(${t.id})">Complete</button>
-      <button class="px-2 py-1 bg-red-600 text-white rounded" onclick="del(${t.id})">Delete</button>
-    </td>
-  </tr>`).join('');
+  if (!tasks.length) {
+    return `<p class="text-sm text-gray-600">No tasks found for the selected filter.</p>`;
+  }
+  const statusBadgeClasses = {
+    pending: 'bg-yellow-100 text-yellow-800',
+    in_progress: 'bg-blue-100 text-blue-800',
+    completed: 'bg-green-100 text-green-800'
+  };
+  const rows = tasks.map(t => {
+    const badgeClass = statusBadgeClasses[t.status] || 'bg-gray-100 text-gray-800';
+    const statusLabel = t.status.replace(/_/g, ' ');
+    return `<tr>
+      <td class="border px-2 py-1">${t.id}</td>
+      <td class="border px-2 py-1">${t.title}</td>
+      <td class="border px-2 py-1">
+        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${badgeClass}">${statusLabel}</span>
+      </td>
+      <td class="border px-2 py-1">${t.depends_on.join(', ')}</td>
+      <td class="border px-2 py-1">
+        <button class="px-2 py-1 bg-green-600 text-white rounded" onclick="complete(${t.id})">Complete</button>
+        <button class="px-2 py-1 bg-red-600 text-white rounded" onclick="del(${t.id})">Delete</button>
+      </td>
+    </tr>`;
+  }).join('');
   return `<table class="w-full text-sm border-collapse">
     <thead><tr class="bg-gray-100">
       <th class="border px-2 py-1">ID</th>
@@ -83,6 +117,11 @@ function connectWS(){
 }
 connectWS();
 refreshTasks();
+
+document.getElementById('statusFilter').addEventListener('change', (e) => {
+  currentStatusFilter = e.target.value;
+  renderTaskList();
+});
 
 document.getElementById('createTask').addEventListener('submit', async (e) => {
   e.preventDefault();
