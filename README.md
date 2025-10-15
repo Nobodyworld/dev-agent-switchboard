@@ -13,32 +13,78 @@ Switchboard is a small, production‑leaning FastAPI service that:
 
 Requirements: Python 3.11+, Node not required. (UI is static HTML+HTMX.)
 
+### 1. Create & activate a virtual environment
+
+<details>
+<summary><strong>macOS / Linux (bash, zsh)</strong></summary>
+
 ```bash
-# 1) Create & activate venv
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+```
+
+</details>
+
+<details>
+<summary><strong>Windows (PowerShell)</strong></summary>
+
+```powershell
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+```
 
-# 2) Install server
+</details>
+
+<details>
+<summary><strong>Windows (Command Prompt)</strong></summary>
+
+```bat
+python -m venv .venv
+.\.venv\Scripts\activate.bat
+python -m pip install --upgrade pip
+```
+
+</details>
+
+### 2. Install server dependencies
+
+```bash
 pip install -r server/requirements.txt
+```
 
-# 3) Run
+### 3. Run the API + UI locally
+
+```bash
 uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Open the admin UI: <http://localhost:8000/>
 
-### Seed a plan
+### Sample API flows (curl)
+
+These are copy/paste friendly for macOS/Linux shells. On Windows PowerShell, replace the trailing backslashes (`\`) with backticks (`\``) and use double quotes for JSON payloads.
+
+#### Seed a plan
 
 ```bash
-curl -X POST http://localhost:8000/api/tasks \  -H "Content-Type: application/json" \  -d '{"title":"Initial plan setup","description":"Create seed tasks","depends_on":[]}'
-curl -X POST http://localhost:8000/api/tasks \  -H "Content-Type: application/json" \  -d '{"title":"Implement feature A","description":"Build A","depends_on":[1]}'
+curl -X POST http://localhost:8000/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Initial plan setup","description":"Create seed tasks","depends_on":[]}'
+
+curl -X POST http://localhost:8000/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Implement feature A","description":"Build A","depends_on":[1]}'
 ```
 
-### Agent checkout & heartbeat (example)
+#### Agent lifecycle
 
 ```bash
-# agent registers
-curl -X POST http://localhost:8000/api/agents -H "Content-Type: application/json" -d '{"agent_name":"codex-1"}'
+# register an agent
+curl -X POST http://localhost:8000/api/agents \
+  -H "Content-Type: application/json" \
+  -d '{"agent_name":"codex-1"}'
 
 # checkout an available task
 curl -X POST "http://localhost:8000/api/tasks/checkout?agent_id=codex-1"
@@ -46,19 +92,33 @@ curl -X POST "http://localhost:8000/api/tasks/checkout?agent_id=codex-1"
 # heartbeat to extend lease
 curl -X POST "http://localhost:8000/api/tasks/1/heartbeat?agent_id=codex-1"
 
-# complete
-curl -X POST "http://localhost:8000/api/tasks/1/complete?agent_id=codex-1" -H "Content-Type: application/json" -d '{"notes":"Done"}'
+# complete with notes
+curl -X POST "http://localhost:8000/api/tasks/1/complete?agent_id=codex-1" \
+  -H "Content-Type: application/json" \
+  -d '{"notes":"Done"}'
 ```
 
-### Live files
+#### Live files API
 
 ```bash
-# write/update a live file
-curl -X PUT http://localhost:8000/api/files/docs/AGENTS.md -H "Content-Type: text/markdown" --data-binary @AGENTS.md
+# write/update a live file from a local source file
+curl -X PUT http://localhost:8000/api/files/docs/AGENTS.md \
+  -H "Content-Type: text/markdown" \
+  --data-binary @AGENTS.md
 
-# fetch latest
+# fetch latest version
 curl http://localhost:8000/live/docs/AGENTS.md
 ```
+
+### Optional: Python CLI helper
+
+The repository ships a minimal Python helper that behaves like a CLI. With the virtual environment activated:
+
+```bash
+python -m client.python.examples.agent_example
+```
+
+The script registers an agent, polls for work, heartbeats while "working", and completes tasks when finished. If you are using a fresh environment just for the client, install `requests` first (`python -m pip install requests`).
 
 ## Docker
 
