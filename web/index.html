@@ -126,15 +126,51 @@ async function del(id){
 }
 
 let ws;
+let wsPingTimer;
+let reconnectAttempts = 0;
+const PING_INTERVAL_MS = 30000;
+
+function startPing(){
+  if (wsPingTimer) clearInterval(wsPingTimer);
+  wsPingTimer = setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send('ping');
+    }
+  }, PING_INTERVAL_MS);
+}
+
+function stopPing(){
+  if (wsPingTimer) {
+    clearInterval(wsPingTimer);
+    wsPingTimer = undefined;
+  }
+}
+
 function connectWS(){
+  if (reconnectAttempts > 0) {
+    console.log(`ws reconnect attempt #${reconnectAttempts}`);
+  }
   ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/plan');
-  ws.onopen = () => console.log('ws open');
+  ws.onopen = () => {
+    if (reconnectAttempts > 0) {
+      console.log(`ws reconnected after ${reconnectAttempts} attempt${reconnectAttempts === 1 ? '' : 's'}`);
+    } else {
+      console.log('ws open');
+    }
+    reconnectAttempts = 0;
+    startPing();
+  };
   ws.onmessage = (ev) => {
     try { const msg = JSON.parse(ev.data);
       if (msg.type === 'plan_version') refreshTasks();
     } catch {}
   };
-  ws.onclose = () => setTimeout(connectWS, 2000);
+  ws.onclose = () => {
+    stopPing();
+    reconnectAttempts += 1;
+    console.warn(`ws closed; reconnecting in 2s (attempt #${reconnectAttempts})`);
+    setTimeout(connectWS, 2000);
+  };
 }
 connectWS();
 refreshTasks();
