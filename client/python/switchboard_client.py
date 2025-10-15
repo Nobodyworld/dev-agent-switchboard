@@ -6,12 +6,15 @@ class SwitchboardClient:
     def __init__(self, base_url: str, agent_id: str):
         self.base = base_url.rstrip('/')
         self.agent_id = agent_id
-        requests.post(f"{self.base}/api/agents", json={"agent_name": agent_id})
+        self.last_checkout_reason: Optional[str] = None
+        r = requests.post(f"{self.base}/api/agents", json={"agent_name": agent_id})
+        r.raise_for_status()
 
     def checkout(self) -> Optional[Dict[str, Any]]:
         r = requests.post(f"{self.base}/api/tasks/checkout", params={"agent_id": self.agent_id})
         r.raise_for_status()
         data = r.json()
+        self.last_checkout_reason = data.get("reason")
         return data.get("task")
 
     def heartbeat(self, task_id: int) -> bool:
