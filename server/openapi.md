@@ -216,7 +216,7 @@ Create a new task.
 
 ### `DELETE /api/tasks/{task_id}`
 
-Delete a task, its dependencies, and related leases.
+Delete a task, remove any dependencies pointing to or from it, and clear related leases. Dependent tasks automatically lose the deleted prerequisite and remain pending until reconfigured.
 
 - **Path Parameters:** `task_id` *(integer)*.
 - **Response 200 Example:**

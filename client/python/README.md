@@ -29,9 +29,11 @@ ntil you mark the task as complete or abandon it.
 switchboard-cli run --base http://localhost:8000 --agent demo-agent
 ```
 
-While idle the loop sleeps for 10 seconds between checkout attempts. When a task is acquired the CLI prints a summary and start
-s a background heartbeat thread (default interval: 30 seconds). Use the interactive prompts to complete, abandon, or issue an e
-xtra heartbeat. Notes entered during completion are attached to the server's task record.
+While idle the loop sleeps for 10 seconds between checkout attempts (configurable with `--poll-interval`). When a task is acquir
+ed the CLI prints a summary and starts a background heartbeat thread that renews the lease every 30 seconds by default (`--heart
+beat-interval`). The prompt (`Action [complete/abandon/heartbeat/status/notes/help]>`) accepts the listed commands so you can fin
+ish the task, abandon it, inspect status, or add completion notes. `Ctrl+C`/`Ctrl+D` map to **abandon** to avoid leaving the leas
+e hanging if the terminal exits unexpectedly.
 
 Run `switchboard-cli --help` to see the available global and subcommand options.
 
@@ -43,8 +45,17 @@ tion by importing the class:
 ```python
 from switchboard_client import SwitchboardClient
 
-client = SwitchboardClient("http://localhost:8000", "my-agent")
+client = SwitchboardClient(
+    "http://localhost:8000",
+    "my-agent",
+    timeout=5.0,  # seconds; defaults to 10.0
+)
 task = client.checkout()
 ```
 
-See `examples/agent_example.py` for a simple polling loop that completes tasks after a simulated workload.
+The constructor accepts an optional `requests.Session` so callers can reuse
+connection pools and authentication headers. The same timeout value is applied
+to every HTTP request issued by the client, and registration can be skipped by
+passing `auto_register=False` when you need to defer the initial API call. See
+`examples/agent_example.py` for a simple polling loop that completes tasks after
+a simulated workload.

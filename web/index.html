@@ -67,23 +67,12 @@ function renderTaskList(){
     : allTasks.filter(t => t.status === currentStatusFilter);
   el.innerHTML = renderTasks(tasks);
 }
-function formatDeps(depList){
-  if (!Array.isArray(depList) || depList.length === 0) {
-    return 'deps: none';
-  }
-  return `deps: ${depList.join(',')}`;
-}
 function renderTasks(tasks){
-  let rows = tasks.map(t => {
-    const depsLabel = formatDeps(t.depends_on);
-    return `<tr>
-      <td class="border px-2 py-1">${t.id}</td>
-      <td class="border px-2 py-1"><div class="flex items-center justify-between gap-2"><span>${t.title}</span><span class="text-xs text-gray-600 font-mono bg-gray-100 px-2 py-0.5 rounded-full">${depsLabel}</span></div></td>
-      <td class="border px-2 py-1">${t.status}</td>
-      <td class="border px-2 py-1">${t.depends_on.length ? t.depends_on.join(', ') : '—'}</td>
   if (!tasks.length) {
-    return `<p class="text-sm text-gray-600">No tasks found for the selected filter.</p>`;
+    // Provide a friendly empty state so filters never leave contributors guessing about missing data.
+    return `<p class="text-sm text-gray-600">No tasks match this filter yet—create one or try a different status.</p>`;
   }
+  // Central map so badge colors stay consistent with status semantics.
   const statusBadgeClasses = {
     pending: 'bg-yellow-100 text-yellow-800',
     in_progress: 'bg-blue-100 text-blue-800',
@@ -92,13 +81,16 @@ function renderTasks(tasks){
   const rows = tasks.map(t => {
     const badgeClass = statusBadgeClasses[t.status] || 'bg-gray-100 text-gray-800';
     const statusLabel = t.status.replace(/_/g, ' ');
+    const dependsOn = Array.isArray(t.depends_on) && t.depends_on.length
+      ? t.depends_on.join(', ')
+      : '—';
     return `<tr>
       <td class="border px-2 py-1">${t.id}</td>
       <td class="border px-2 py-1">${t.title}</td>
       <td class="border px-2 py-1">
         <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${badgeClass}">${statusLabel}</span>
       </td>
-      <td class="border px-2 py-1">${t.depends_on.join(', ')}</td>
+      <td class="border px-2 py-1">${dependsOn}</td>
       <td class="border px-2 py-1">
         <button class="px-2 py-1 bg-green-600 text-white rounded" onclick="complete(${t.id})">Complete</button>
         <button class="px-2 py-1 bg-red-600 text-white rounded" onclick="del(${t.id})">Delete</button>

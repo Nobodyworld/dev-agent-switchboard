@@ -59,9 +59,36 @@ def process_task(client: SwitchboardClient, task: dict, heartbeat_interval: floa
     print()
     print(format_task(task))
     loop = HeartbeatLoop(client, task_id, heartbeat_interval)
+    # The heartbeat thread keeps the lease alive while we wait for user input.
+    # We always stop and join the thread in the finally block so the daemon
+    # never leaks if the command exits early.
     loop.start()
     print(f"Heartbeat thread started (every {heartbeat_interval:.0f}s). Type 'help' for options.")
     notes: Optional[str] = None
+
+    def finalize(action: str) -> bool:
+        nonlocal notes
+        if action == "complete":
+            if not notes:
+                notes = input("Completion notes (optional): ") or None
+            try:
+                if confirm_completion(client, task_id, notes):
+                    print("Task marked complete.")
+                    return True
+                print("Completion failed; heartbeat loop still running.")
+            except requests.RequestException as exc:
+                print(f"Completion request failed: {exc}", file=sys.stderr)
+            return False
+
+        try:
+            if client.abandon(task_id):
+                print("Task abandoned.")
+                return True
+            print("Abandon failed; heartbeat loop still running.")
+        except requests.RequestException as exc:
+            print(f"Abandon request failed: {exc}", file=sys.stderr)
+        return False
+
     try:
         while True:
             if loop.error:
@@ -69,48 +96,15 @@ def process_task(client: SwitchboardClient, task: dict, heartbeat_interval: floa
                 return False
             try:
                 command = input("Action [complete/abandon/heartbeat/status/notes/help]> ").strip().lower()
-            except EOFError:
-                command = "abandon"
-            except KeyboardInterrupt:
+            except (EOFError, KeyboardInterrupt):
+                # Terminal interrupts default to abandon so leases aren't left dangling.
                 print()
                 command = "abandon"
-            if command in {"complete", "c"}:
-                if not notes:
-                    notes = input("Completion notes (optional): ") or None
-                try:
-                    if confirm_completion(client, task_id, notes):
-                        loop.stop()
-                        loop.join()
-                        print("Task marked complete.")
-                        return True
-                    print("Completion failed; heartbeat loop still running.")
-                except requests.RequestException as exc:
-                    print(f"Completion request failed: {exc}", file=sys.stderr)
-                continue
-            if command in {"abandon", "a"}:
-                try:
-                    if client.abandon(task_id):
-                        loop.stop()
-                        loop.join()
-                        print("Task abandoned.")
-                        return True
-                    print("Abandon failed; heartbeat loop still running.")
-                except requests.RequestException as exc:
-                    print(f"Abandon request failed: {exc}", file=sys.stderr)
-                continue
-                stop_heartbeat(loop)
-                if confirm_completion(client, task_id, notes):
-                    print("Task marked complete.")
+            if command in {"complete", "c", "abandon", "a"}:
+                action = "complete" if command in {"complete", "c"} else "abandon"
+                if finalize(action):
                     return True
-                print("Completion failed; heartbeat loop stopped.")
-                return False
-            if command in {"abandon", "a"}:
-                stop_heartbeat(loop)
-                if client.abandon(task_id):
-                    print("Task abandoned.")
-                    return True
-                print("Abandon failed; heartbeat loop stopped.")
-                return False
+                continue
             if command in {"heartbeat", "h"}:
                 ok = client.heartbeat(task_id)
                 print("Manual heartbeat sent", "(ok)" if ok else "(rejected)")
@@ -128,10 +122,9 @@ def process_task(client: SwitchboardClient, task: dict, heartbeat_interval: floa
                 continue
             print(f"Unknown command: {command}")
     finally:
-        if loop.is_alive():
-            loop.stop()
-            loop.join()
-            stop_heartbeat(loop)
+        # Coordinate shutdown with the background thread regardless of how we exit.
+        loop.stop()
+        loop.join(HEARTBEAT_SHUTDOWN_TIMEOUT)
 
 
 def confirm_completion(client: SwitchboardClient, task_id: int, notes: Optional[str]) -> bool:
