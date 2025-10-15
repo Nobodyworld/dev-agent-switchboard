@@ -10,6 +10,9 @@ import requests
 from switchboard_client import SwitchboardClient
 
 
+HEARTBEAT_SHUTDOWN_TIMEOUT = 5.0
+
+
 class HeartbeatLoop(threading.Thread):
     def __init__(self, client: SwitchboardClient, task_id: int, interval: float) -> None:
         super().__init__(daemon=True)
@@ -51,6 +54,16 @@ def format_task(task: dict) -> str:
     return "\n".join(lines)
 
 
+def stop_heartbeat(loop: "HeartbeatLoop") -> None:
+    loop.stop()
+    loop.join(HEARTBEAT_SHUTDOWN_TIMEOUT)
+    if loop.is_alive():
+        print(
+            "Heartbeat thread is still stopping; proceeding without waiting for it.",
+            file=sys.stderr,
+        )
+
+
 def process_task(client: SwitchboardClient, task: dict, heartbeat_interval: float) -> bool:
     task_id = task["id"]
     print()
@@ -74,16 +87,14 @@ def process_task(client: SwitchboardClient, task: dict, heartbeat_interval: floa
             if command in {"complete", "c"}:
                 if not notes:
                     notes = input("Completion notes (optional): ") or None
-                loop.stop()
-                loop.join()
+                stop_heartbeat(loop)
                 if confirm_completion(client, task_id, notes):
                     print("Task marked complete.")
                     return True
                 print("Completion failed; heartbeat loop stopped.")
                 return False
             if command in {"abandon", "a"}:
-                loop.stop()
-                loop.join()
+                stop_heartbeat(loop)
                 if client.abandon(task_id):
                     print("Task abandoned.")
                     return True
@@ -107,8 +118,7 @@ def process_task(client: SwitchboardClient, task: dict, heartbeat_interval: floa
             print(f"Unknown command: {command}")
     finally:
         if loop.is_alive():
-            loop.stop()
-            loop.join()
+            stop_heartbeat(loop)
 
 
 def confirm_completion(client: SwitchboardClient, task_id: int, notes: Optional[str]) -> bool:
