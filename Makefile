@@ -8,6 +8,8 @@ PLAN_REMOTE_PATH?=docs/PLANS.md
 setup:
 	$(PYTHON) -m venv .venv
 	. .venv/bin/activate && pip install -r server/requirements-dev.txt
+        $(PYTHON) -m venv .venv
+        . .venv/bin/activate && pip install -r server/requirements-dev.txt
 
 run:
 	. .venv/bin/activate && uvicorn server.app:app --reload --host 0.0.0.0 --port 8000

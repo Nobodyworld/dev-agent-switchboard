@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "switchboard-client"
+version = "0.1.0"
+description = "Python client and CLI for interacting with Switchboard task servers."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.31",
+]
+authors = [
+    { name = "Switchboard Maintainers" }
+]
+keywords = ["switchboard", "tasks", "automation", "cli"]
+
+[project.scripts]
+switchboard-cli = "switchboard_cli:main"
+
+[tool.setuptools]
+py-modules = ["switchboard_client", "switchboard_cli"]

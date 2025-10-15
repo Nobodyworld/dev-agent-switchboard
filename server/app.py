@@ -11,7 +11,18 @@ from jinja2 import Environment, FileSystemLoader
 
 from .db import engine, Base, get_session
 from .models import Agent, Task, TaskDependency, Lease, FileEntry
-from .schema import AgentIn, TaskIn, TaskOut, CheckoutOut, PlanOut, CompleteIn
+from .schema import (
+    AgentIn,
+    AgentRegistrationResponse,
+    CheckoutOut,
+    CompleteIn,
+    CompleteResponse,
+    FileUploadResponse,
+    PlanOut,
+    StatusResponse,
+    TaskIn,
+    TaskOut,
+)
 from .task_logic import checkout_task, heartbeat as lease_heartbeat, complete as complete_task, abandon as abandon_task, get_dependencies, plan_version
 from .file_store import put_file, full_path, ensure_root
 
@@ -58,7 +69,7 @@ async def index(request: Request, session: AsyncSession = Depends(get_session)):
     return tmpl.render(tasks=tasks, deps=deps)
 
 # -------- Agents --------
-@app.post("/api/agents")
+@app.post("/api/agents", response_model=AgentRegistrationResponse)
 async def register_agent(agent: AgentIn, session: AsyncSession = Depends(get_session)):
     exists = (await session.execute(select(Agent).where(Agent.agent_id == agent.agent_name))).scalar_one_or_none()
     if exists is None:
@@ -92,7 +103,7 @@ async def create_task(task: TaskIn, session: AsyncSession = Depends(get_session)
     await broadcast_plan()
     return task_to_out(t, await get_dependencies(session, t.id))
 
-@app.delete("/api/tasks/{task_id}")
+@app.delete("/api/tasks/{task_id}", response_model=StatusResponse)
 async def delete_task(task_id: int, session: AsyncSession = Depends(get_session)):
     await session.execute(delete(TaskDependency).where(TaskDependency.task_id == task_id))
     await session.execute(delete(Task).where(Task.id == task_id))
@@ -109,13 +120,13 @@ async def checkout(agent_id: str, session: AsyncSession = Depends(get_session)):
         return CheckoutOut(task=task_to_out(task, await get_dependencies(session, task.id)))
     return CheckoutOut(task=None, reason=reason)
 
-@app.post("/api/tasks/{task_id}/heartbeat")
+@app.post("/api/tasks/{task_id}/heartbeat", response_model=StatusResponse)
 async def heartbeat(task_id: int, agent_id: str, session: AsyncSession = Depends(get_session)):
     ok = await lease_heartbeat(session, agent_id=agent_id, task_id=task_id)
     await session.flush()
     return {"ok": ok}
 
-@app.post("/api/tasks/{task_id}/complete")
+@app.post("/api/tasks/{task_id}/complete", response_model=CompleteResponse)
 async def complete(task_id: int, agent_id: str, body: CompleteIn, session: AsyncSession = Depends(get_session)):
     ok = await complete_task(session, agent_id=agent_id, task_id=task_id)
     await session.flush()
@@ -123,7 +134,7 @@ async def complete(task_id: int, agent_id: str, body: CompleteIn, session: Async
         await broadcast_plan()
     return {"ok": ok, "notes": body.notes}
 
-@app.post("/api/tasks/{task_id}/abandon")
+@app.post("/api/tasks/{task_id}/abandon", response_model=StatusResponse)
 async def abandon(task_id: int, agent_id: str, session: AsyncSession = Depends(get_session)):
     ok = await abandon_task(session, agent_id=agent_id, task_id=task_id)
     await session.flush()
@@ -159,7 +170,7 @@ async def ws_plan(ws: WebSocket):
             pass
 
 # -------- Files --------
-@app.put("/api/files/{path:path}")
+@app.put("/api/files/{path:path}", response_model=FileUploadResponse)
 async def put_live_file(path: str, request: Request, session: AsyncSession = Depends(get_session)):
     data = await request.body()
     sha, size = await put_file(session, path, data)
