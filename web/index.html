@@ -59,7 +59,20 @@ function renderTaskList(){
     : allTasks.filter(t => t.status === currentStatusFilter);
   el.innerHTML = renderTasks(tasks);
 }
+function formatDeps(depList){
+  if (!Array.isArray(depList) || depList.length === 0) {
+    return 'deps: none';
+  }
+  return `deps: ${depList.join(',')}`;
+}
 function renderTasks(tasks){
+  let rows = tasks.map(t => {
+    const depsLabel = formatDeps(t.depends_on);
+    return `<tr>
+      <td class="border px-2 py-1">${t.id}</td>
+      <td class="border px-2 py-1"><div class="flex items-center justify-between gap-2"><span>${t.title}</span><span class="text-xs text-gray-600 font-mono bg-gray-100 px-2 py-0.5 rounded-full">${depsLabel}</span></div></td>
+      <td class="border px-2 py-1">${t.status}</td>
+      <td class="border px-2 py-1">${t.depends_on.length ? t.depends_on.join(', ') : '—'}</td>
   if (!tasks.length) {
     return `<p class="text-sm text-gray-600">No tasks found for the selected filter.</p>`;
   }
