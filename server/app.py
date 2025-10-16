@@ -1,8 +1,9 @@
 
 import os, datetime as dt
 import inspect
-from contextlib import asynccontextmanager
-from typing import List, Optional
+import asyncio
+from contextlib import asynccontextmanager, suppress
+from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, Depends, UploadFile, WebSocket, WebSocketDisconnect, Request, Response
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -70,6 +71,7 @@ templates = Environment(loader=FileSystemLoader(WEB_ROOT))
 
 # WebSocket connections
 PLAN_CONNECTIONS: List[WebSocket] = []
+PLAN_SEND_TIMEOUT = 2.0
 
 async def _resolve_plan_version(session: AsyncSession) -> int:
     if plan_version_counter:
@@ -80,24 +82,75 @@ async def _resolve_plan_version(session: AsyncSession) -> int:
     return await plan_version(session)
 
 
-async def broadcast_plan(version: Optional[int] = None, session: Optional[AsyncSession] = None):
+async def _serialize_plan(session: AsyncSession) -> Dict[str, Any]:
+    tasks = (await session.execute(select(Task))).scalars().all()
+    outs = []
+    for t in tasks:
+        outs.append(task_to_out(t, await get_dependencies(session, t.id)))
+    version = await _resolve_plan_version(session)
+    plan = PlanOut(version=version, tasks=outs)
+    return plan.model_dump() if hasattr(plan, "model_dump") else plan.dict()
+
+
+async def _send_ws_payload(ws: WebSocket, payload: Dict[str, Any]) -> bool:
+    try:
+        await asyncio.wait_for(ws.send_json(payload), timeout=PLAN_SEND_TIMEOUT)
+        return True
+    except (asyncio.TimeoutError, WebSocketDisconnect, RuntimeError):
+        return False
+    except Exception:
+        return False
+
+
+def _remove_ws_connection(ws: WebSocket) -> None:
+    with suppress(ValueError):
+        PLAN_CONNECTIONS.remove(ws)
+
+
+async def broadcast_plan(
+    version: Optional[int] = None,
+    session: Optional[AsyncSession] = None,
+    *,
+    include_plan: bool = False,
+    plan: Optional[Dict[str, Any]] = None,
+    delta: Optional[Dict[str, Any]] = None,
+):
     if version is None:
         if session is None:
             async with AsyncSessionLocal() as temp_session:
                 version = await _resolve_plan_version(temp_session)
         else:
             version = await _resolve_plan_version(session)
-    payload = {"type": "plan_version"}
+
+    plan_payload: Optional[Dict[str, Any]] = plan
+    if include_plan and plan_payload is None:
+        if session is None:
+            async with AsyncSessionLocal() as temp_session:
+                plan_payload = await _serialize_plan(temp_session)
+        else:
+            plan_payload = await _serialize_plan(session)
+
+    if plan_payload is not None and version is None:
+        version = plan_payload.get("version")
+
+    payload: Dict[str, Any] = {"type": "plan_update"}
     if version is not None:
         payload["version"] = version
+    if plan_payload is not None:
+        payload["plan"] = plan_payload
+    if delta is not None:
+        payload["delta"] = delta
+
+    stale: List[WebSocket] = []
     for ws in list(PLAN_CONNECTIONS):
-        try:
-            await ws.send_json(payload)
-        except Exception:
-            try:
-                PLAN_CONNECTIONS.remove(ws)
-            except ValueError:
-                pass
+        ok = await _send_ws_payload(ws, payload)
+        if not ok:
+            stale.append(ws)
+
+    for ws in stale:
+        with suppress(Exception):
+            await ws.close()
+        _remove_ws_connection(ws)
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, session: AsyncSession = Depends(get_session)):
@@ -140,7 +193,7 @@ async def create_task(task: TaskIn, session: AsyncSession = Depends(get_session)
         session.add(TaskDependency(task_id=t.id, depends_on_task_id=d))
     await session.flush()
     version = await increment_plan_version(session)
-    await broadcast_plan(version=version, session=session)
+    await broadcast_plan(version=version, session=session, include_plan=True)
     await session.commit()
     return task_to_out(t, await get_dependencies(session, t.id))
 
@@ -162,7 +215,7 @@ async def delete_task(task_id: int, session: AsyncSession = Depends(get_session)
     if existing is not None:
         await session.flush()
         version = await increment_plan_version(session)
-        await broadcast_plan(version=version, session=session)
+        await broadcast_plan(version=version, session=session, include_plan=True)
     await session.commit()
     return {"ok": True}
 
@@ -172,7 +225,7 @@ async def checkout(agent_id: str, session: AsyncSession = Depends(get_session)):
     await session.flush()
     if task:
         version = await increment_plan_version(session)
-        await broadcast_plan(version=version, session=session)
+        await broadcast_plan(version=version, session=session, include_plan=True)
     await session.commit()
     if task:
         return CheckoutOut(task=task_to_out(task, await get_dependencies(session, task.id)))
@@ -191,7 +244,7 @@ async def complete(task_id: int, agent_id: str, body: CompleteIn, session: Async
     await session.flush()
     if ok:
         version = await increment_plan_version(session)
-        await broadcast_plan(version=version, session=session)
+        await broadcast_plan(version=version, session=session, include_plan=True)
     await session.commit()
     return {"ok": ok, "notes": body.notes}
 
@@ -201,18 +254,16 @@ async def abandon(task_id: int, agent_id: str, session: AsyncSession = Depends(g
     await session.flush()
     if ok:
         version = await increment_plan_version(session)
-        await broadcast_plan(version=version, session=session)
+        await broadcast_plan(version=version, session=session, include_plan=True)
     await session.commit()
     return {"ok": ok}
 
 @app.get("/api/plan", response_model=PlanOut)
 async def get_plan(session: AsyncSession = Depends(get_session)):
-    tasks = (await session.execute(select(Task))).scalars().all()
-    outs = []
-    for t in tasks:
-        outs.append(task_to_out(t, await get_dependencies(session, t.id)))
-    version = await _resolve_plan_version(session)
-    return PlanOut(version=version, tasks=outs)
+    plan = await _serialize_plan(session)
+    if hasattr(PlanOut, "model_validate"):
+        return PlanOut.model_validate(plan)  # type: ignore[attr-defined]
+    return PlanOut(**plan)
 
 # -------- WebSockets --------
 @app.websocket("/ws/plan")
@@ -220,17 +271,27 @@ async def ws_plan(ws: WebSocket):
     await ws.accept()
     PLAN_CONNECTIONS.append(ws)
     try:
-        await ws.send_json({"type":"hello","msg":"connected"})
+        async with AsyncSessionLocal() as session:
+            plan_payload = await _serialize_plan(session)
+        initial_payload = {
+            "type": "plan_snapshot",
+            "version": plan_payload.get("version"),
+            "plan": plan_payload,
+        }
+        ok = await _send_ws_payload(ws, initial_payload)
+        if not ok:
+            return
         while True:
-            _ = await ws.receive_text()
-            await ws.send_json({"type":"pong"})
+            try:
+                await ws.receive_text()
+            except WebSocketDisconnect:
+                break
+            except Exception:
+                break
     except WebSocketDisconnect:
         pass
     finally:
-        try:
-            PLAN_CONNECTIONS.remove(ws)
-        except ValueError:
-            pass
+        _remove_ws_connection(ws)
 
 # -------- Files --------
 @app.put("/api/files/{path:path}", response_model=FileUploadResponse)
@@ -239,7 +300,7 @@ async def put_live_file(path: str, request: Request, session: AsyncSession = Dep
     sha, size = await put_file(session, path, data)
     await session.flush()
     version = await increment_plan_version(session)
-    await broadcast_plan(version=version, session=session)
+    await broadcast_plan(version=version, session=session, include_plan=True)
     await session.commit()
     return {"ok": True, "sha256": sha, "size": size, "url": f"/live/{path}"}
 
