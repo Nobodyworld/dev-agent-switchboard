@@ -168,6 +168,23 @@ Switchboard data between container runs. To start it locally:
 The compose file defines a health check that waits for `http://localhost:8000/health`
 to return `200 OK` before marking the container as healthy.
 
+## Rate limiting
+
+Switchboard ships with an in-process request rate limiter to protect the API from
+abusive clients while keeping trusted agents unthrottled. The middleware limits
+requests per client IP over a sliding window and can be configured with
+environment variables (also surfaced in `ops/.env.example`):
+
+- `SWITCHBOARD_RATE_LIMIT_REQUESTS` – maximum requests allowed within the window
+  (default `120`). Set to `0` to disable rate limiting.
+- `SWITCHBOARD_RATE_LIMIT_WINDOW_SECONDS` – window size in seconds (default `60`).
+- `SWITCHBOARD_RATE_LIMIT_TRUSTED_BYPASS` – comma-separated list of client IPs
+  that should bypass rate limiting. The middleware checks the first value in the
+  `X-Forwarded-For` header before falling back to the connection's remote
+  address.
+
+Adjust these variables locally or in container deployments to tune throughput.
+
 ## Project structure
 
 - `AGENTS.md` — guidance for agents, including ExecPlan trigger.
