@@ -3,16 +3,19 @@ import os, datetime as dt
 import inspect
 from contextlib import asynccontextmanager
 from typing import List, Optional
-from fastapi import FastAPI, Depends, UploadFile, WebSocket, WebSocketDisconnect, Request, Response
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, PlainTextResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select, delete, or_
-from sqlalchemy.ext.asyncio import AsyncSession
-from jinja2 import Environment, FileSystemLoader
 
-from .db import engine, Base, get_session, AsyncSessionLocal
-from .models import Agent, Task, TaskDependency, Lease, FileEntry
+from fastapi import FastAPI, Depends, UploadFile, WebSocket, WebSocketDisconnect, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+from jinja2 import Environment, FileSystemLoader
+from sqlalchemy import delete, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from .db import AsyncSessionLocal, Base, engine, get_session
+from .file_store import ensure_root, full_path, put_file
+from .instrumentation import configure_logging, setup_logging, setup_metrics, setup_tracing
+from .models import Agent, FileEntry, Lease, Task, TaskDependency
 from .schema import (
     AgentIn,
     AgentRegistrationResponse,
@@ -26,15 +29,14 @@ from .schema import (
     TaskOut,
 )
 from .task_logic import (
-    checkout_task,
-    heartbeat as lease_heartbeat,
-    complete as complete_task,
     abandon as abandon_task,
+    checkout_task,
+    complete as complete_task,
     get_dependencies,
-    plan_version,
+    heartbeat as lease_heartbeat,
     increment_plan_version,
+    plan_version,
 )
-from .file_store import put_file, full_path, ensure_root
 
 try:  # optional plan version helper
     from .task_logic import plan_version_counter  # type: ignore[attr-defined]
@@ -46,6 +48,8 @@ try:  # optional live file ETag helper
 except ImportError:  # pragma: no cover - helper may be absent
     etag_for_path = None  # type: ignore[assignment]
 
+configure_logging()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
@@ -54,6 +58,10 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(title="Switchboard", version="0.1.0", lifespan=lifespan)
+
+setup_logging(app)
+setup_metrics(app)
+setup_tracing(app)
 
 app.add_middleware(
     CORSMiddleware,
