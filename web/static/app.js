@@ -174,6 +174,19 @@ function renderTaskList() {
       const badgeClass = STATUS_BADGE_CLASSES[task.status] || 'bg-gray-100 text-gray-800';
       const statusLabel = escapeHtml(formatStatusLabel(task.status));
       const dependencies = renderDependencies(task);
+      const actionButtons = [];
+      if (task.status === 'pending') {
+        actionButtons.push(`
+          <button class="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 focus:outline-none focus:ring" data-action="start" data-task-id="${task.id}">Start</button>
+        `);
+      }
+      actionButtons.push(`
+        <button class="px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 focus:outline-none focus:ring" data-action="complete" data-task-id="${task.id}">Complete</button>
+      `);
+      actionButtons.push(`
+        <button class="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 focus:outline-none focus:ring" data-action="delete" data-task-id="${task.id}">Delete</button>
+      `);
+
       return `
         <tr>
           <td class="border px-2 py-1 align-top">${task.id}</td>
@@ -187,8 +200,7 @@ function renderTaskList() {
           <td class="border px-2 py-1 align-top">${dependencies}</td>
           <td class="border px-2 py-1 align-top">
             <div class="flex flex-col sm:flex-row gap-2">
-              <button class="px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 focus:outline-none focus:ring" data-action="complete" data-task-id="${task.id}">Complete</button>
-              <button class="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 focus:outline-none focus:ring" data-action="delete" data-task-id="${task.id}">Delete</button>
+              ${actionButtons.join('')}
             </div>
           </td>
         </tr>
@@ -360,6 +372,20 @@ async function completeTask(taskId) {
   }
 }
 
+async function startTask(taskId) {
+  try {
+    await apiFetchJson(`/api/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'in_progress' }),
+    });
+    showToast(`Task #${taskId} started.`, 'success');
+    await refreshPlan();
+  } catch (error) {
+    console.error('Failed to start task', error);
+  }
+}
+
 async function deleteTask(taskId) {
   const task = state.tasksById.get(taskId);
   const title = task ? task.title : `#${taskId}`;
@@ -382,7 +408,9 @@ function handleTaskAction(event) {
   const taskId = Number.parseInt(actionButton.dataset.taskId || '', 10);
   if (Number.isNaN(taskId)) return;
   const action = actionButton.dataset.action;
-  if (action === 'complete') {
+  if (action === 'start') {
+    startTask(taskId);
+  } else if (action === 'complete') {
     completeTask(taskId);
   } else if (action === 'delete') {
     deleteTask(taskId);
