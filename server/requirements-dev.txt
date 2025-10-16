@@ -1,4 +1,5 @@
 -r requirements.txt
-pytest
 pytest==8.2.0
 playwright
+pytest-asyncio==0.24.0
+websockets==12.0

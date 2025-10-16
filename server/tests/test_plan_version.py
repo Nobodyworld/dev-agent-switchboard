@@ -5,6 +5,7 @@ from starlette.requests import Request
 from server.app import (
     abandon,
     checkout,
+    complete,
     create_task,
     delete_task,
     get_plan,
@@ -12,7 +13,7 @@ from server.app import (
     register_agent,
 )
 from server.db import AsyncSessionLocal
-from server.schema import AgentIn, TaskIn
+from server.schema import AgentIn, CompleteIn, TaskIn
 
 
 async def _fetch_plan_version(session) -> int:
@@ -138,6 +139,10 @@ def test_plan_metadata_includes_timestamp():
             before = plan.updated_at
 
             await create_task(
+def test_plan_returns_completion_notes():
+    async def scenario():
+        async with AsyncSessionLocal() as session:
+            created = await create_task(
                 TaskIn(title="task", description="", depends_on=[]),
                 session=session,
             )
@@ -145,5 +150,22 @@ def test_plan_metadata_includes_timestamp():
 
             after_plan = await _fetch_plan(session)
             assert after_plan.updated_at >= before
+            await register_agent(AgentIn(agent_name="agent"), session=session)
+            await session.commit()
+
+            await checkout(agent_id="agent", session=session)
+            await session.commit()
+
+            await complete(
+                task_id=created.id,
+                agent_id="agent",
+                body=CompleteIn(notes="documented"),
+                session=session,
+            )
+            await session.commit()
+
+            plan = await get_plan(session=session)
+            noted_task = next(t for t in plan.tasks if t.id == created.id)
+            assert noted_task.completed_notes == "documented"
 
     asyncio.run(scenario())

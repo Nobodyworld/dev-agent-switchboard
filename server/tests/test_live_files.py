@@ -1,5 +1,4 @@
 import hashlib
-import os
 import shutil
 import sys
 from pathlib import Path
@@ -15,20 +14,27 @@ STATIC_ROOT = PROJECT_ROOT / "web" / "static"
 STATIC_ROOT.mkdir(parents=True, exist_ok=True)
 
 from server.app import app
-from server.file_store import FILES_ROOT
+from server.file_store import FILES_ROOT as CONFIGURED_FILES_ROOT
+
+FILES_ROOT = Path(CONFIGURED_FILES_ROOT)
 
 
 @pytest.fixture(autouse=True)
 def clean_filesystem():
     """Ensure the live file store is empty before and after each test."""
-    if os.path.exists(FILES_ROOT):
+    if FILES_ROOT.exists():
         shutil.rmtree(FILES_ROOT)
-    os.makedirs(FILES_ROOT, exist_ok=True)
+    FILES_ROOT.mkdir(parents=True, exist_ok=True)
     try:
         yield
     finally:
-        if os.path.exists(FILES_ROOT):
+        if FILES_ROOT.exists():
             shutil.rmtree(FILES_ROOT)
+
+
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
 
 
 def build_scope(path: str, headers: Iterable[Tuple[str, str]] = ()) -> Dict:
@@ -79,15 +85,14 @@ def collect_response(events: List[Dict]) -> Tuple[int, Dict[str, str], bytes]:
 
 
 @pytest.mark.anyio
-@pytest.mark.xfail(reason="Server does not yet expose stored SHA256 as the /live ETag")
 async def test_live_file_includes_sha256_etag():
     path = "tests/etag.txt"
     content = b"etag-me"
     expected_sha = hashlib.sha256(content).hexdigest()
 
-    full_path = os.path.join(FILES_ROOT, path)
-    os.makedirs(os.path.dirname(full_path), exist_ok=True)
-    with open(full_path, "wb") as handle:
+    full_path = FILES_ROOT / path
+    full_path.parent.mkdir(parents=True, exist_ok=True)
+    with full_path.open("wb") as handle:
         handle.write(content)
 
     events = await call_live(path)
@@ -100,15 +105,14 @@ async def test_live_file_includes_sha256_etag():
 
 
 @pytest.mark.anyio
-@pytest.mark.xfail(reason="Server does not yet honor If-None-Match for /live files")
 async def test_live_file_returns_304_on_matching_if_none_match():
     path = "tests/if-none-match.txt"
     content = b"conditional"
     expected_sha = hashlib.sha256(content).hexdigest()
 
-    full_path = os.path.join(FILES_ROOT, path)
-    os.makedirs(os.path.dirname(full_path), exist_ok=True)
-    with open(full_path, "wb") as handle:
+    full_path = FILES_ROOT / path
+    full_path.parent.mkdir(parents=True, exist_ok=True)
+    with full_path.open("wb") as handle:
         handle.write(content)
 
     preflight = await call_live(path)
@@ -116,7 +120,15 @@ async def test_live_file_returns_304_on_matching_if_none_match():
     etag = headers.get("etag", f'"{expected_sha}"')
 
     events = await call_live(path, headers=[("if-none-match", etag)])
-    status, _, body = collect_response(events)
+    status, headers, body = collect_response(events)
 
     assert status == 304
+    assert headers.get("etag") == etag
     assert body == b""
+
+    mismatch_events = await call_live(path, headers=[("if-none-match", '"bogus"')])
+    mismatch_status, mismatch_headers, mismatch_body = collect_response(mismatch_events)
+
+    assert mismatch_status == 200
+    assert mismatch_headers.get("etag") == etag
+    assert mismatch_body == content
