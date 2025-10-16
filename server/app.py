@@ -19,6 +19,9 @@ from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .db import engine, Base, get_session, AsyncSessionLocal
+from .middleware import RateLimitMiddleware
+from .models import Agent, Task, TaskDependency, Lease, FileEntry
 from .db import AsyncSessionLocal, Base, engine, get_session
 from .file_store import ensure_root, full_path, put_file
 from .instrumentation import configure_logging, setup_logging, setup_metrics, setup_tracing
@@ -47,6 +50,8 @@ from .task_logic import (
     increment_plan_version,
     plan_version,
 )
+from .file_store import put_file, full_path, ensure_root
+from .settings import get_rate_limit_settings
 
 try:  # optional plan version helper
     from .task_logic import plan_version_counter  # type: ignore[attr-defined]
@@ -84,6 +89,11 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+app.add_middleware(
+    RateLimitMiddleware,
+    settings_provider=get_rate_limit_settings,
 )
 
 # Static UI
