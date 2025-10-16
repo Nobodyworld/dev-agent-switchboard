@@ -157,6 +157,80 @@ Improve the Switchboard operator UI so task data stays reliable and comprehensib
 - `GET /api/plan` now returns `{version:int, updated_at:str, tasks:[...]}`.
 - Toast utilities rely on DOM IDs inserted into `index.html`.
 - Playwright tests depend on `pytest` and `playwright.sync_api`.
+# Restore core server imports and datetime helpers
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+The Switchboard backend defines overlapping datetime utilities across modules, leading to duplicated logic for obtaining UTC timestamps and inconsistent timezone handling. We will introduce a shared helper (`server/time_utils.py`) and refactor the modules that maintain leases and live-file metadata to use it so that timestamp creation is consistent and easily testable. While touching those modules we will verify imports remain accurate.
+
+## Progress
+
+- [x] Initial state captured.
+- [x] Repository audit complete.
+- [x] Fixes implemented.
+- [x] Validation attempted (dependency installation blocked by proxy).
+
+## Surprises & Discoveries
+
+- Observation: Unable to install pinned FastAPI dependency (`fastapi==0.115.0`) because the execution environment blocks outbound PyPI traffic via proxy.
+  Evidence: `pip install -r server/requirements-dev.txt` failed with repeated `ProxyError` and "No matching distribution" errors.
+
+## Decision Log
+
+- Decision: Introduced a central `time_utils` module and refactored lease/file helpers to consume it, keeping timestamp semantics aligned while noting that full pytest runs remain blocked by missing dependencies in the sandbox.
+  Rationale: A shared helper avoids duplicated datetime math and makes it clearer how to mock or adjust UTC semantics later, while still documenting the environment limitation.
+  Date/Author: 2024-06-08 / gpt-5-codex
+
+## Outcomes & Retrospective
+
+- UTC helper usage is centralized, reducing duplication and ensuring leases and file metadata use consistent timestamp semantics.
+
+## Context and Orientation
+
+- `server/db.py` should expose SQLAlchemy engine/session factories and depends on environment variables via `os`.
+- `server/models.py` defines ORM models using `sqlalchemy.orm` constructs (e.g., `Mapped`, `mapped_column`) and Python `datetime`/`typing`.
+- `server/schema.py` mirrors task and plan payloads, requiring `datetime`, `Enum`, and typing imports.
+- `server/task_logic.py` handles plan/task workflows, relying on `datetime`, `typing`, and SQLAlchemy `select`/`delete` APIs.
+- `server/file_store.py` manages filesystem persistence and uses `hashlib`, `os`, and timezone-aware timestamps.
+
+## Plan of Work
+
+1. Create `server/time_utils.py` exposing timezone-aware (`utcnow`) and naive (`utcnow_naive`) UTC helpers.
+2. Refactor `server/task_logic.py` to depend on the shared helper instead of local `_utcnow_naive` logic while preserving existing deadlines and lease handling.
+3. Update `server/file_store.py` to reuse the shared helper for filesystem metadata timestamps.
+4. Re-run compilation or targeted tests to confirm imports resolve and modules remain loadable.
+
+## Concrete Steps
+
+1. Author `server/time_utils.py` with `utcnow`/`utcnow_naive` helpers backed by a shared `UTC` constant.
+2. Replace the bespoke `_utcnow_naive` implementation in `server/task_logic.py` with calls to the shared helper.
+3. Adjust `server/file_store.py` to pull timestamps from the shared helper.
+4. Execute `python scripts/run_pytest.py` (or `pytest`) to verify everything passes (or document blocking dependency issues).
+
+## Validation and Acceptance
+
+- `python scripts/run_pytest.py` completes successfully with no failures (or is documented as blocked by missing dependencies).
+- `python -m compileall server` succeeds, confirming modules import cleanly with the shared helpers.
+
+## Idempotence and Recovery
+
+- The shared `time_utils` module is stateless; reapplying the refactor safely reuses the same helpers.
+- If tests fail, revert individual module changes and re-run to isolate regressions.
+
+## Artifacts and Notes
+
+- `python scripts/run_pytest.py` aborted because `sqlalchemy` was unavailable; `pip install -r server/requirements-dev.txt` failed with proxy-blocked PyPI access, preventing dependency resolution.
+
+## Interfaces and Dependencies
+
+- SQLAlchemy async session helpers remain exposed from `server/db.py`.
+- ORM models rely on `sqlalchemy.orm.Mapped` and `mapped_column` definitions.
+- API schema dataclasses continue to use Pydantic `BaseModel` imports.
+- New `server/time_utils.py` provides `utcnow`/`utcnow_naive` functions consumed by `task_logic` and `file_store`.
 # Harden backend and API consistency
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
