@@ -118,7 +118,14 @@ async def register_agent(agent: AgentIn, session: AsyncSession = Depends(get_ses
 
 # -------- Tasks & Plan --------
 def task_to_out(t: Task, deps: List[int]) -> TaskOut:
-    return TaskOut(id=t.id, title=t.title, description=t.description, status=t.status, depends_on=deps)
+    return TaskOut(
+        id=t.id,
+        title=t.title,
+        description=t.description,
+        status=t.status,
+        completed_notes=t.completed_notes,
+        depends_on=deps,
+    )
 
 @app.get("/api/tasks", response_model=List[TaskOut])
 async def list_tasks(status: Optional[str] = None, session: AsyncSession = Depends(get_session)):
@@ -187,13 +194,18 @@ async def heartbeat(task_id: int, agent_id: str, session: AsyncSession = Depends
 
 @app.post("/api/tasks/{task_id}/complete", response_model=CompleteResponse)
 async def complete(task_id: int, agent_id: str, body: CompleteIn, session: AsyncSession = Depends(get_session)):
-    ok = await complete_task(session, agent_id=agent_id, task_id=task_id)
+    ok, stored_notes = await complete_task(
+        session,
+        agent_id=agent_id,
+        task_id=task_id,
+        notes=body.notes,
+    )
     await session.flush()
     if ok:
         version = await increment_plan_version(session)
         await broadcast_plan(version=version, session=session)
     await session.commit()
-    return {"ok": ok, "notes": body.notes}
+    return {"ok": ok, "notes": stored_notes}
 
 @app.post("/api/tasks/{task_id}/abandon", response_model=StatusResponse)
 async def abandon(task_id: int, agent_id: str, session: AsyncSession = Depends(get_session)):

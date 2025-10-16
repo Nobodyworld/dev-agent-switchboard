@@ -23,6 +23,7 @@ class TaskOut(BaseModel):
     title: str
     description: str
     status: TaskStatus
+    completed_notes: Optional[str] = None
     depends_on: List[int] = Field(default_factory=list)
 
     class Config:
@@ -41,7 +42,7 @@ class PlanOut(BaseModel):
     tasks: List[TaskOut]
 
 class CompleteIn(BaseModel):
-    notes: str = ""
+    notes: Optional[str] = None
 
 
 class OkResponse(BaseModel):
@@ -57,7 +58,7 @@ class StatusResponse(OkResponse):
 
 
 class CompleteResponse(StatusResponse):
-    notes: str
+    notes: Optional[str] = None
 
 
 class FileUploadResponse(StatusResponse):
