@@ -41,14 +41,22 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         self._buckets.clear()
 
-    def _client_identifier(self, request: Request) -> str | None:
-        forwarded = request.headers.get("x-forwarded-for")
-        if forwarded:
+    def _client_identifier(self, request: Request, settings: RateLimitSettings) -> str | None:
+        client_host = request.client.host if request.client else None
+        if (
+            client_host
+            and client_host in settings.trusted_proxies
+            and (forwarded := request.headers.get("x-forwarded-for"))
+        ):
             first = forwarded.split(",", 1)[0].strip()
             if first:
                 return first
-        if request.client:
-            return request.client.host
+        if client_host:
+            return client_host
+        if forwarded := request.headers.get("x-forwarded-for"):
+            first = forwarded.split(",", 1)[0].strip()
+            if first:
+                return first
         return None
 
     def _should_bypass(self, settings: RateLimitSettings, identifier: str | None) -> bool:
@@ -61,7 +69,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if not settings.enabled:
             return await call_next(request)
 
-        identifier = self._client_identifier(request)
+        identifier = self._client_identifier(request, settings)
         if self._should_bypass(settings, identifier):
             return await call_next(request)
 
