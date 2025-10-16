@@ -157,6 +157,10 @@ Switchboard data between container runs. To start it locally:
    ```bash
    cp ops/.env.example ops/.env
    # edit ops/.env if you need to change PORT
+   # Optionally override persistence locations:
+   # DATABASE_URL=sqlite+aiosqlite:////absolute/path/to/switchboard.db
+   # STORAGE_ROOT=/absolute/path/to/storage
+   # FILES_ROOT=/absolute/path/to/storage/files
    ```
 
 3. Build and launch the stack:
@@ -167,6 +171,10 @@ Switchboard data between container runs. To start it locally:
 
 The compose file defines a health check that waits for `http://localhost:8000/health`
 to return `200 OK` before marking the container as healthy.
+
+By default the application stores its SQLite database and uploaded files inside the
+container's `/app` directory. Set `DATABASE_URL`, `STORAGE_ROOT`, or `FILES_ROOT`
+in `ops/.env` (or your shell) to persist data to alternative locations.
 
 ## Project structure
 

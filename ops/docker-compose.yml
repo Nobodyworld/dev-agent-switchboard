@@ -13,6 +13,9 @@ services:
       - ../README.md:/app/README.md:ro
     environment:
       - TZ=UTC
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/storage/switchboard.db}
+      - STORAGE_ROOT=${STORAGE_ROOT:-/app/storage}
+      - FILES_ROOT=${FILES_ROOT:-/app/storage/files}
     healthcheck:
       test:
         - CMD

@@ -1,5 +1,4 @@
 import hashlib
-import os
 import shutil
 import sys
 from pathlib import Path
@@ -15,19 +14,21 @@ STATIC_ROOT = PROJECT_ROOT / "web" / "static"
 STATIC_ROOT.mkdir(parents=True, exist_ok=True)
 
 from server.app import app
-from server.file_store import FILES_ROOT
+from server.file_store import FILES_ROOT as CONFIGURED_FILES_ROOT
+
+FILES_ROOT = Path(CONFIGURED_FILES_ROOT)
 
 
 @pytest.fixture(autouse=True)
 def clean_filesystem():
     """Ensure the live file store is empty before and after each test."""
-    if os.path.exists(FILES_ROOT):
+    if FILES_ROOT.exists():
         shutil.rmtree(FILES_ROOT)
-    os.makedirs(FILES_ROOT, exist_ok=True)
+    FILES_ROOT.mkdir(parents=True, exist_ok=True)
     try:
         yield
     finally:
-        if os.path.exists(FILES_ROOT):
+        if FILES_ROOT.exists():
             shutil.rmtree(FILES_ROOT)
 
 
@@ -85,9 +86,9 @@ async def test_live_file_includes_sha256_etag():
     content = b"etag-me"
     expected_sha = hashlib.sha256(content).hexdigest()
 
-    full_path = os.path.join(FILES_ROOT, path)
-    os.makedirs(os.path.dirname(full_path), exist_ok=True)
-    with open(full_path, "wb") as handle:
+    full_path = FILES_ROOT / path
+    full_path.parent.mkdir(parents=True, exist_ok=True)
+    with full_path.open("wb") as handle:
         handle.write(content)
 
     events = await call_live(path)
@@ -106,9 +107,9 @@ async def test_live_file_returns_304_on_matching_if_none_match():
     content = b"conditional"
     expected_sha = hashlib.sha256(content).hexdigest()
 
-    full_path = os.path.join(FILES_ROOT, path)
-    os.makedirs(os.path.dirname(full_path), exist_ok=True)
-    with open(full_path, "wb") as handle:
+    full_path = FILES_ROOT / path
+    full_path.parent.mkdir(parents=True, exist_ok=True)
+    with full_path.open("wb") as handle:
         handle.write(content)
 
     preflight = await call_live(path)
