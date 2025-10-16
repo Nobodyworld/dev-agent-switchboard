@@ -1,6 +1,6 @@
 
 import datetime as dt
-from typing import List, Tuple, Optional
+from typing import Iterable, List, Tuple, Optional
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from .models import Task, TaskDependency, Lease, PlanVersion
@@ -10,6 +10,19 @@ PLAN_VERSION_ROW_ID = 1
 async def get_dependencies(session: AsyncSession, task_id: int) -> List[int]:
     rows = (await session.execute(select(TaskDependency.depends_on_task_id).where(TaskDependency.task_id == task_id))).all()
     return [r[0] for r in rows]
+
+
+async def update_dependencies(session: AsyncSession, task_id: int, depends_on: Iterable[int]) -> None:
+    """Replace the dependency edges for ``task_id`` with ``depends_on`` safely."""
+
+    await session.execute(delete(TaskDependency).where(TaskDependency.task_id == task_id))
+    seen: set[int] = set()
+    for dep_id in depends_on:
+        if dep_id in seen:
+            continue
+        seen.add(dep_id)
+        session.add(TaskDependency(task_id=task_id, depends_on_task_id=dep_id))
+    await session.flush()
 
 async def is_available(session: AsyncSession, task: Task) -> bool:
     if task.status == "completed":
