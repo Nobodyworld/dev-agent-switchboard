@@ -1,5 +1,6 @@
 
 from enum import Enum
+import datetime as dt
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
@@ -46,6 +47,7 @@ class CheckoutOut(BaseModel):
 
 class PlanOut(BaseModel):
     version: int
+    updated_at: dt.datetime
     tasks: List[TaskOut]
 
 class CompleteIn(BaseModel):

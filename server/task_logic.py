@@ -101,6 +101,15 @@ async def plan_version(session: AsyncSession) -> int:
     return await current_plan_version(session)
 
 
+async def plan_version_snapshot(session: AsyncSession) -> Tuple[int, dt.datetime]:
+    row = await _ensure_plan_version_row(session)
+    # `updated_at` may be None immediately after creation prior to flush; ensure defaults apply.
+    if row.updated_at is None:
+        await session.flush()
+        await session.refresh(row)
+    return row.value, row.updated_at
+
+
 async def _ensure_plan_version_row(session: AsyncSession) -> PlanVersion:
     row = await session.get(PlanVersion, PLAN_VERSION_ROW_ID)
     if row is None:

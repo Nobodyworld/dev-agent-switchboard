@@ -47,6 +47,7 @@ from .task_logic import (
     heartbeat as lease_heartbeat,
     update_dependencies,
     plan_version,
+    plan_version_snapshot,
     increment_plan_version,
     plan_version,
 )
@@ -358,6 +359,12 @@ async def abandon(task_id: int, agent_id: str, session: AsyncSession = Depends(g
 
 @app.get("/api/plan", response_model=PlanOut)
 async def get_plan(session: AsyncSession = Depends(get_session)):
+    tasks = (await session.execute(select(Task))).scalars().all()
+    outs = []
+    for t in tasks:
+        outs.append(task_to_out(t, await get_dependencies(session, t.id)))
+    version, updated_at = await plan_version_snapshot(session)
+    return PlanOut(version=version, updated_at=updated_at, tasks=outs)
     plan = await _serialize_plan(session)
     if hasattr(PlanOut, "model_validate"):
         return PlanOut.model_validate(plan)  # type: ignore[attr-defined]

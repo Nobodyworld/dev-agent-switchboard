@@ -7,15 +7,17 @@
   <title>Switchboard</title>
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body class="bg-gray-50 text-gray-900">
+  <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
   <div class="max-w-5xl mx-auto p-6">
     <h1 class="text-3xl font-bold mb-4">Switchboard</h1>
     <p class="mb-6">Real-time task switchboard & live file host for agents.</p>
 
     <section class="mb-8 p-4 bg-white rounded-xl shadow">
       <h2 class="text-xl font-semibold mb-2">Create Task</h2>
-      <form id="createTask" class="space-y-2" hx-post="/api/tasks" hx-trigger="submit" hx-target="#tasks" hx-swap="outerHTML">
+      <form id="createTask" class="space-y-2">
           <input class="border rounded p-2 w-full" name="title" placeholder="Title" required />
           <textarea class="border rounded p-2 w-full" name="description" placeholder="Description"></textarea>
           <input class="border rounded p-2 w-full" name="depends_on" placeholder="Dependencies (comma ids)" />
@@ -33,7 +35,14 @@
 
     <section class="p-4 bg-white rounded-xl shadow">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 class="text-xl font-semibold">Tasks</h2>
+        <div>
+          <h2 class="text-xl font-semibold">Tasks</h2>
+          <div id="planMeta" class="plan-meta hidden" aria-live="polite">
+            <span>Plan version <strong id="planVersion">—</strong></span>
+            <span aria-hidden="true">•</span>
+            <span>Last updated <time id="planUpdated" datetime="">—</time></span>
+          </div>
+        </div>
         <div class="flex flex-wrap items-center gap-3">
           <label for="statusFilter" class="text-sm font-medium text-gray-700">Status</label>
           <select id="statusFilter" class="border rounded px-2 py-1 text-sm">
@@ -42,7 +51,7 @@
             <option value="in_progress">In Progress</option>
             <option value="completed">Completed</option>
           </select>
-          <button class="px-3 py-2 rounded bg-gray-800 text-white" onclick="refreshTasks()">Refresh</button>
+          <button id="refreshTasks" class="px-3 py-2 rounded bg-gray-800 text-white">Refresh</button>
         </div>
       </div>
       <div id="tasks" class="mt-4">
@@ -51,137 +60,6 @@
     </section>
   </div>
 
-<script>
-let allTasks = [];
-let currentStatusFilter = 'all';
-
-async function refreshTasks(){
-  const res = await fetch('/api/tasks');
-  allTasks = await res.json();
-  renderTaskList();
-}
-function renderTaskList(){
-  const el = document.getElementById('tasks');
-  const tasks = currentStatusFilter === 'all'
-    ? allTasks
-    : allTasks.filter(t => t.status === currentStatusFilter);
-  el.innerHTML = renderTasks(tasks);
-}
-function renderTasks(tasks){
-  if (!tasks.length) {
-    // Provide a friendly empty state so filters never leave contributors guessing about missing data.
-    return `<p class="text-sm text-gray-600">No tasks match this filter yet—create one or try a different status.</p>`;
-  }
-  // Central map so badge colors stay consistent with status semantics.
-  const statusBadgeClasses = {
-    pending: 'bg-yellow-100 text-yellow-800',
-    in_progress: 'bg-blue-100 text-blue-800',
-    completed: 'bg-green-100 text-green-800'
-  };
-  const rows = tasks.map(t => {
-    const badgeClass = statusBadgeClasses[t.status] || 'bg-gray-100 text-gray-800';
-    const statusLabel = t.status.replace(/_/g, ' ');
-    const dependsOn = Array.isArray(t.depends_on) && t.depends_on.length
-      ? t.depends_on.join(', ')
-      : '—';
-    return `<tr>
-      <td class="border px-2 py-1">${t.id}</td>
-      <td class="border px-2 py-1">${t.title}</td>
-      <td class="border px-2 py-1">
-        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${badgeClass}">${statusLabel}</span>
-      </td>
-      <td class="border px-2 py-1">${dependsOn}</td>
-      <td class="border px-2 py-1">
-        <button class="px-2 py-1 bg-green-600 text-white rounded" onclick="complete(${t.id})">Complete</button>
-        <button class="px-2 py-1 bg-red-600 text-white rounded" onclick="del(${t.id})">Delete</button>
-      </td>
-    </tr>`;
-  }).join('');
-  return `<table class="w-full text-sm border-collapse">
-    <thead><tr class="bg-gray-100">
-      <th class="border px-2 py-1">ID</th>
-      <th class="border px-2 py-1">Title</th>
-      <th class="border px-2 py-1">Status</th>
-      <th class="border px-2 py-1">Depends On</th>
-      <th class="border px-2 py-1">Actions</th>
-    </tr></thead>
-    <tbody>${rows}</tbody>
-  </table>`;
-}
-async function complete(id){
-  await fetch('/api/tasks/'+id+'/complete?agent_id=admin', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({notes:'UI complete'})});
-  refreshTasks();
-}
-async function del(id){
-  await fetch('/api/tasks/'+id, {method:'DELETE'});
-  refreshTasks();
-}
-
-let ws;
-let wsPingTimer;
-let reconnectAttempts = 0;
-const PING_INTERVAL_MS = 30000;
-
-function startPing(){
-  if (wsPingTimer) clearInterval(wsPingTimer);
-  wsPingTimer = setInterval(() => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send('ping');
-    }
-  }, PING_INTERVAL_MS);
-}
-
-function stopPing(){
-  if (wsPingTimer) {
-    clearInterval(wsPingTimer);
-    wsPingTimer = undefined;
-  }
-}
-
-function connectWS(){
-  if (reconnectAttempts > 0) {
-    console.log(`ws reconnect attempt #${reconnectAttempts}`);
-  }
-  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/plan');
-  ws.onopen = () => {
-    if (reconnectAttempts > 0) {
-      console.log(`ws reconnected after ${reconnectAttempts} attempt${reconnectAttempts === 1 ? '' : 's'}`);
-    } else {
-      console.log('ws open');
-    }
-    reconnectAttempts = 0;
-    startPing();
-  };
-  ws.onmessage = (ev) => {
-    try { const msg = JSON.parse(ev.data);
-      if (msg.type === 'plan_version') refreshTasks();
-    } catch {}
-  };
-  ws.onclose = () => {
-    stopPing();
-    reconnectAttempts += 1;
-    console.warn(`ws closed; reconnecting in 2s (attempt #${reconnectAttempts})`);
-    setTimeout(connectWS, 2000);
-  };
-}
-connectWS();
-refreshTasks();
-
-document.getElementById('statusFilter').addEventListener('change', (e) => {
-  currentStatusFilter = e.target.value;
-  renderTaskList();
-});
-
-document.getElementById('createTask').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const form = e.target;
-  const title = form.title.value;
-  const description = form.description.value;
-  const deps = form.depends_on.value.trim() ? form.depends_on.value.split(',').map(s => parseInt(s.trim())).filter(n=>!isNaN(n)) : [];
-  await fetch('/api/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, description, depends_on: deps})});
-  form.reset();
-  refreshTasks();
-});
-</script>
+  <script type="module" src="/static/app.js"></script>
 </body>
 </html>
