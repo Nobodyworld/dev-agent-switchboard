@@ -52,16 +52,44 @@ python -m pip install --upgrade pip
 ### 2. Install server dependencies
 
 ```bash
-pip install -r server/requirements.txt
+pip install -r server/requirements-dev.txt
 ```
+
+Unix-like shells can run `make setup` to create the virtual environment and
+install the same dependencies in one step. On Windows, prefer the explicit
+commands above (or adapt them for `python -m pip`).
 
 ### 3. Run the API + UI locally
 
 ```bash
-uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
+python scripts/run_uvicorn.py
 ```
 
+On Windows PowerShell:
+
+```powershell
+python .\scripts\run_uvicorn.py
+```
+
+Unix-like shells also expose a convenience target: `make run`. (The Makefile
+uses POSIX-style activation; Windows users should rely on the Python helper
+instead.)
+
 Open the admin UI: <http://localhost:8000/>
+
+### 4. Run the test suite
+
+```bash
+python scripts/run_pytest.py
+```
+
+On Windows PowerShell:
+
+```powershell
+python .\scripts\run_pytest.py
+```
+
+Unix-like shells can alternatively run `make test`.
 
 ### Sample API flows (curl)
 
