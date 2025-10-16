@@ -60,7 +60,6 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Switchboard", version="0.1.0", lifespan=lifespan)
 
 setup_logging(app)
-setup_metrics(app)
 setup_tracing(app)
 
 app.add_middleware(
@@ -269,3 +268,5 @@ async def get_live_file(path: str):
 @app.get("/health", response_class=PlainTextResponse)
 async def health():
     return "OK"
+
+setup_metrics(app)
