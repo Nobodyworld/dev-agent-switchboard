@@ -5,10 +5,14 @@ import asyncio
 from contextlib import asynccontextmanager, suppress
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, Depends, UploadFile, WebSocket, WebSocketDisconnect, Request, Response
+from contextlib import asynccontextmanager
+from typing import List, Optional
+from fastapi import FastAPI, Depends, UploadFile, WebSocket, WebSocketDisconnect, Request, Response, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select, delete, or_
+from sqlalchemy import select, delete, or_, text
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from jinja2 import Environment, FileSystemLoader
 
@@ -25,6 +29,7 @@ from .schema import (
     StatusResponse,
     TaskIn,
     TaskOut,
+    TaskUpdate,
 )
 from .task_logic import (
     checkout_task,
@@ -32,6 +37,7 @@ from .task_logic import (
     complete as complete_task,
     abandon as abandon_task,
     get_dependencies,
+    update_dependencies,
     plan_version,
     increment_plan_version,
 )
@@ -51,6 +57,13 @@ except ImportError:  # pragma: no cover - helper may be absent
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        def ensure_completed_notes_column(sync_conn):
+            inspector = sa_inspect(sync_conn)
+            if not inspector.has_column("tasks", "completed_notes"):
+                sync_conn.execute(text("ALTER TABLE tasks ADD COLUMN completed_notes TEXT"))
+
+        await conn.run_sync(ensure_completed_notes_column)
     ensure_root()
     yield
 
@@ -175,7 +188,14 @@ async def register_agent(agent: AgentIn, session: AsyncSession = Depends(get_ses
 
 # -------- Tasks & Plan --------
 def task_to_out(t: Task, deps: List[int]) -> TaskOut:
-    return TaskOut(id=t.id, title=t.title, description=t.description, status=t.status, depends_on=deps)
+    return TaskOut(
+        id=t.id,
+        title=t.title,
+        description=t.description,
+        status=t.status,
+        completed_notes=t.completed_notes,
+        depends_on=deps,
+    )
 
 @app.get("/api/tasks", response_model=List[TaskOut])
 async def list_tasks(status: Optional[str] = None, session: AsyncSession = Depends(get_session)):
@@ -200,6 +220,55 @@ async def create_task(task: TaskIn, session: AsyncSession = Depends(get_session)
     await broadcast_plan(version=version, session=session, include_plan=True)
     await session.commit()
     return task_to_out(t, await get_dependencies(session, t.id))
+
+
+@app.put("/api/tasks/{task_id}", response_model=TaskOut)
+@app.patch("/api/tasks/{task_id}", response_model=TaskOut)
+async def update_task(
+    task_id: int, update: TaskUpdate, session: AsyncSession = Depends(get_session)
+):
+    task = await session.get(Task, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="task_not_found")
+
+    update_payload = update.model_dump(exclude_unset=True)
+    if not update_payload:
+        raise HTTPException(status_code=400, detail="no_updates_provided")
+
+    if update.depends_on is not None:
+        if task_id in update.depends_on:
+            raise HTTPException(status_code=400, detail="task_cannot_depend_on_itself")
+        if update.depends_on:
+            rows = (
+                await session.execute(
+                    select(Task.id).where(Task.id.in_(set(update.depends_on)))
+                )
+            ).all()
+            found_ids = {r[0] for r in rows}
+            missing = set(update.depends_on) - found_ids
+            if missing:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"missing_dependencies": sorted(missing)},
+                )
+
+    if update.title is not None:
+        task.title = update.title
+    if update.description is not None:
+        task.description = update.description
+    if update.status is not None:
+        task.status = update.status
+        if update.status in {"pending", "completed"}:
+            await session.execute(delete(Lease).where(Lease.task_id == task.id))
+    if update.depends_on is not None:
+        await update_dependencies(session, task.id, update.depends_on)
+
+    await session.merge(task)
+    await session.flush()
+    version = await increment_plan_version(session)
+    await broadcast_plan(version=version, session=session)
+    await session.commit()
+    return task_to_out(task, await get_dependencies(session, task.id))
 
 @app.delete("/api/tasks/{task_id}", response_model=StatusResponse)
 async def delete_task(task_id: int, session: AsyncSession = Depends(get_session)):
@@ -244,13 +313,18 @@ async def heartbeat(task_id: int, agent_id: str, session: AsyncSession = Depends
 
 @app.post("/api/tasks/{task_id}/complete", response_model=CompleteResponse)
 async def complete(task_id: int, agent_id: str, body: CompleteIn, session: AsyncSession = Depends(get_session)):
-    ok = await complete_task(session, agent_id=agent_id, task_id=task_id)
+    ok, stored_notes = await complete_task(
+        session,
+        agent_id=agent_id,
+        task_id=task_id,
+        notes=body.notes,
+    )
     await session.flush()
     if ok:
         version = await increment_plan_version(session)
         await broadcast_plan(version=version, session=session, include_plan=True)
     await session.commit()
-    return {"ok": ok, "notes": body.notes}
+    return {"ok": ok, "notes": stored_notes}
 
 @app.post("/api/tasks/{task_id}/abandon", response_model=StatusResponse)
 async def abandon(task_id: int, agent_id: str, session: AsyncSession = Depends(get_session)):
