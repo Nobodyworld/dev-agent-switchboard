@@ -1,11 +1,25 @@
 import datetime as dt
-from typing import Iterable, List, Tuple, Optional
-from sqlalchemy import select, delete
+from typing import Iterable, List, Optional, Tuple
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from .models import Task, TaskDependency, Lease, PlanVersion
 
 LEASE_SECONDS = 300
 PLAN_VERSION_ROW_ID = 1
+_UTC = dt.timezone.utc
+
+
+def _utcnow_naive() -> dt.datetime:
+    """Return the current UTC time without timezone information."""
+
+    return dt.datetime.now(_UTC).replace(tzinfo=None)
+
+
+def _lease_deadline(now: Optional[dt.datetime] = None) -> dt.datetime:
+    """Return the lease expiration timestamp based on ``LEASE_SECONDS``."""
+
+    base = now or _utcnow_naive()
+    return base + dt.timedelta(seconds=LEASE_SECONDS)
 
 
 async def get_dependencies(session: AsyncSession, task_id: int) -> List[int]:
@@ -51,10 +65,10 @@ async def is_available(session: AsyncSession, task: Task) -> bool:
     lease = (
         await session.execute(select(Lease).where(Lease.task_id == task.id))
     ).scalar_one_or_none()
-    if lease and lease.expires_at > dt.datetime.now(dt.timezone.utc).replace(
-        tzinfo=None
-    ):
-        return False
+    if lease:
+        now = _utcnow_naive()
+        if lease.expires_at > now:
+            return False
     return True
 
 
@@ -64,11 +78,8 @@ async def checkout_task(
     task_id: Optional[int] = None,
 ) -> Tuple[Optional[Task], Optional[str]]:
     # expire old leases
-    await session.execute(
-        delete(Lease).where(
-            Lease.expires_at < dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
-        )
-    )
+    now = _utcnow_naive()
+    await session.execute(delete(Lease).where(Lease.expires_at < now))
     # find available task
     if task_id is not None:
         task = await session.get(Task, task_id)
@@ -81,9 +92,7 @@ async def checkout_task(
         if await is_available(session, t):
             # set status and lease
             t.status = "in_progress"
-            expires = dt.datetime.now(dt.timezone.utc).replace(
-                tzinfo=None
-            ) + dt.timedelta(seconds=LEASE_SECONDS)
+            expires = _lease_deadline()
             await session.merge(t)
             await session.flush()
             await session.execute(delete(Lease).where(Lease.task_id == t.id))
@@ -101,9 +110,7 @@ async def heartbeat(session: AsyncSession, agent_id: str, task_id: int) -> bool:
     ).scalar_one_or_none()
     if lease is None or lease.agent_id != agent_id:
         return False
-    lease.expires_at = dt.datetime.now(dt.timezone.utc).replace(
-        tzinfo=None
-    ) + dt.timedelta(seconds=LEASE_SECONDS)
+    lease.expires_at = _lease_deadline()
     await session.merge(lease)
     return True
 
@@ -123,12 +130,10 @@ async def complete(
     if task is None:
         return False, None
     # allow completion if no conflicting lease (expired or owned)
-    if (
-        lease
-        and lease.agent_id != agent_id
-        and lease.expires_at > dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
-    ):
-        return False, None
+    if lease and lease.agent_id != agent_id:
+        now = _utcnow_naive()
+        if lease.expires_at > now:
+            return False, None
     task.status = "completed"
     normalized_notes = notes if notes else None
     task.completed_notes = normalized_notes
@@ -146,12 +151,10 @@ async def abandon(session: AsyncSession, agent_id: str, task_id: int) -> bool:
     ).scalar_one_or_none()
     if task is None:
         return False
-    if (
-        lease
-        and lease.agent_id != agent_id
-        and lease.expires_at > dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
-    ):
-        return False
+    if lease and lease.agent_id != agent_id:
+        now = _utcnow_naive()
+        if lease.expires_at > now:
+            return False
     task.status = "pending"
     await session.merge(task)
     await session.execute(delete(Lease).where(Lease.task_id == task_id))

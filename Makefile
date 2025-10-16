@@ -13,19 +13,19 @@ run:
 	. .venv/bin/activate && uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
 
 test:
-        . .venv/bin/activate && pytest server/tests
+	. .venv/bin/activate && pytest server/tests
 
 lint:
-        . .venv/bin/activate && ruff check .
+	. .venv/bin/activate && ruff check .
 
 fmt:
-        . .venv/bin/activate && black server client/python
+	. .venv/bin/activate && black server client/python
 
 typecheck:
-        . .venv/bin/activate && mypy --strict server/file_store.py client/python/switchboard_client.py
+	. .venv/bin/activate && mypy --strict server/file_store.py client/python/switchboard_client.py
 
 security:
-        . .venv/bin/activate && bandit -q -r server
+	. .venv/bin/activate && bandit -q -r server
 
 qa: fmt lint typecheck test security
 
