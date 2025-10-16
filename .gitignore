@@ -1,0 +1,110 @@
+# General Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Packaging / build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+wheels/
+share/python-wheels/
+*.manifest
+*.spec
+pip-wheel-metadata/
+pip-log.txt
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.pyenv/
+
+# Test runners
+.tox/
+.nox/
+
+# Type checking & lint caches
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+
+# Coverage & test artifacts
+.pytest_cache/
+.cache/
+coverage/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+nosetests.xml
+*.cover
+*.py,cover
+*.lcov
+
+# Notebook artifacts
+.ipynb_checkpoints/
+
+# Runtime state / local data
+server/switchboard.db
+storage/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite3-journal
+*.pid
+*.pid.*
+logs/
+*.log
+*.log.*
+
+# Backup / temp files
+*.bak
+*.tmp
+*.swp
+*.swo
+*.orig
+
+# Environment files and secrets
+*.env
+*.env.*
+.envrc
+.env.local
+.env.development
+.env.production
+.env.test
+
+# Front-end / tooling
+node_modules/
+web/node_modules/
+web/dist/
+parcel-cache/
+.parcel-cache/
+yarn-debug.log*
+yarn-error.log*
+npm-debug.log*
+pnpm-debug.log*
+
+# Documentation build output
+docs/_build/
+site/
+
+# IDE / editor settings
+.vscode/
+.idea/
+*.code-workspace
+*.sublime-workspace
+*.sublime-project
+
+# OS generated files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini

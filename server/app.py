@@ -1,6 +1,7 @@
 
 import os, datetime as dt
 import inspect
+from contextlib import asynccontextmanager
 from typing import List, Optional
 from fastapi import FastAPI, Depends, UploadFile, WebSocket, WebSocketDisconnect, Request, Response
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, PlainTextResponse
@@ -45,7 +46,14 @@ try:  # optional live file ETag helper
 except ImportError:  # pragma: no cover - helper may be absent
     etag_for_path = None  # type: ignore[assignment]
 
-app = FastAPI(title="Switchboard", version="0.1.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    ensure_root()
+    yield
+
+app = FastAPI(title="Switchboard", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -91,12 +99,6 @@ async def broadcast_plan(version: Optional[int] = None, session: Optional[AsyncS
             except ValueError:
                 pass
 
-@app.on_event("startup")
-async def on_startup():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    ensure_root()
-
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, session: AsyncSession = Depends(get_session)):
     tmpl = templates.get_template("index.html")
@@ -138,6 +140,7 @@ async def create_task(task: TaskIn, session: AsyncSession = Depends(get_session)
     await session.flush()
     version = await increment_plan_version(session)
     await broadcast_plan(version=version, session=session)
+    await session.commit()
     return task_to_out(t, await get_dependencies(session, t.id))
 
 @app.delete("/api/tasks/{task_id}", response_model=StatusResponse)
@@ -167,6 +170,8 @@ async def checkout(agent_id: str, session: AsyncSession = Depends(get_session)):
     if task:
         version = await increment_plan_version(session)
         await broadcast_plan(version=version, session=session)
+    await session.commit()
+    if task:
         return CheckoutOut(task=task_to_out(task, await get_dependencies(session, task.id)))
     return CheckoutOut(task=None, reason=reason)
 
@@ -174,6 +179,7 @@ async def checkout(agent_id: str, session: AsyncSession = Depends(get_session)):
 async def heartbeat(task_id: int, agent_id: str, session: AsyncSession = Depends(get_session)):
     ok = await lease_heartbeat(session, agent_id=agent_id, task_id=task_id)
     await session.flush()
+    await session.commit()
     return {"ok": ok}
 
 @app.post("/api/tasks/{task_id}/complete", response_model=CompleteResponse)
@@ -183,6 +189,7 @@ async def complete(task_id: int, agent_id: str, body: CompleteIn, session: Async
     if ok:
         version = await increment_plan_version(session)
         await broadcast_plan(version=version, session=session)
+    await session.commit()
     return {"ok": ok, "notes": body.notes}
 
 @app.post("/api/tasks/{task_id}/abandon", response_model=StatusResponse)
@@ -192,6 +199,7 @@ async def abandon(task_id: int, agent_id: str, session: AsyncSession = Depends(g
     if ok:
         version = await increment_plan_version(session)
         await broadcast_plan(version=version, session=session)
+    await session.commit()
     return {"ok": ok}
 
 @app.get("/api/plan", response_model=PlanOut)

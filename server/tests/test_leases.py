@@ -42,7 +42,7 @@ async def _force_expire(task_id: int) -> None:
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(Lease).where(Lease.task_id == task_id))
         lease = result.scalar_one()
-        lease.expires_at = dt.datetime.utcnow() - dt.timedelta(seconds=1)
+        lease.expires_at = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) - dt.timedelta(seconds=1)
         await session.merge(lease)
         await session.commit()
 
