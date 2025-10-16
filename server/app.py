@@ -7,7 +7,8 @@ from fastapi import FastAPI, Depends, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select, delete, or_
+from sqlalchemy import select, delete, or_, text
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from jinja2 import Environment, FileSystemLoader
 
@@ -50,6 +51,13 @@ except ImportError:  # pragma: no cover - helper may be absent
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        def ensure_completed_notes_column(sync_conn):
+            inspector = sa_inspect(sync_conn)
+            if not inspector.has_column("tasks", "completed_notes"):
+                sync_conn.execute(text("ALTER TABLE tasks ADD COLUMN completed_notes TEXT"))
+
+        await conn.run_sync(ensure_completed_notes_column)
     ensure_root()
     yield
 
