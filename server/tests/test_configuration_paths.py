@@ -60,4 +60,6 @@ print(json.dumps({
     expected_resolved = (custom_files / "demo" / "payload.bin").resolve()
     assert payload["resolved_path"] == str(expected_resolved)
 
-    assert custom_files.exists(), "ensure_root should create the configured files directory"
+    assert (
+        custom_files.exists()
+    ), "ensure_root should create the configured files directory"

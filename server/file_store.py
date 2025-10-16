@@ -1,28 +1,32 @@
-import hashlib
-from pathlib import Path
-from typing import Tuple
+"""Helpers for interacting with the persisted live-file store."""
 
-import hashlib, os, datetime as dt
+from __future__ import annotations
+
+import datetime as dt
+import hashlib
+import os
+from pathlib import Path
 from typing import Optional, Tuple
-from sqlalchemy import select, insert
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import IntegrityError
+
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .db import FILES_ROOT as CONFIGURED_FILES_ROOT
+from .db import AsyncSessionLocal, FILES_ROOT as CONFIGURED_FILES_ROOT
 from .models import FileEntry
-from .db import AsyncSessionLocal
 
 FILES_ROOT = Path(CONFIGURED_FILES_ROOT)
 
 
 def ensure_root() -> None:
+    """Ensure the backing directory for live files exists."""
+
     FILES_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 def full_path(rel_path: str) -> Path:
+    """Return a safe filesystem path for a user-provided relative path."""
+
     rel = rel_path.strip("/")
     candidate = (FILES_ROOT / rel).resolve()
     try:
@@ -32,16 +36,27 @@ def full_path(rel_path: str) -> Path:
     return candidate
 
 
-async def put_file(session: AsyncSession, rel_path: str, data: bytes) -> Tuple[str, int]:
+def _now() -> dt.datetime:
+    return dt.datetime.now(dt.timezone.utc)
+
+
+async def put_file(
+    session: AsyncSession, rel_path: str, data: bytes
+) -> Tuple[str, int]:
+    """Persist ``data`` to ``rel_path`` and update or create the tracking database entry."""
+
     ensure_root()
     path = full_path(rel_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as f:
-        f.write(data)
+
+    path.write_bytes(data)
+
     sha = hashlib.sha256(data).hexdigest()
     size = len(data)
-    entry = (await session.execute(select(FileEntry).where(FileEntry.path == rel_path))).scalar_one_or_none()
-    now = dt.datetime.utcnow()
+    entry = (
+        await session.execute(select(FileEntry).where(FileEntry.path == rel_path))
+    ).scalar_one_or_none()
+    now = _now()
     if entry:
         entry.sha256 = sha
         entry.size = size
@@ -53,10 +68,14 @@ async def put_file(session: AsyncSession, rel_path: str, data: bytes) -> Tuple[s
     return sha, size
 
 
-async def _ensure_entry_sha(session: AsyncSession, rel_path: str) -> Tuple[Optional[str], bool]:
+async def _ensure_entry_sha(
+    session: AsyncSession, rel_path: str
+) -> Tuple[Optional[str], bool]:
     """Return the SHA for ``rel_path`` and whether the database entry was updated."""
 
-    entry = (await session.execute(select(FileEntry).where(FileEntry.path == rel_path))).scalar_one_or_none()
+    entry = (
+        await session.execute(select(FileEntry).where(FileEntry.path == rel_path))
+    ).scalar_one_or_none()
     if entry and entry.sha256:
         return entry.sha256, False
 
@@ -65,14 +84,13 @@ async def _ensure_entry_sha(session: AsyncSession, rel_path: str) -> Tuple[Optio
         return None, False
 
     try:
-        with open(file_path, "rb") as handle:
-            data = handle.read()
+        data = file_path.read_bytes()
     except FileNotFoundError:
         return None, False
 
     sha = hashlib.sha256(data).hexdigest()
     size = len(data)
-    now = dt.datetime.utcnow()
+    now = _now()
 
     if entry is None:
         entry = FileEntry(path=rel_path, sha256=sha, size=size, updated_at=now)
@@ -85,7 +103,9 @@ async def _ensure_entry_sha(session: AsyncSession, rel_path: str) -> Tuple[Optio
     return sha, True
 
 
-async def etag_for_path(rel_path: str, session: Optional[AsyncSession] = None) -> Optional[str]:
+async def etag_for_path(
+    rel_path: str, session: Optional[AsyncSession] = None
+) -> Optional[str]:
     """Return a quoted ETag for the given relative path if the file exists."""
 
     file_path = full_path(rel_path)

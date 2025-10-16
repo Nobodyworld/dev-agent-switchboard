@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import contextlib
 import os
 import shutil
@@ -11,8 +13,10 @@ from pathlib import Path
 
 import pytest
 
-playwright = pytest.importorskip("playwright.sync_api")
-from playwright.sync_api import expect, sync_playwright
+try:
+    from playwright.sync_api import expect, sync_playwright
+except ImportError:  # pragma: no cover - handled by skip
+    pytest.skip("playwright is required for UI tests", allow_module_level=True)  # type: ignore[arg-type]
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:

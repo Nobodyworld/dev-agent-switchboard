@@ -1,31 +1,46 @@
+"""FastAPI application entrypoint for Switchboard."""
 
-import os, datetime as dt
-import inspect
+from __future__ import annotations
+
 import asyncio
+import inspect
+import logging
+import os
 from contextlib import asynccontextmanager, suppress
-from typing import List, Optional, Dict, Any
-from fastapi import FastAPI, Depends, UploadFile, WebSocket, WebSocketDisconnect, Request, Response
-from contextlib import asynccontextmanager
-from typing import List, Optional
-from fastapi import FastAPI, Depends, UploadFile, WebSocket, WebSocketDisconnect, Request, Response, HTTPException
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, PlainTextResponse
+from typing import Any, Dict, List, Mapping, MutableMapping, Optional, Sequence
+
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+)
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select, delete, or_, text
+from jinja2 import Environment, FileSystemLoader
+from sqlalchemy import delete, or_, select, text
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
-from jinja2 import Environment, FileSystemLoader
-from sqlalchemy import delete, or_, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from .db import engine, Base, get_session, AsyncSessionLocal
-from .middleware import RateLimitMiddleware
-from .models import Agent, Task, TaskDependency, Lease, FileEntry
 from .db import AsyncSessionLocal, Base, engine, get_session
 from .file_store import ensure_root, full_path, put_file
-from .instrumentation import configure_logging, setup_logging, setup_metrics, setup_tracing
-from .models import Agent, FileEntry, Lease, Task, TaskDependency
+from .instrumentation import (
+    configure_logging,
+    setup_logging,
+    setup_metrics,
+    setup_tracing,
+)
+from .middleware import RateLimitMiddleware
+from .models import Agent, Lease, Task, TaskDependency
 from .schema import (
     AgentIn,
     AgentRegistrationResponse,
@@ -39,20 +54,17 @@ from .schema import (
     TaskOut,
     TaskUpdate,
 )
+from .settings import get_rate_limit_settings
 from .task_logic import (
     abandon as abandon_task,
     checkout_task,
     complete as complete_task,
-    get_dependencies,
     heartbeat as lease_heartbeat,
-    update_dependencies,
-    plan_version,
-    plan_version_snapshot,
     increment_plan_version,
     plan_version,
+    plan_version_snapshot,
+    update_dependencies,
 )
-from .file_store import put_file, full_path, ensure_root
-from .settings import get_rate_limit_settings
 
 try:  # optional plan version helper
     from .task_logic import plan_version_counter  # type: ignore[attr-defined]
@@ -66,19 +78,27 @@ except ImportError:  # pragma: no cover - helper may be absent
 
 configure_logging()
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Create the database schema and storage roots on application startup."""
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
         def ensure_completed_notes_column(sync_conn):
             inspector = sa_inspect(sync_conn)
-            if not inspector.has_column("tasks", "completed_notes"):
-                sync_conn.execute(text("ALTER TABLE tasks ADD COLUMN completed_notes TEXT"))
+            columns = {column["name"] for column in inspector.get_columns("tasks")}
+            if "completed_notes" not in columns:
+                sync_conn.execute(
+                    text("ALTER TABLE tasks ADD COLUMN completed_notes TEXT")
+                )
 
         await conn.run_sync(ensure_completed_notes_column)
+
     ensure_root()
     yield
+
 
 app = FastAPI(title="Switchboard", version="0.1.0", lifespan=lifespan)
 
@@ -99,15 +119,31 @@ app.add_middleware(
 
 # Static UI
 WEB_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web"))
-app.mount("/static", StaticFiles(directory=os.path.join(WEB_ROOT, "static")), name="static")
+app.mount(
+    "/static", StaticFiles(directory=os.path.join(WEB_ROOT, "static")), name="static"
+)
 
 templates = Environment(loader=FileSystemLoader(WEB_ROOT))
 
 # WebSocket connections
+logger = logging.getLogger(__name__)
+
+
 PLAN_CONNECTIONS: List[WebSocket] = []
 PLAN_SEND_TIMEOUT = 2.0
 
+
+def _serialize_model(model: Any) -> Dict[str, Any]:
+    """Return a dictionary representation for both Pydantic v1 and v2 models."""
+
+    if hasattr(model, "model_dump"):
+        return model.model_dump()  # type: ignore[no-any-return]
+    return model.dict()  # type: ignore[no-any-return]
+
+
 async def _resolve_plan_version(session: AsyncSession) -> int:
+    """Resolve the current plan version using the optional counter helper when available."""
+
     if plan_version_counter:
         version_candidate = plan_version_counter(session)
         if inspect.isawaitable(version_candidate):
@@ -116,14 +152,58 @@ async def _resolve_plan_version(session: AsyncSession) -> int:
     return await plan_version(session)
 
 
+async def _dependency_map(
+    session: AsyncSession, task_ids: Sequence[int]
+) -> Mapping[int, List[int]]:
+    """Return a mapping of task id to sorted dependency ids."""
+
+    if not task_ids:
+        return {}
+
+    rows = await session.execute(
+        select(TaskDependency.task_id, TaskDependency.depends_on_task_id)
+        .where(TaskDependency.task_id.in_(task_ids))
+        .order_by(TaskDependency.task_id, TaskDependency.depends_on_task_id)
+    )
+    dependencies: MutableMapping[int, List[int]] = {task_id: [] for task_id in task_ids}
+    for task_id, depends_on_id in rows:
+        dependencies.setdefault(task_id, []).append(depends_on_id)
+    return dependencies
+
+
+def _task_to_out(task: Task, dependencies: Mapping[int, Sequence[int]]) -> TaskOut:
+    """Convert a task model into a serializable API response."""
+
+    depends_on = list(dependencies.get(task.id, ()))
+    return TaskOut(
+        id=task.id,
+        title=task.title,
+        description=task.description,
+        status=task.status,
+        completed_notes=task.completed_notes,
+        depends_on=depends_on,
+    )
+
+
+async def _tasks_to_out(session: AsyncSession, tasks: Sequence[Task]) -> List[TaskOut]:
+    """Serialize multiple tasks with a single dependency query."""
+
+    if not tasks:
+        return []
+    mapping = await _dependency_map(session, [task.id for task in tasks])
+    return [_task_to_out(task, mapping) for task in tasks]
+
+
+async def _task_out(session: AsyncSession, task: Task) -> TaskOut:
+    return (await _tasks_to_out(session, [task]))[0]
+
+
 async def _serialize_plan(session: AsyncSession) -> Dict[str, Any]:
-    tasks = (await session.execute(select(Task))).scalars().all()
-    outs = []
-    for t in tasks:
-        outs.append(task_to_out(t, await get_dependencies(session, t.id)))
-    version = await _resolve_plan_version(session)
-    plan = PlanOut(version=version, tasks=outs)
-    return plan.model_dump() if hasattr(plan, "model_dump") else plan.dict()
+    tasks = (await session.execute(select(Task).order_by(Task.id))).scalars().all()
+    outs = await _tasks_to_out(session, tasks)
+    version, updated_at = await plan_version_snapshot(session)
+    plan = PlanOut(version=version, updated_at=updated_at, tasks=outs)
+    return _serialize_model(plan)
 
 
 async def _send_ws_payload(ws: WebSocket, payload: Dict[str, Any]) -> bool:
@@ -132,7 +212,8 @@ async def _send_ws_payload(ws: WebSocket, payload: Dict[str, Any]) -> bool:
         return True
     except (asyncio.TimeoutError, WebSocketDisconnect, RuntimeError):
         return False
-    except Exception:
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.warning("Failed to broadcast plan payload", exc_info=exc)
         return False
 
 
@@ -148,7 +229,7 @@ async def broadcast_plan(
     include_plan: bool = False,
     plan: Optional[Dict[str, Any]] = None,
     delta: Optional[Dict[str, Any]] = None,
-):
+) -> None:
     if version is None:
         if session is None:
             async with AsyncSessionLocal() as temp_session:
@@ -167,10 +248,6 @@ async def broadcast_plan(
     if plan_payload is not None and version is None:
         version = plan_payload.get("version")
 
-    # Preserve the historical event type so existing web clients refresh
-    # correctly without needing simultaneous UI changes. Additional payload
-    # fields such as the serialized plan and optional deltas are still sent
-    # for newer consumers that expect the richer structure.
     payload: Dict[str, Any] = {"type": "plan_version"}
     if version is not None:
         payload["version"] = version
@@ -190,57 +267,68 @@ async def broadcast_plan(
             await ws.close()
         _remove_ws_connection(ws)
 
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, session: AsyncSession = Depends(get_session)):
     tmpl = templates.get_template("index.html")
-    tasks = (await session.execute(select(Task))).scalars().all()
+    tasks = (await session.execute(select(Task).order_by(Task.id))).scalars().all()
     deps = (await session.execute(select(TaskDependency))).all()
     return tmpl.render(tasks=tasks, deps=deps)
+
 
 # -------- Agents --------
 @app.post("/api/agents", response_model=AgentRegistrationResponse)
 async def register_agent(agent: AgentIn, session: AsyncSession = Depends(get_session)):
-    exists = (await session.execute(select(Agent).where(Agent.agent_id == agent.agent_name))).scalar_one_or_none()
+    exists = (
+        await session.execute(select(Agent).where(Agent.agent_id == agent.agent_name))
+    ).scalar_one_or_none()
     if exists is None:
         session.add(Agent(agent_id=agent.agent_name))
-        await session.flush()
-        await session.commit()
+    await session.commit()
     return {"ok": True, "agent_id": agent.agent_name}
 
-# -------- Tasks & Plan --------
-def task_to_out(t: Task, deps: List[int]) -> TaskOut:
-    return TaskOut(
-        id=t.id,
-        title=t.title,
-        description=t.description,
-        status=t.status,
-        completed_notes=t.completed_notes,
-        depends_on=deps,
-    )
 
+# -------- Tasks & Plan --------
 @app.get("/api/tasks", response_model=List[TaskOut])
-async def list_tasks(status: Optional[str] = None, session: AsyncSession = Depends(get_session)):
-    q = select(Task)
-    if status:
-        q = q.where(Task.status == status)
-    tasks = (await session.execute(q)).scalars().all()
-    out = []
-    for t in tasks:
-        out.append(task_to_out(t, await get_dependencies(session, t.id)))
-    return out
+async def list_tasks(
+    status: Optional[str] = None, session: AsyncSession = Depends(get_session)
+):
+    stmt = select(Task).order_by(Task.id)
+    if status and status != "all":
+        stmt = stmt.where(Task.status == status)
+    tasks = (await session.execute(stmt)).scalars().all()
+    return await _tasks_to_out(session, tasks)
+
 
 @app.post("/api/tasks", response_model=TaskOut)
 async def create_task(task: TaskIn, session: AsyncSession = Depends(get_session)):
-    t = Task(title=task.title, description=task.description or "")
-    session.add(t)
+    new_task = Task(title=task.title, description=task.description or "")
+    session.add(new_task)
     await session.flush()
-    for d in task.depends_on:
-        session.add(TaskDependency(task_id=t.id, depends_on_task_id=d))
+
+    unique_dependencies = {
+        dep_id for dep_id in task.depends_on if dep_id != new_task.id
+    }
+    if unique_dependencies:
+        rows = (
+            await session.execute(
+                select(Task.id).where(Task.id.in_(unique_dependencies))
+            )
+        ).all()
+        found_ids = {row[0] for row in rows}
+        missing = unique_dependencies - found_ids
+        if missing:
+            raise HTTPException(
+                status_code=400, detail={"missing_dependencies": sorted(missing)}
+            )
+        for dep_id in unique_dependencies:
+            session.add(TaskDependency(task_id=new_task.id, depends_on_task_id=dep_id))
+
     await session.flush()
     version = await increment_plan_version(session)
     await broadcast_plan(version=version, session=session, include_plan=True)
     await session.commit()
-    return task_to_out(t, await get_dependencies(session, t.id))
+    return await _task_out(session, new_task)
 
 
 @app.put("/api/tasks/{task_id}", response_model=TaskOut)
@@ -289,29 +377,32 @@ async def update_task(
     version = await increment_plan_version(session)
     await broadcast_plan(version=version, session=session)
     await session.commit()
-    return task_to_out(task, await get_dependencies(session, task.id))
+    return await _task_out(session, task)
+
 
 @app.delete("/api/tasks/{task_id}", response_model=StatusResponse)
 async def delete_task(task_id: int, session: AsyncSession = Depends(get_session)):
-    existing = (await session.execute(select(Task.id).where(Task.id == task_id))).scalar_one_or_none()
-    await session.execute(delete(TaskDependency).where(TaskDependency.task_id == task_id))
+    task = await session.get(Task, task_id)
+
     await session.execute(
         delete(TaskDependency).where(
-            # Remove both outbound and inbound edges to keep the dependency graph consistent.
             or_(
                 TaskDependency.task_id == task_id,
                 TaskDependency.depends_on_task_id == task_id,
             )
         )
     )
-    await session.execute(delete(Task).where(Task.id == task_id))
     await session.execute(delete(Lease).where(Lease.task_id == task_id))
-    if existing is not None:
+
+    if task is not None:
+        await session.delete(task)
         await session.flush()
         version = await increment_plan_version(session)
         await broadcast_plan(version=version, session=session, include_plan=True)
+
     await session.commit()
     return {"ok": True}
+
 
 @app.post("/api/tasks/checkout", response_model=CheckoutOut)
 async def checkout(
@@ -326,18 +417,27 @@ async def checkout(
         await broadcast_plan(version=version, session=session, include_plan=True)
     await session.commit()
     if task:
-        return CheckoutOut(task=task_to_out(task, await get_dependencies(session, task.id)))
+        return CheckoutOut(task=await _task_out(session, task))
     return CheckoutOut(task=None, reason=reason)
 
+
 @app.post("/api/tasks/{task_id}/heartbeat", response_model=StatusResponse)
-async def heartbeat(task_id: int, agent_id: str, session: AsyncSession = Depends(get_session)):
+async def heartbeat(
+    task_id: int, agent_id: str, session: AsyncSession = Depends(get_session)
+):
     ok = await lease_heartbeat(session, agent_id=agent_id, task_id=task_id)
     await session.flush()
     await session.commit()
     return {"ok": ok}
 
+
 @app.post("/api/tasks/{task_id}/complete", response_model=CompleteResponse)
-async def complete(task_id: int, agent_id: str, body: CompleteIn, session: AsyncSession = Depends(get_session)):
+async def complete(
+    task_id: int,
+    agent_id: str,
+    body: CompleteIn,
+    session: AsyncSession = Depends(get_session),
+):
     ok, stored_notes = await complete_task(
         session,
         agent_id=agent_id,
@@ -351,8 +451,11 @@ async def complete(task_id: int, agent_id: str, body: CompleteIn, session: Async
     await session.commit()
     return {"ok": ok, "notes": stored_notes}
 
+
 @app.post("/api/tasks/{task_id}/abandon", response_model=StatusResponse)
-async def abandon(task_id: int, agent_id: str, session: AsyncSession = Depends(get_session)):
+async def abandon(
+    task_id: int, agent_id: str, session: AsyncSession = Depends(get_session)
+):
     ok = await abandon_task(session, agent_id=agent_id, task_id=task_id)
     await session.flush()
     if ok:
@@ -361,18 +464,14 @@ async def abandon(task_id: int, agent_id: str, session: AsyncSession = Depends(g
     await session.commit()
     return {"ok": ok}
 
+
 @app.get("/api/plan", response_model=PlanOut)
 async def get_plan(session: AsyncSession = Depends(get_session)):
-    tasks = (await session.execute(select(Task))).scalars().all()
-    outs = []
-    for t in tasks:
-        outs.append(task_to_out(t, await get_dependencies(session, t.id)))
-    version, updated_at = await plan_version_snapshot(session)
-    return PlanOut(version=version, updated_at=updated_at, tasks=outs)
-    plan = await _serialize_plan(session)
+    plan_dict = await _serialize_plan(session)
     if hasattr(PlanOut, "model_validate"):
-        return PlanOut.model_validate(plan)  # type: ignore[attr-defined]
-    return PlanOut(**plan)
+        return PlanOut.model_validate(plan_dict)  # type: ignore[attr-defined]
+    return PlanOut(**plan_dict)
+
 
 # -------- WebSockets --------
 @app.websocket("/ws/plan")
@@ -395,16 +494,22 @@ async def ws_plan(ws: WebSocket):
                 await ws.receive_text()
             except WebSocketDisconnect:
                 break
-            except Exception:
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.info("Plan websocket receive error", exc_info=exc)
                 break
     except WebSocketDisconnect:
         pass
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error("Plan websocket failure", exc_info=exc)
     finally:
         _remove_ws_connection(ws)
 
+
 # -------- Files --------
 @app.put("/api/files/{path:path}", response_model=FileUploadResponse)
-async def put_live_file(path: str, request: Request, session: AsyncSession = Depends(get_session)):
+async def put_live_file(
+    path: str, request: Request, session: AsyncSession = Depends(get_session)
+):
     data = await request.body()
     sha, size = await put_file(session, path, data)
     await session.flush()
@@ -413,12 +518,14 @@ async def put_live_file(path: str, request: Request, session: AsyncSession = Dep
     await session.commit()
     return {"ok": True, "sha256": sha, "size": size, "url": f"/live/{path}"}
 
+
 @app.get("/live/{path:path}")
 async def get_live_file(path: str, request: Request):
     fp = full_path(path)
     if not os.path.exists(fp):
-        return JSONResponse({"error":"not_found"}, status_code=404)
-    etag_value = None
+        return JSONResponse({"error": "not_found"}, status_code=404)
+
+    etag_value: Optional[str] = None
     if etag_for_path:
         etag_candidate = etag_for_path(path)
         if inspect.isawaitable(etag_candidate):
@@ -429,16 +536,24 @@ async def get_live_file(path: str, request: Request):
     if etag_value:
         incoming = request.headers.get("if-none-match")
         if incoming:
-            etag_candidates = [tag.strip() for tag in incoming.split(",") if tag.strip()]
-            normalized_request_tags = []
+            etag_candidates = [
+                tag.strip() for tag in incoming.split(",") if tag.strip()
+            ]
+            normalized_request_tags: List[str] = []
             for candidate in etag_candidates:
                 if candidate == "*":
                     normalized_request_tags.append("*")
                     continue
-                candidate_value = candidate[2:].strip() if candidate.startswith("W/") else candidate.strip()
+                candidate_value = (
+                    candidate[2:].strip()
+                    if candidate.startswith("W/")
+                    else candidate.strip()
+                )
                 if not candidate_value:
                     continue
-                if not (candidate_value.startswith('"') and candidate_value.endswith('"')):
+                if not (
+                    candidate_value.startswith('"') and candidate_value.endswith('"')
+                ):
                     candidate_value = candidate_value.strip('"')
                     candidate_value = f'"{candidate_value}"'
                 normalized_request_tags.append(candidate_value)
@@ -452,9 +567,11 @@ async def get_live_file(path: str, request: Request):
         response.headers.setdefault("ETag", etag_value)
     return response
 
+
 # -------- UI Helpers --------
 @app.get("/health", response_class=PlainTextResponse)
 async def health():
     return "OK"
+
 
 setup_metrics(app)

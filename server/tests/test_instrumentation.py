@@ -4,7 +4,12 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from server.instrumentation import configure_logging, setup_logging, setup_metrics, setup_tracing
+from server.instrumentation import (
+    configure_logging,
+    setup_logging,
+    setup_metrics,
+    setup_tracing,
+)
 
 
 @pytest.fixture(autouse=True)

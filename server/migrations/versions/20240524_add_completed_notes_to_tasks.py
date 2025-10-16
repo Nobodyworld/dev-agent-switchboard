@@ -1,7 +1,7 @@
 """Add completed_notes column to tasks table
 
 Revision ID: 20240524_add_completed_notes
-Revises: 
+Revises:
 Create Date: 2024-05-24
 """
 

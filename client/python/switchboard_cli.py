@@ -14,7 +14,9 @@ HEARTBEAT_SHUTDOWN_TIMEOUT = 5.0
 
 
 class HeartbeatLoop(threading.Thread):
-    def __init__(self, client: SwitchboardClient, task_id: int, interval: float) -> None:
+    def __init__(
+        self, client: SwitchboardClient, task_id: int, interval: float
+    ) -> None:
         super().__init__(daemon=True)
         self._client = client
         self._task_id = task_id
@@ -54,7 +56,9 @@ def format_task(task: dict) -> str:
     return "\n".join(lines)
 
 
-def process_task(client: SwitchboardClient, task: dict, heartbeat_interval: float) -> bool:
+def process_task(
+    client: SwitchboardClient, task: dict, heartbeat_interval: float
+) -> bool:
     task_id = task["id"]
     print()
     print(format_task(task))
@@ -63,7 +67,9 @@ def process_task(client: SwitchboardClient, task: dict, heartbeat_interval: floa
     # We always stop and join the thread in the finally block so the daemon
     # never leaks if the command exits early.
     loop.start()
-    print(f"Heartbeat thread started (every {heartbeat_interval:.0f}s). Type 'help' for options.")
+    print(
+        f"Heartbeat thread started (every {heartbeat_interval:.0f}s). Type 'help' for options."
+    )
     notes: Optional[str] = None
 
     def finalize(action: str) -> bool:
@@ -95,7 +101,11 @@ def process_task(client: SwitchboardClient, task: dict, heartbeat_interval: floa
                 print(loop.error, file=sys.stderr)
                 return False
             try:
-                command = input("Action [complete/abandon/heartbeat/status/notes/help]> ").strip().lower()
+                command = (
+                    input("Action [complete/abandon/heartbeat/status/notes/help]> ")
+                    .strip()
+                    .lower()
+                )
             except (EOFError, KeyboardInterrupt):
                 # Terminal interrupts default to abandon so leases aren't left dangling.
                 print()
@@ -116,7 +126,9 @@ def process_task(client: SwitchboardClient, task: dict, heartbeat_interval: floa
                 notes = input("Set notes: ") or None
                 continue
             if command in {"help", "?"}:
-                print("Commands: complete (c), abandon (a), heartbeat (h), status (s), notes, help (?)")
+                print(
+                    "Commands: complete (c), abandon (a), heartbeat (h), status (s), notes, help (?)"
+                )
                 continue
             if command == "":
                 continue
@@ -127,7 +139,9 @@ def process_task(client: SwitchboardClient, task: dict, heartbeat_interval: floa
         loop.join(HEARTBEAT_SHUTDOWN_TIMEOUT)
 
 
-def confirm_completion(client: SwitchboardClient, task_id: int, notes: Optional[str]) -> bool:
+def confirm_completion(
+    client: SwitchboardClient, task_id: int, notes: Optional[str]
+) -> bool:
     try:
         return client.complete(task_id, notes=notes or "")
     except requests.HTTPError as exc:  # pragma: no cover - network errors
@@ -169,9 +183,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="switchboard-cli")
     subparsers = parser.add_subparsers(dest="command")
     run_parser = subparsers.add_parser("run", help="Run the interactive agent loop")
-    run_parser.add_argument("--base", required=True, help="Base URL of the Switchboard server")
-    run_parser.add_argument("--agent", required=True, help="Agent identifier to register and use for leases")
-    run_parser.add_argument("--poll-interval", type=float, default=10.0, help="Seconds to wait before retrying checkout")
+    run_parser.add_argument(
+        "--base", required=True, help="Base URL of the Switchboard server"
+    )
+    run_parser.add_argument(
+        "--agent", required=True, help="Agent identifier to register and use for leases"
+    )
+    run_parser.add_argument(
+        "--poll-interval",
+        type=float,
+        default=10.0,
+        help="Seconds to wait before retrying checkout",
+    )
     run_parser.add_argument(
         "--heartbeat-interval",
         type=float,

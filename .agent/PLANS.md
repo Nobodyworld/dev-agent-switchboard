@@ -39,7 +39,9 @@ Explain the user‑visible behavior to be enabled and how to observe it.
 
 ## Outcomes & Retrospective
 
-Summarize outcomes vs. purpose.
+- Backend endpoint logic now shares dependency serialization helpers, reducing duplicated queries and clarifying plan broadcasts.
+- File storage utilities provide consistent UTC metadata and simpler imports, while new tests cover error conditions and filtering behavior.
+- Python client tooling loads reliably in test environments thanks to deterministic module aliasing.
 
 ## Context and Orientation
 
@@ -155,3 +157,96 @@ Improve the Switchboard operator UI so task data stays reliable and comprehensib
 - `GET /api/plan` now returns `{version:int, updated_at:str, tasks:[...]}`.
 - Toast utilities rely on DOM IDs inserted into `index.html`.
 - Playwright tests depend on `pytest` and `playwright.sync_api`.
+# Harden backend and API consistency
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Deliver a production-grade refresh of the Switchboard backend by eliminating duplication, tightening error handling, and ensuring API responses, filesystem helpers, and websocket flows are consistent. The aim is to simplify maintenance, ensure typing coverage, and back the behavior with targeted tests.
+
+## Progress
+
+- [x] Initial state captured.
+- [x] Repo audit and scope finalised.
+- [x] Core backend refactors implemented.
+- [x] Supplemental tests authored and passing.
+- [x] Documentation/config verification complete.
+- [x] Final validation and cleanup finished.
+
+## Surprises & Discoveries
+
+- Observation: `server/app.py` duplicates numerous imports and leaves unreachable plan serialization fallback, complicating maintenance.
+  Evidence: Manual inspection of `server/app.py` around the `/api/plan` handler revealed redundant return statements and repeated import blocks.
+- Observation: Python client tests patch `switchboard_client` and `switchboard_cli` via `sys.modules.setdefault`, so resolving modules through a compatibility shim alone leaves aliases pointing at lightweight sentinels.
+  Evidence: Initial pytest run failed importing `DEFAULT_REQUEST_TIMEOUT` and CLI helpers until conftest ensured canonical modules were preloaded.
+
+## Decision Log
+
+- Decision: Consolidated plan serialization, task responses, and dependency loading into shared helpers inside `server/app.py`.
+  Rationale: Removes N+1 dependency queries, eliminates duplicate imports, and keeps API payloads consistent.
+  Date/Author: 2024-06-02 / gpt-5-codex
+- Decision: Tightened live file helpers to reuse shared timestamp utility and avoid duplicate imports.
+  Rationale: Clarifies storage behavior and ensures consistent UTC timestamps for cache validation.
+  Date/Author: 2024-06-02 / gpt-5-codex
+- Decision: Preload real client modules for tests to avoid namespace shims overriding actual implementations.
+  Rationale: Pytest fixtures now force consistent imports so CLI/unit tests share the same module object, allowing mocks to behave predictably.
+  Date/Author: 2024-06-02 / gpt-5-codex
+
+## Outcomes & Retrospective
+
+- Backend endpoint logic now shares dependency serialization helpers, reducing duplicated queries and clarifying plan broadcasts.
+- File storage utilities provide consistent UTC metadata and simpler imports, while new tests cover error conditions and filtering behavior.
+- Python client tooling loads reliably in test environments thanks to deterministic module aliasing.
+
+## Context and Orientation
+
+Key modules:
+- `server/app.py` – FastAPI application wiring, websocket push logic, REST handlers.
+- `server/task_logic.py` – business logic for plan versions, leases, and dependencies.
+- `server/file_store.py` – persistent live-file helper utilities.
+- `server/schema.py` – Pydantic models that surface API contracts.
+- `server/tests/` – pytest suite covering API, websocket, and storage behaviors.
+
+## Plan of Work
+
+1. Audit backend modules for duplicated imports, inconsistent helper usage, and outdated patterns. Outline precise cleanup targets.
+2. Refactor `server/app.py` for clarity: deduplicate imports, centralize plan serialization, strengthen websocket lifecycle cleanup, and ensure API handlers surface consistent error responses.
+3. Modernize `server/file_store.py` helpers with clearer typing, docstrings, and efficient database synchronization when computing ETags.
+4. Verify schema alignment between `PlanOut` and API responses, ensuring `updated_at` is reliably included across code paths.
+5. Add regression tests covering plan serialization (version + updated_at) and file-store ETag caching to guard new behaviors.
+6. Review configuration documentation (`README.md` or others) for alignment with updated best practices; adjust as necessary.
+7. Run lint-equivalent formatting (ruff/black style via `python -m compileall`? -> adopt `ruff`?); ensure pytest suite passes.
+
+## Concrete Steps
+
+1. Use `rg` to identify duplicate imports and inconsistent responses across backend modules.
+2. Update `server/app.py` per plan, adding helper docstrings and type hints.
+3. Update `server/file_store.py` with structured imports, improved error handling, and optional session reuse for ETag computation.
+4. Ensure `PlanOut` usage in API route returns `updated_at` by calling `plan_version_snapshot`; adjust websocket bootstrap accordingly.
+5. Write new pytest modules (e.g., `server/tests/test_plan_serialization.py`) for plan serialization and ETag caching.
+6. Re-run `pytest` and `python -m compileall server` to validate code and bytecode compilation.
+
+## Validation and Acceptance
+
+- `pytest` succeeds locally.
+- Targeted command `python -m compileall server` completes without syntax errors.
+- Manual review confirms imports are deduplicated and docstrings clarify behavior.
+
+## Idempotence and Recovery
+
+- Database migrations untouched; rerunning app reuses same schema.
+- File-store adjustments remain backward compatible; existing data unaffected.
+- Tests are deterministic and can be rerun without manual intervention.
+
+## Artifacts and Notes
+
+- Pending as work progresses.
+
+## Interfaces and Dependencies
+
+- FastAPI endpoints continue to expose schemas defined in `server/schema.py`.
+- `PlanOut` now consistently includes `updated_at` timestamp retrieved from `plan_version_snapshot`.
+- `etag_for_path` optionally reuses provided SQLAlchemy session to avoid nested transactions.

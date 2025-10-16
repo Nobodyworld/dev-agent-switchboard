@@ -38,7 +38,9 @@ def _truthy_env(name: str, default: bool = False) -> bool:
 class RequestIdMiddleware(BaseHTTPMiddleware):
     """Attach a request ID to incoming requests and responses."""
 
-    def __init__(self, app: ASGIApp, header_name: str = DEFAULT_REQUEST_ID_HEADER) -> None:
+    def __init__(
+        self, app: ASGIApp, header_name: str = DEFAULT_REQUEST_ID_HEADER
+    ) -> None:
         super().__init__(app)
         self.header_name = header_name
 
@@ -80,9 +82,12 @@ def configure_logging() -> bool:
         try:
             fileConfig(config_path, disable_existing_loggers=False)
             configured = True
-        except Exception:  # pragma: no cover - configuration errors are surfaced via warnings
+        except (
+            Exception
+        ):  # pragma: no cover - configuration errors are surfaced via warnings
             logging.getLogger(__name__).warning(
-                "Failed to load logging config from %s", config_path,
+                "Failed to load logging config from %s",
+                config_path,
                 exc_info=True,
             )
 
@@ -127,7 +132,9 @@ def setup_logging(app: FastAPI, header_name: Optional[str] = None) -> bool:
     if not _truthy_env("SWITCHBOARD_ENABLE_REQUEST_ID", default=True):
         return False
 
-    header = header_name or os.getenv("SWITCHBOARD_REQUEST_ID_HEADER", DEFAULT_REQUEST_ID_HEADER)
+    header = header_name or os.getenv(
+        "SWITCHBOARD_REQUEST_ID_HEADER", DEFAULT_REQUEST_ID_HEADER
+    )
 
     for middleware in app.user_middleware:
         if getattr(middleware, "cls", None) is RequestIdMiddleware:

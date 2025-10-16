@@ -1,4 +1,3 @@
-
 import argparse
 import time
 from typing import Optional
@@ -8,13 +7,44 @@ from switchboard_client import SwitchboardClient
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Example agent loop for Switchboard")
-    parser.add_argument("--base-url", default="http://localhost:8000", help="Switchboard server base URL")
-    parser.add_argument("--agent-id", default="codex-1", help="Agent identifier to use when talking to the server")
-    parser.add_argument("--heartbeat-count", type=int, default=3, help="Number of heartbeats to send before completing a task")
-    parser.add_argument("--heartbeat-interval", type=float, default=2.0, help="Seconds to wait between heartbeats")
-    parser.add_argument("--sleep-interval", type=float, default=5.0, help="Seconds to sleep when no tasks are available")
-    parser.add_argument("--completion-notes", default="done", help="Notes to include when completing a task")
-    parser.add_argument("--dry-run", action="store_true", help="Print planned actions without mutating server state")
+    parser.add_argument(
+        "--base-url",
+        default="http://localhost:8000",
+        help="Switchboard server base URL",
+    )
+    parser.add_argument(
+        "--agent-id",
+        default="codex-1",
+        help="Agent identifier to use when talking to the server",
+    )
+    parser.add_argument(
+        "--heartbeat-count",
+        type=int,
+        default=3,
+        help="Number of heartbeats to send before completing a task",
+    )
+    parser.add_argument(
+        "--heartbeat-interval",
+        type=float,
+        default=2.0,
+        help="Seconds to wait between heartbeats",
+    )
+    parser.add_argument(
+        "--sleep-interval",
+        type=float,
+        default=5.0,
+        help="Seconds to sleep when no tasks are available",
+    )
+    parser.add_argument(
+        "--completion-notes",
+        default="done",
+        help="Notes to include when completing a task",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print planned actions without mutating server state",
+    )
     return parser.parse_args()
 
 
@@ -40,7 +70,9 @@ def dry_run(client: SwitchboardClient, args: argparse.Namespace) -> None:
         print(f"[dry-run] Would POST {checkout_url} -> task {tid} {title!r}")
         for i in range(args.heartbeat_count):
             hb_url = f"{base}/api/tasks/{tid}/heartbeat?agent_id={agent}"
-            print(f"[dry-run] Would POST {hb_url} (heartbeat {i + 1}/{args.heartbeat_count})")
+            print(
+                f"[dry-run] Would POST {hb_url} (heartbeat {i + 1}/{args.heartbeat_count})"
+            )
         complete_url = f"{base}/api/tasks/{tid}/complete?agent_id={agent}"
         print(
             f"[dry-run] Would POST {complete_url} with notes={args.completion_notes!r}"
@@ -70,7 +102,9 @@ def run(client: SwitchboardClient, args: argparse.Namespace) -> None:
 
 if __name__ == "__main__":
     cli_args = parse_args()
-    client = SwitchboardClient(cli_args.base_url, cli_args.agent_id, auto_register=not cli_args.dry_run)
+    client = SwitchboardClient(
+        cli_args.base_url, cli_args.agent_id, auto_register=not cli_args.dry_run
+    )
     if cli_args.dry_run:
         dry_run(client, cli_args)
     else:

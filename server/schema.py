@@ -1,4 +1,3 @@
-
 from enum import Enum
 import datetime as dt
 from typing import List, Optional
@@ -11,8 +10,10 @@ class TaskStatus(str, Enum):
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
 
+
 class AgentIn(BaseModel):
     agent_name: str = Field(..., description="Human-readable or unique agent ID")
+
 
 class TaskIn(BaseModel):
     title: str
@@ -25,6 +26,7 @@ class TaskUpdate(BaseModel):
     description: Optional[str] = None
     status: Optional[TaskStatus] = None
     depends_on: Optional[List[int]] = Field(default=None)
+
 
 class TaskOut(BaseModel):
     id: int
@@ -43,14 +45,17 @@ class CheckoutFailureReason(str, Enum):
     TASK_NOT_FOUND = "task_not_found"
     TASK_NOT_AVAILABLE = "task_not_available"
 
+
 class CheckoutOut(BaseModel):
     task: Optional[TaskOut] = None
     reason: Optional[CheckoutFailureReason] = None
+
 
 class PlanOut(BaseModel):
     version: int
     updated_at: dt.datetime
     tasks: List[TaskOut]
+
 
 class CompleteIn(BaseModel):
     notes: Optional[str] = None

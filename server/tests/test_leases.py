@@ -42,7 +42,9 @@ async def _force_expire(task_id: int) -> None:
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(Lease).where(Lease.task_id == task_id))
         lease = result.scalar_one()
-        lease.expires_at = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) - dt.timedelta(seconds=1)
+        lease.expires_at = dt.datetime.now(dt.timezone.utc).replace(
+            tzinfo=None
+        ) - dt.timedelta(seconds=1)
         await session.merge(lease)
         await session.commit()
 
@@ -59,7 +61,9 @@ def register_agent(agent_name: str) -> None:
 
 
 def create_task(title: str) -> int:
-    response = client.post("/api/tasks", json={"title": title, "description": "", "depends_on": []})
+    response = client.post(
+        "/api/tasks", json={"title": title, "description": "", "depends_on": []}
+    )
     assert response.status_code == 200
     return response.json()["id"]
 
@@ -77,7 +81,9 @@ def test_checkout_heartbeat_expiry_and_recheckout():
     lease_before = run_async(_get_lease(task_id))
     assert lease_before is not None
 
-    heartbeat = client.post(f"/api/tasks/{task_id}/heartbeat", params={"agent_id": "alpha"})
+    heartbeat = client.post(
+        f"/api/tasks/{task_id}/heartbeat", params={"agent_id": "alpha"}
+    )
     assert heartbeat.status_code == 200
     assert heartbeat.json() == {"ok": True}
 
