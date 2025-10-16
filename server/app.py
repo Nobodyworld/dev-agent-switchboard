@@ -383,17 +383,42 @@ async def put_live_file(path: str, request: Request, session: AsyncSession = Dep
     return {"ok": True, "sha256": sha, "size": size, "url": f"/live/{path}"}
 
 @app.get("/live/{path:path}")
-async def get_live_file(path: str):
+async def get_live_file(path: str, request: Request):
     fp = full_path(path)
     if not os.path.exists(fp):
         return JSONResponse({"error":"not_found"}, status_code=404)
-    response = FileResponse(fp)
+    etag_value = None
     if etag_for_path:
-        etag_value = etag_for_path(path)
-        if inspect.isawaitable(etag_value):
-            etag_value = await etag_value
-        if etag_value:
-            response.headers.setdefault("ETag", etag_value)
+        etag_candidate = etag_for_path(path)
+        if inspect.isawaitable(etag_candidate):
+            etag_candidate = await etag_candidate
+        if etag_candidate:
+            etag_value = etag_candidate
+
+    if etag_value:
+        incoming = request.headers.get("if-none-match")
+        if incoming:
+            etag_candidates = [tag.strip() for tag in incoming.split(",") if tag.strip()]
+            normalized_request_tags = []
+            for candidate in etag_candidates:
+                if candidate == "*":
+                    normalized_request_tags.append("*")
+                    continue
+                candidate_value = candidate[2:].strip() if candidate.startswith("W/") else candidate.strip()
+                if not candidate_value:
+                    continue
+                if not (candidate_value.startswith('"') and candidate_value.endswith('"')):
+                    candidate_value = candidate_value.strip('"')
+                    candidate_value = f'"{candidate_value}"'
+                normalized_request_tags.append(candidate_value)
+            if "*" in normalized_request_tags or etag_value in normalized_request_tags:
+                not_modified = Response(status_code=304)
+                not_modified.headers["ETag"] = etag_value
+                return not_modified
+
+    response = FileResponse(fp)
+    if etag_value:
+        response.headers.setdefault("ETag", etag_value)
     return response
 
 # -------- UI Helpers --------
