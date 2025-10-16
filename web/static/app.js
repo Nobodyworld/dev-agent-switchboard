@@ -374,12 +374,25 @@ async function completeTask(taskId) {
 
 async function startTask(taskId) {
   try {
-    await apiFetchJson(`/api/tasks/${taskId}`, {
-      method: 'PATCH',
+    const result = await apiFetchJson(`/api/tasks/checkout?agent_id=admin&task_id=${taskId}`, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'in_progress' }),
     });
-    showToast(`Task #${taskId} started.`, 'success');
+    if (result && result.task) {
+      showToast(`Task #${taskId} started.`, 'success');
+    } else {
+      let message = `Task #${taskId} could not be started.`;
+      if (result && result.reason) {
+        if (result.reason === 'task_not_found') {
+          message = `Task #${taskId} no longer exists.`;
+        } else if (result.reason === 'task_not_available') {
+          message = `Task #${taskId} is not available to start.`;
+        } else if (result.reason === 'no_available_tasks') {
+          message = 'No tasks are currently available to start.';
+        }
+      }
+      showToast(message, 'error');
+    }
     await refreshPlan();
   } catch (error) {
     console.error('Failed to start task', error);
