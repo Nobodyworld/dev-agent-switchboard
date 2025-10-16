@@ -1,24 +1,20 @@
 import datetime as dt
 from typing import Iterable, List, Optional, Tuple
+
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from .models import Task, TaskDependency, Lease, PlanVersion
+
+from .models import Lease, PlanVersion, Task, TaskDependency
+from .time_utils import utcnow_naive
 
 LEASE_SECONDS = 300
 PLAN_VERSION_ROW_ID = 1
-_UTC = dt.timezone.utc
-
-
-def _utcnow_naive() -> dt.datetime:
-    """Return the current UTC time without timezone information."""
-
-    return dt.datetime.now(_UTC).replace(tzinfo=None)
 
 
 def _lease_deadline(now: Optional[dt.datetime] = None) -> dt.datetime:
     """Return the lease expiration timestamp based on ``LEASE_SECONDS``."""
 
-    base = now or _utcnow_naive()
+    base = now or utcnow_naive()
     return base + dt.timedelta(seconds=LEASE_SECONDS)
 
 
@@ -66,7 +62,7 @@ async def is_available(session: AsyncSession, task: Task) -> bool:
         await session.execute(select(Lease).where(Lease.task_id == task.id))
     ).scalar_one_or_none()
     if lease:
-        now = _utcnow_naive()
+        now = utcnow_naive()
         if lease.expires_at > now:
             return False
     return True
@@ -78,7 +74,7 @@ async def checkout_task(
     task_id: Optional[int] = None,
 ) -> Tuple[Optional[Task], Optional[str]]:
     # expire old leases
-    now = _utcnow_naive()
+    now = utcnow_naive()
     await session.execute(delete(Lease).where(Lease.expires_at < now))
     # find available task
     if task_id is not None:
@@ -131,7 +127,7 @@ async def complete(
         return False, None
     # allow completion if no conflicting lease (expired or owned)
     if lease and lease.agent_id != agent_id:
-        now = _utcnow_naive()
+        now = utcnow_naive()
         if lease.expires_at > now:
             return False, None
     task.status = "completed"
@@ -152,7 +148,7 @@ async def abandon(session: AsyncSession, agent_id: str, task_id: int) -> bool:
     if task is None:
         return False
     if lease and lease.agent_id != agent_id:
-        now = _utcnow_naive()
+        now = utcnow_naive()
         if lease.expires_at > now:
             return False
     task.status = "pending"

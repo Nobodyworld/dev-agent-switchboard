@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import AsyncSessionLocal, FILES_ROOT as CONFIGURED_FILES_ROOT
 from .models import FileEntry
+from .time_utils import utcnow
 
 FILES_ROOT = Path(CONFIGURED_FILES_ROOT)
 
@@ -37,7 +38,7 @@ def full_path(rel_path: str) -> Path:
 
 
 def _now() -> dt.datetime:
-    return dt.datetime.now(dt.timezone.utc)
+    return utcnow()
 
 
 async def put_file(
