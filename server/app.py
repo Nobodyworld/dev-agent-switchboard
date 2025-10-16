@@ -159,8 +159,10 @@ async def delete_task(task_id: int, session: AsyncSession = Depends(get_session)
     await session.execute(delete(Task).where(Task.id == task_id))
     await session.execute(delete(Lease).where(Lease.task_id == task_id))
     if existing is not None:
+        await session.flush()
         version = await increment_plan_version(session)
         await broadcast_plan(version=version, session=session)
+    await session.commit()
     return {"ok": True}
 
 @app.post("/api/tasks/checkout", response_model=CheckoutOut)
