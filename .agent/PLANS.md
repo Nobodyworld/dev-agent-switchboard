@@ -324,3 +324,90 @@ Key modules:
 - FastAPI endpoints continue to expose schemas defined in `server/schema.py`.
 - `PlanOut` now consistently includes `updated_at` timestamp retrieved from `plan_version_snapshot`.
 - `etag_for_path` optionally reuses provided SQLAlchemy session to avoid nested transactions.
+
+# Expand reliability test coverage across accessible components
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Deliver a dependable test harness that covers the Python client, CLI tooling, and other dependency-light modules even when server dependencies (FastAPI, SQLAlchemy) are unavailable. The goal is to extend unit, integration, and regression coverage, ensure missing third-party packages fail fast with informative skips, and capture the improved reliability in a written summary.
+
+## Progress
+
+- [x] Initial state recorded.
+- [x] Test gaps assessed and target surface defined.
+- [x] Server test skips made resilient to missing heavy dependencies.
+- [x] Client and CLI suites expanded with new unit, integration, and regression cases.
+- [x] Repository-wide pytest run documented along with a written reliability report.
+
+## Surprises & Discoveries
+
+- Observation: The offline environment lacks SQLAlchemy and FastAPI, causing `pytest` collection to fail before fixtures can guard against missing dependencies.
+  Evidence: `pytest server/tests/test_tasks.py` initially errored with `ModuleNotFoundError: No module named 'sqlalchemy'`.
+- Observation: `process_task` passes completion notes positionally, so mocks must inspect positional call arguments rather than keywords when verifying behavior.
+  Evidence: The first expansion of CLI tests failed until assertions accounted for positional arguments.
+
+## Decision Log
+
+- Decision: Gate the entire `server.tests` package behind `pytest.importorskip` checks and abort fixture setup early when dependencies are absent.
+  Rationale: Ensures repository-wide test runs provide clear skip messaging instead of import-time crashes while keeping tests ready for full environments.
+  Date/Author: 2024-10-15 / gpt-5-codex
+- Decision: Focus reliability coverage on the Python client, CLI interactions, and compatibility shims that function without the unavailable backend stack.
+  Rationale: Maximizes practical coverage in the constrained environment while still validating user-facing workflows and regression risks.
+  Date/Author: 2024-10-15 / gpt-5-codex
+
+## Outcomes & Retrospective
+
+- Client library now has exhaustive unit tests covering registration, lease maintenance, uploads, and task listings with error handling edge cases.
+- CLI suite exercises heartbeat thread lifecycle, manual command flows, completion/abandon paths, and argument parsing, catching regressions in interactive behaviors.
+- Repository-level test execution succeeds with informative skips for backend suites, enabling consistent automated verification despite missing dependencies.
+
+## Context and Orientation
+
+- `client/python/switchboard_client.py` provides the HTTP-facing agent library backed by `requests`.
+- `client/python/switchboard_cli.py` wraps the client with an interactive agent loop, heartbeats, and CLI entrypoints.
+- `switchboard_client.py` and `switchboard_cli.py` expose compatibility shims at the repo root.
+- `server/tests/` currently rely on SQLAlchemy/ FastAPI and fail to import when dependencies are missing.
+
+## Plan of Work
+
+1. Audit existing client/CLI tests to catalogue uncovered behaviors (registration, list tasks, CLI command flow, heartbeat loop, error reporting).
+2. Guard server-side tests so that missing SQLAlchemy/FastAPI trigger clean skips instead of hard import failures.
+3. Author new client unit tests covering every public method on `SwitchboardClient`, including edge cases for error payloads.
+4. Add CLI-focused integration/regression tests exercising `HeartbeatLoop`, `process_task`, `confirm_completion`, formatting helpers, and the CLI entrypoint.
+5. Capture test commands and outcomes, then summarize coverage and reliability improvements in repository documentation.
+
+## Concrete Steps
+
+1. Use `rg` to identify untested public methods within `client/python` modules.
+2. Update `server/tests/__init__.py` (and supporting fixtures if necessary) with `pytest.importorskip` guards for heavy dependencies.
+3. Extend `client/python/tests/test_switchboard_client.py` with mocks that cover registration, lease maintenance, uploads, and list APIs.
+4. Expand `client/python/tests/test_cli.py` (or companion files) to simulate user interactions, heartbeat loops, and completion flows with patched inputs/threads.
+5. Run `pytest client/python/tests -q` and `pytest -q` to ensure suites pass and skips are reported cleanly.
+6. Author `docs/testing_report.md` (or equivalent) summarizing new coverage breadth, skipped suites, and reliability considerations.
+
+## Validation and Acceptance
+
+- `pytest client/python/tests -q` passes with the expanded suite.
+- Repository-level `pytest -q` reports skipped server tests instead of import errors.
+- The written report enumerates unit/integration/regression additions and documents skip rationale.
+
+## Idempotence and Recovery
+
+- New tests rely solely on stdlib and `requests`; reruns require no database or network access.
+- Server test skips activate automatically when dependencies remain unavailable, avoiding manual toggles.
+- Documentation updates live alongside code changes and can be amended without impacting runtime behavior.
+
+## Artifacts and Notes
+
+- `pytest client/python/tests -q` ⇒ 26 passed (expanded client & CLI coverage).
+- `pytest -q` ⇒ 28 passed, 2 skipped (server suite cleanly skipped when dependencies absent).
+- `docs/testing_report.md` captures the consolidated coverage and reliability summary.
+
+## Interfaces and Dependencies
+
+- Python `requests` library remains the only third-party dependency exercised by the client/CLI tests.
+- `pytest` is used for the test harness; thread behavior is simulated via mocks to avoid real concurrency.
