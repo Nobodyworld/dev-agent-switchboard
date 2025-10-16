@@ -1,7 +1,8 @@
 import hashlib, os, datetime as dt
 from typing import Optional, Tuple
-from sqlalchemy import select
+from sqlalchemy import select, insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from .models import FileEntry
 from .db import AsyncSessionLocal

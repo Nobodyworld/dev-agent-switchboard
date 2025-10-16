@@ -1,0 +1,12 @@
+# Example OpenTelemetry configuration for Switchboard.
+# Values under the `env` key are applied as environment variables when the
+# tracing module loads this file via the SWITCHBOARD_OTEL_CONFIG variable.
+# Adjust endpoints and headers to match your collector.
+
+env:
+  SWITCHBOARD_ENABLE_TRACING: "1"
+  SWITCHBOARD_TRACING_EXPORTER: "otlp"
+  OTEL_SERVICE_NAME: "switchboard"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+  # Example for authenticated collectors:
+  # OTEL_EXPORTER_OTLP_HEADERS: "api-key=demo-token"
