@@ -3,7 +3,7 @@ import os, datetime as dt
 import inspect
 from contextlib import asynccontextmanager
 from typing import List, Optional
-from fastapi import FastAPI, Depends, UploadFile, WebSocket, WebSocketDisconnect, Request, Response
+from fastapi import FastAPI, Depends, UploadFile, WebSocket, WebSocketDisconnect, Request, Response, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -25,6 +25,7 @@ from .schema import (
     StatusResponse,
     TaskIn,
     TaskOut,
+    TaskUpdate,
 )
 from .task_logic import (
     checkout_task,
@@ -32,6 +33,7 @@ from .task_logic import (
     complete as complete_task,
     abandon as abandon_task,
     get_dependencies,
+    update_dependencies,
     plan_version,
     increment_plan_version,
 )
@@ -158,6 +160,55 @@ async def create_task(task: TaskIn, session: AsyncSession = Depends(get_session)
     await broadcast_plan(version=version, session=session)
     await session.commit()
     return task_to_out(t, await get_dependencies(session, t.id))
+
+
+@app.put("/api/tasks/{task_id}", response_model=TaskOut)
+@app.patch("/api/tasks/{task_id}", response_model=TaskOut)
+async def update_task(
+    task_id: int, update: TaskUpdate, session: AsyncSession = Depends(get_session)
+):
+    task = await session.get(Task, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="task_not_found")
+
+    update_payload = update.model_dump(exclude_unset=True)
+    if not update_payload:
+        raise HTTPException(status_code=400, detail="no_updates_provided")
+
+    if update.depends_on is not None:
+        if task_id in update.depends_on:
+            raise HTTPException(status_code=400, detail="task_cannot_depend_on_itself")
+        if update.depends_on:
+            rows = (
+                await session.execute(
+                    select(Task.id).where(Task.id.in_(set(update.depends_on)))
+                )
+            ).all()
+            found_ids = {r[0] for r in rows}
+            missing = set(update.depends_on) - found_ids
+            if missing:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"missing_dependencies": sorted(missing)},
+                )
+
+    if update.title is not None:
+        task.title = update.title
+    if update.description is not None:
+        task.description = update.description
+    if update.status is not None:
+        task.status = update.status
+        if update.status in {"pending", "completed"}:
+            await session.execute(delete(Lease).where(Lease.task_id == task.id))
+    if update.depends_on is not None:
+        await update_dependencies(session, task.id, update.depends_on)
+
+    await session.merge(task)
+    await session.flush()
+    version = await increment_plan_version(session)
+    await broadcast_plan(version=version, session=session)
+    await session.commit()
+    return task_to_out(task, await get_dependencies(session, task.id))
 
 @app.delete("/api/tasks/{task_id}", response_model=StatusResponse)
 async def delete_task(task_id: int, session: AsyncSession = Depends(get_session)):
