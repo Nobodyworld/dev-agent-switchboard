@@ -240,6 +240,7 @@ async def put_live_file(path: str, request: Request, session: AsyncSession = Dep
     await session.flush()
     version = await increment_plan_version(session)
     await broadcast_plan(version=version, session=session)
+    await session.commit()
     return {"ok": True, "sha256": sha, "size": size, "url": f"/live/{path}"}
 
 @app.get("/live/{path:path}")
