@@ -31,6 +31,11 @@ def clean_filesystem():
             shutil.rmtree(FILES_ROOT)
 
 
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
+
+
 def build_scope(path: str, headers: Iterable[Tuple[str, str]] = ()) -> Dict:
     return {
         "type": "http",
@@ -79,7 +84,6 @@ def collect_response(events: List[Dict]) -> Tuple[int, Dict[str, str], bytes]:
 
 
 @pytest.mark.anyio
-@pytest.mark.xfail(reason="Server does not yet expose stored SHA256 as the /live ETag")
 async def test_live_file_includes_sha256_etag():
     path = "tests/etag.txt"
     content = b"etag-me"
@@ -100,7 +104,6 @@ async def test_live_file_includes_sha256_etag():
 
 
 @pytest.mark.anyio
-@pytest.mark.xfail(reason="Server does not yet honor If-None-Match for /live files")
 async def test_live_file_returns_304_on_matching_if_none_match():
     path = "tests/if-none-match.txt"
     content = b"conditional"
@@ -116,7 +119,15 @@ async def test_live_file_returns_304_on_matching_if_none_match():
     etag = headers.get("etag", f'"{expected_sha}"')
 
     events = await call_live(path, headers=[("if-none-match", etag)])
-    status, _, body = collect_response(events)
+    status, headers, body = collect_response(events)
 
     assert status == 304
+    assert headers.get("etag") == etag
     assert body == b""
+
+    mismatch_events = await call_live(path, headers=[("if-none-match", '"bogus"')])
+    mismatch_status, mismatch_headers, mismatch_body = collect_response(mismatch_events)
+
+    assert mismatch_status == 200
+    assert mismatch_headers.get("etag") == etag
+    assert mismatch_body == content
