@@ -49,12 +49,16 @@ def test_update_task_successful_edit_and_dependency_replacement():
             assert after_version == before_version + 1
 
             deps = (
-                await session.execute(
-                    select(TaskDependency.depends_on_task_id).where(
-                        TaskDependency.task_id == original.id
+                (
+                    await session.execute(
+                        select(TaskDependency.depends_on_task_id).where(
+                            TaskDependency.task_id == original.id
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             assert deps == [second_dep.id]
 
     asyncio.run(scenario())
@@ -135,8 +139,10 @@ def test_update_task_status_resetting_leases_to_pending():
 
             assert result.status == "pending"
             leases = (
-                await session.execute(select(Lease).where(Lease.task_id == task.id))
-            ).scalars().all()
+                (await session.execute(select(Lease).where(Lease.task_id == task.id)))
+                .scalars()
+                .all()
+            )
             assert leases == []
 
     asyncio.run(scenario())
@@ -173,8 +179,10 @@ def test_update_task_status_resetting_leases_to_completed():
 
             assert result.status == "completed"
             leases = (
-                await session.execute(select(Lease).where(Lease.task_id == task.id))
-            ).scalars().all()
+                (await session.execute(select(Lease).where(Lease.task_id == task.id)))
+                .scalars()
+                .all()
+            )
             assert leases == []
 
     asyncio.run(scenario())

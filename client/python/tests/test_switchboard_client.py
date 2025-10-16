@@ -6,7 +6,10 @@ from unittest.mock import Mock
 
 import pytest
 
-requests = pytest.importorskip("requests")
+try:
+    import requests
+except ImportError:  # pragma: no cover - handled by skip
+    pytest.skip("requests is required for client tests", allow_module_level=True)  # type: ignore[arg-type]
 
 from switchboard_client import DEFAULT_REQUEST_TIMEOUT, SwitchboardClient
 

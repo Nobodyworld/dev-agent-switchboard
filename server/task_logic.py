@@ -1,21 +1,32 @@
-
 import datetime as dt
 from typing import Iterable, List, Tuple, Optional
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from .models import Task, TaskDependency, Lease, PlanVersion
+
 LEASE_SECONDS = 300
 PLAN_VERSION_ROW_ID = 1
 
+
 async def get_dependencies(session: AsyncSession, task_id: int) -> List[int]:
-    rows = (await session.execute(select(TaskDependency.depends_on_task_id).where(TaskDependency.task_id == task_id))).all()
+    rows = (
+        await session.execute(
+            select(TaskDependency.depends_on_task_id).where(
+                TaskDependency.task_id == task_id
+            )
+        )
+    ).all()
     return [r[0] for r in rows]
 
 
-async def update_dependencies(session: AsyncSession, task_id: int, depends_on: Iterable[int]) -> None:
+async def update_dependencies(
+    session: AsyncSession, task_id: int, depends_on: Iterable[int]
+) -> None:
     """Replace the dependency edges for ``task_id`` with ``depends_on`` safely."""
 
-    await session.execute(delete(TaskDependency).where(TaskDependency.task_id == task_id))
+    await session.execute(
+        delete(TaskDependency).where(TaskDependency.task_id == task_id)
+    )
     seen: set[int] = set()
     for dep_id in depends_on:
         if dep_id in seen:
@@ -24,20 +35,28 @@ async def update_dependencies(session: AsyncSession, task_id: int, depends_on: I
         session.add(TaskDependency(task_id=task_id, depends_on_task_id=dep_id))
     await session.flush()
 
+
 async def is_available(session: AsyncSession, task: Task) -> bool:
     if task.status == "completed":
         return False
     # Dependencies must be completed
     deps = await get_dependencies(session, task.id)
     if deps:
-        rows = (await session.execute(select(Task.id, Task.status).where(Task.id.in_(deps)))).all()
+        rows = (
+            await session.execute(select(Task.id, Task.status).where(Task.id.in_(deps)))
+        ).all()
         if any(r[1] != "completed" for r in rows):
             return False
     # No active lease
-    lease = (await session.execute(select(Lease).where(Lease.task_id == task.id))).scalar_one_or_none()
-    if lease and lease.expires_at > dt.datetime.now(dt.timezone.utc).replace(tzinfo=None):
+    lease = (
+        await session.execute(select(Lease).where(Lease.task_id == task.id))
+    ).scalar_one_or_none()
+    if lease and lease.expires_at > dt.datetime.now(dt.timezone.utc).replace(
+        tzinfo=None
+    ):
         return False
     return True
+
 
 async def checkout_task(
     session: AsyncSession,
@@ -45,7 +64,11 @@ async def checkout_task(
     task_id: Optional[int] = None,
 ) -> Tuple[Optional[Task], Optional[str]]:
     # expire old leases
-    await session.execute(delete(Lease).where(Lease.expires_at < dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)))
+    await session.execute(
+        delete(Lease).where(
+            Lease.expires_at < dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+        )
+    )
     # find available task
     if task_id is not None:
         task = await session.get(Task, task_id)
@@ -58,7 +81,9 @@ async def checkout_task(
         if await is_available(session, t):
             # set status and lease
             t.status = "in_progress"
-            expires = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) + dt.timedelta(seconds=LEASE_SECONDS)
+            expires = dt.datetime.now(dt.timezone.utc).replace(
+                tzinfo=None
+            ) + dt.timedelta(seconds=LEASE_SECONDS)
             await session.merge(t)
             await session.flush()
             await session.execute(delete(Lease).where(Lease.task_id == t.id))
@@ -69,13 +94,19 @@ async def checkout_task(
             return None, "task_not_available"
     return None, "no_available_tasks"
 
+
 async def heartbeat(session: AsyncSession, agent_id: str, task_id: int) -> bool:
-    lease = (await session.execute(select(Lease).where(Lease.task_id == task_id))).scalar_one_or_none()
+    lease = (
+        await session.execute(select(Lease).where(Lease.task_id == task_id))
+    ).scalar_one_or_none()
     if lease is None or lease.agent_id != agent_id:
         return False
-    lease.expires_at = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) + dt.timedelta(seconds=LEASE_SECONDS)
+    lease.expires_at = dt.datetime.now(dt.timezone.utc).replace(
+        tzinfo=None
+    ) + dt.timedelta(seconds=LEASE_SECONDS)
     await session.merge(lease)
     return True
+
 
 async def complete(
     session: AsyncSession,
@@ -83,12 +114,20 @@ async def complete(
     task_id: int,
     notes: Optional[str] = None,
 ) -> Tuple[bool, Optional[str]]:
-    lease = (await session.execute(select(Lease).where(Lease.task_id == task_id))).scalar_one_or_none()
-    task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
+    lease = (
+        await session.execute(select(Lease).where(Lease.task_id == task_id))
+    ).scalar_one_or_none()
+    task = (
+        await session.execute(select(Task).where(Task.id == task_id))
+    ).scalar_one_or_none()
     if task is None:
         return False, None
     # allow completion if no conflicting lease (expired or owned)
-    if lease and lease.agent_id != agent_id and lease.expires_at > dt.datetime.now(dt.timezone.utc).replace(tzinfo=None):
+    if (
+        lease
+        and lease.agent_id != agent_id
+        and lease.expires_at > dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+    ):
         return False, None
     task.status = "completed"
     normalized_notes = notes if notes else None
@@ -97,17 +136,27 @@ async def complete(
     await session.execute(delete(Lease).where(Lease.task_id == task_id))
     return True, task.completed_notes
 
+
 async def abandon(session: AsyncSession, agent_id: str, task_id: int) -> bool:
-    lease = (await session.execute(select(Lease).where(Lease.task_id == task_id))).scalar_one_or_none()
-    task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
+    lease = (
+        await session.execute(select(Lease).where(Lease.task_id == task_id))
+    ).scalar_one_or_none()
+    task = (
+        await session.execute(select(Task).where(Task.id == task_id))
+    ).scalar_one_or_none()
     if task is None:
         return False
-    if lease and lease.agent_id != agent_id and lease.expires_at > dt.datetime.now(dt.timezone.utc).replace(tzinfo=None):
+    if (
+        lease
+        and lease.agent_id != agent_id
+        and lease.expires_at > dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+    ):
         return False
     task.status = "pending"
     await session.merge(task)
     await session.execute(delete(Lease).where(Lease.task_id == task_id))
     return True
+
 
 async def plan_version(session: AsyncSession) -> int:
     return await current_plan_version(session)

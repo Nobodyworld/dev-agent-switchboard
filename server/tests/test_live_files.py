@@ -1,20 +1,17 @@
+from __future__ import annotations
+
 import hashlib
 import shutil
-import sys
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
 import pytest
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.append(str(PROJECT_ROOT))
-
-STATIC_ROOT = PROJECT_ROOT / "web" / "static"
-STATIC_ROOT.mkdir(parents=True, exist_ok=True)
-
 from server.app import app
 from server.file_store import FILES_ROOT as CONFIGURED_FILES_ROOT
+
+STATIC_ROOT = Path(__file__).resolve().parents[2] / "web" / "static"
+STATIC_ROOT.mkdir(parents=True, exist_ok=True)
 
 FILES_ROOT = Path(CONFIGURED_FILES_ROOT)
 
@@ -77,8 +74,7 @@ async def call_live(path: str, headers: Iterable[Tuple[str, str]] = ()) -> List[
 def collect_response(events: List[Dict]) -> Tuple[int, Dict[str, str], bytes]:
     status = events[0]["status"]
     headers = {
-        key.decode().lower(): value.decode()
-        for key, value in events[0]["headers"]
+        key.decode().lower(): value.decode() for key, value in events[0]["headers"]
     }
     body = b"".join(event.get("body", b"") for event in events[1:])
     return status, headers, body

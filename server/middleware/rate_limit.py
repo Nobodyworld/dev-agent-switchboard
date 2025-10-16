@@ -41,7 +41,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         self._buckets.clear()
 
-    def _client_identifier(self, request: Request, settings: RateLimitSettings) -> str | None:
+    def _client_identifier(
+        self, request: Request, settings: RateLimitSettings
+    ) -> str | None:
         client_host = request.client.host if request.client else None
         if (
             client_host
@@ -59,7 +61,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 return first
         return None
 
-    def _should_bypass(self, settings: RateLimitSettings, identifier: str | None) -> bool:
+    def _should_bypass(
+        self, settings: RateLimitSettings, identifier: str | None
+    ) -> bool:
         if identifier and identifier in settings.trusted_bypass:
             return True
         return False
@@ -82,7 +86,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             while bucket and bucket[0] < window_start:
                 bucket.popleft()
             if len(bucket) >= settings.requests:
-                response = PlainTextResponse("Too Many Requests", status_code=HTTP_429_TOO_MANY_REQUESTS)
+                response = PlainTextResponse(
+                    "Too Many Requests", status_code=HTTP_429_TOO_MANY_REQUESTS
+                )
                 response.headers.setdefault("Retry-After", str(settings.window_seconds))
                 return response
             bucket.append(now)

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import json
 from contextlib import asynccontextmanager, suppress
@@ -6,7 +8,10 @@ import httpx
 import pytest
 import uvicorn
 
-websockets = pytest.importorskip("websockets")
+try:
+    import websockets
+except ImportError:  # pragma: no cover - handled by skip
+    pytest.skip("websockets is required for websocket integration tests", allow_module_level=True)  # type: ignore[arg-type]
 
 from server.app import app
 
@@ -48,7 +53,9 @@ async def test_websocket_plan_broadcasts_version_increments():
             async with websockets.connect(ws_url) as websocket:
                 hello_raw = await asyncio.wait_for(websocket.recv(), timeout=2)
                 hello = json.loads(hello_raw)
-                assert hello == {"type": "hello", "msg": "connected"}
+                assert hello["type"] == "plan_snapshot"
+                assert "plan" in hello
+                assert hello.get("version") == hello["plan"].get("version")
 
                 create_resp = await client.post(
                     "/api/tasks",
@@ -73,8 +80,13 @@ async def test_websocket_plan_broadcasts_version_increments():
                 )
                 checkout_resp.raise_for_status()
 
-                second_msg = json.loads(await asyncio.wait_for(websocket.recv(), timeout=2))
-                assert second_msg == {"type": "plan_version", "version": first_version + 1}
+                second_msg = json.loads(
+                    await asyncio.wait_for(websocket.recv(), timeout=2)
+                )
+                assert second_msg == {
+                    "type": "plan_version",
+                    "version": first_version + 1,
+                }
 
                 upload_resp = await client.put(
                     "/api/files/docs/test.txt",
@@ -82,6 +94,10 @@ async def test_websocket_plan_broadcasts_version_increments():
                 )
                 upload_resp.raise_for_status()
 
-                third_msg = json.loads(await asyncio.wait_for(websocket.recv(), timeout=2))
-                assert third_msg == {"type": "plan_version", "version": first_version + 2}
-
+                third_msg = json.loads(
+                    await asyncio.wait_for(websocket.recv(), timeout=2)
+                )
+                assert third_msg == {
+                    "type": "plan_version",
+                    "version": first_version + 2,
+                }

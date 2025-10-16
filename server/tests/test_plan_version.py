@@ -52,7 +52,9 @@ def test_plan_version_increases_on_task_create():
     async def scenario():
         async with AsyncSessionLocal() as session:
             before = await _fetch_plan_version(session)
-            await create_task(TaskIn(title="task", description="", depends_on=[]), session=session)
+            await create_task(
+                TaskIn(title="task", description="", depends_on=[]), session=session
+            )
             await session.commit()
             after = await _fetch_plan_version(session)
             assert after > before
@@ -63,7 +65,9 @@ def test_plan_version_increases_on_task_create():
 def test_plan_version_increases_on_task_update():
     async def scenario():
         async with AsyncSessionLocal() as session:
-            await create_task(TaskIn(title="task", description="", depends_on=[]), session=session)
+            await create_task(
+                TaskIn(title="task", description="", depends_on=[]), session=session
+            )
             await session.commit()
             before = await _fetch_plan_version(session)
             await register_agent(AgentIn(agent_name="agent"), session=session)
@@ -79,7 +83,9 @@ def test_plan_version_increases_on_task_update():
 def test_plan_version_increases_on_task_delete():
     async def scenario():
         async with AsyncSessionLocal() as session:
-            created = await create_task(TaskIn(title="task", description="", depends_on=[]), session=session)
+            created = await create_task(
+                TaskIn(title="task", description="", depends_on=[]), session=session
+            )
             await session.commit()
             before = await _fetch_plan_version(session)
             await delete_task(created.id, session=session)
@@ -106,7 +112,7 @@ def test_plan_version_increases_on_live_file_put():
 def test_plan_version_increases_on_repeated_task_updates():
     async def scenario():
         async with AsyncSessionLocal() as session:
-            created = await create_task(
+            await create_task(
                 TaskIn(title="task", description="", depends_on=[]),
                 session=session,
             )
@@ -123,7 +129,9 @@ def test_plan_version_increases_on_repeated_task_updates():
             assert after_checkout > base_version
 
             assert checkout_result.task is not None
-            await abandon(task_id=checkout_result.task.id, agent_id="agent", session=session)
+            await abandon(
+                task_id=checkout_result.task.id, agent_id="agent", session=session
+            )
             await session.commit()
             after_abandon = await _fetch_plan_version(session)
             assert after_abandon > after_checkout
@@ -139,6 +147,18 @@ def test_plan_metadata_includes_timestamp():
             before = plan.updated_at
 
             await create_task(
+                TaskIn(title="another", description="", depends_on=[]),
+                session=session,
+            )
+            await session.commit()
+
+            after_plan = await _fetch_plan(session)
+            assert after_plan.updated_at >= before
+            assert after_plan.version >= plan.version
+
+    asyncio.run(scenario())
+
+
 def test_plan_returns_completion_notes():
     async def scenario():
         async with AsyncSessionLocal() as session:
@@ -148,8 +168,6 @@ def test_plan_returns_completion_notes():
             )
             await session.commit()
 
-            after_plan = await _fetch_plan(session)
-            assert after_plan.updated_at >= before
             await register_agent(AgentIn(agent_name="agent"), session=session)
             await session.commit()
 

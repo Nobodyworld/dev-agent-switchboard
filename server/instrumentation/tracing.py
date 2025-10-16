@@ -34,7 +34,9 @@ def _apply_config_file() -> None:
         return
 
     if not os.path.exists(config_path):
-        logging.getLogger(__name__).warning("OTel config file %s not found", config_path)
+        logging.getLogger(__name__).warning(
+            "OTel config file %s not found", config_path
+        )
         _CONFIG_APPLIED = True
         return
 
@@ -90,15 +92,22 @@ def setup_tracing(app: FastAPI) -> bool:
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.sdk.trace.export import (
+            BatchSpanProcessor,
+            ConsoleSpanExporter,
+        )
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter,
+        )
     except Exception:  # pragma: no cover - optional dependency
         logging.getLogger(__name__).warning(
             "Tracing requested but OpenTelemetry dependencies are unavailable."
         )
         return False
 
-    resource = Resource.create({"service.name": os.getenv("OTEL_SERVICE_NAME", "switchboard")})
+    resource = Resource.create(
+        {"service.name": os.getenv("OTEL_SERVICE_NAME", "switchboard")}
+    )
 
     if not _PROVIDER_CONFIGURED:
         provider = TracerProvider(resource=resource)

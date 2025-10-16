@@ -77,7 +77,7 @@ instead.)
 
 Open the admin UI: <http://localhost:8000/>
 
-### 4. Run the test suite
+### 4. Run the test suite and quality gates
 
 ```bash
 python scripts/run_pytest.py
@@ -89,7 +89,14 @@ On Windows PowerShell:
 python .\scripts\run_pytest.py
 ```
 
-Unix-like shells can alternatively run `make test`.
+Unix-like shells can alternatively run `make test`. Additional quality
+automation is available through the following make targets:
+
+* `make fmt` — format code using **black**.
+* `make lint` — run the **ruff** static analysis checks.
+* `make typecheck` — execute **mypy --strict** for the API and client.
+* `make security` — scan the server code with **bandit**.
+* `make qa` — run the full formatter, lint, type, test, and security suite.
 
 ### Sample API flows (curl)
 
