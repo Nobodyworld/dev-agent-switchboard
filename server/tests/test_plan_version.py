@@ -19,6 +19,10 @@ async def _fetch_plan_version(session) -> int:
     return (await get_plan(session=session)).version
 
 
+async def _fetch_plan(session):
+    return await get_plan(session=session)
+
+
 def _make_request(body: bytes) -> Request:
     payload = body
 
@@ -122,5 +126,24 @@ def test_plan_version_increases_on_repeated_task_updates():
             await session.commit()
             after_abandon = await _fetch_plan_version(session)
             assert after_abandon > after_checkout
+
+    asyncio.run(scenario())
+
+
+def test_plan_metadata_includes_timestamp():
+    async def scenario():
+        async with AsyncSessionLocal() as session:
+            plan = await _fetch_plan(session)
+            assert plan.updated_at is not None
+            before = plan.updated_at
+
+            await create_task(
+                TaskIn(title="task", description="", depends_on=[]),
+                session=session,
+            )
+            await session.commit()
+
+            after_plan = await _fetch_plan(session)
+            assert after_plan.updated_at >= before
 
     asyncio.run(scenario())

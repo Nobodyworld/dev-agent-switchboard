@@ -90,6 +90,7 @@ If no task is available, `task` is `null` and `reason` is set to `"no_available_
 ```json
 {
   "version": 1700000000,
+  "updated_at": "2024-05-01T12:34:56Z",
   "tasks": [
     {
       "id": 1,
@@ -105,6 +106,7 @@ If no task is available, `task` is `null` and `reason` is set to `"no_available_
 | Field | Type | Description |
 | ----- | ---- | ----------- |
 | `version` | integer | Monotonic counter that increases whenever tasks or live files change. |
+| `updated_at` | string (RFC3339 timestamp) | Last time the plan version changed. Use this to confirm data freshness. |
 | `tasks` | array&lt;TaskOut&gt; | All tasks in the plan. |
 
 ### `CompleteIn`
@@ -303,7 +305,7 @@ Return a task to the pending state and release its lease.
 
 ### `GET /api/plan`
 
-Retrieve the full task plan, including the current version counter.
+Retrieve the full task plan, including the current version counter and last-updated timestamp.
 
 - **Response 200 Example:** `PlanOut` payload (see above).
 

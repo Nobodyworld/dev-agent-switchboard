@@ -32,6 +32,7 @@ from .task_logic import (
     abandon as abandon_task,
     get_dependencies,
     plan_version,
+    plan_version_snapshot,
     increment_plan_version,
 )
 from .file_store import put_file, full_path, ensure_root
@@ -211,8 +212,8 @@ async def get_plan(session: AsyncSession = Depends(get_session)):
     outs = []
     for t in tasks:
         outs.append(task_to_out(t, await get_dependencies(session, t.id)))
-    version = await _resolve_plan_version(session)
-    return PlanOut(version=version, tasks=outs)
+    version, updated_at = await plan_version_snapshot(session)
+    return PlanOut(version=version, updated_at=updated_at, tasks=outs)
 
 # -------- WebSockets --------
 @app.websocket("/ws/plan")
