@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -95,3 +95,159 @@ def test_put_file_returns_url_and_uses_shared_timeout():
         timeout=3,
     )
     response.raise_for_status.assert_called_once()
+
+
+def test_put_file_raises_when_url_missing():
+    session = Mock(spec=requests.Session)
+    response = _successful_response({"ok": True})
+    session.request.return_value = response
+
+    client = SwitchboardClient(
+        "http://example.com", "agent-007", session=session, auto_register=False
+    )
+
+    with pytest.raises(ValueError):
+        client.put_file("foo", b"payload")
+
+    session.request.assert_called_once_with(
+        "put",
+        "http://example.com/api/files/foo",
+        data=b"payload",
+        timeout=DEFAULT_REQUEST_TIMEOUT,
+    )
+
+
+def test_register_returns_json_payload():
+    session = Mock(spec=requests.Session)
+    response = _successful_response({"ok": True, "agent_id": "agent-007"})
+    session.request.return_value = response
+
+    client = SwitchboardClient(
+        "http://example.com/", "agent-007", session=session, auto_register=False
+    )
+
+    payload = client.register()
+
+    assert payload == {"ok": True, "agent_id": "agent-007"}
+    session.request.assert_called_once_with(
+        "post",
+        "http://example.com/api/agents",
+        json={"agent_name": "agent-007"},
+        timeout=DEFAULT_REQUEST_TIMEOUT,
+    )
+
+
+def test_auto_register_triggers_registration_by_default():
+    session = Mock(spec=requests.Session)
+    with patch.object(SwitchboardClient, "register", autospec=True) as register:
+        client = SwitchboardClient("http://example.com", "agent-99", session=session)
+
+    register.assert_called_once_with(client)
+
+
+def test_checkout_records_reason_when_task_missing():
+    session = Mock(spec=requests.Session)
+    response = _successful_response({"task": None, "reason": "no_available"})
+    session.request.return_value = response
+
+    client = SwitchboardClient(
+        "http://example.com", "agent-007", session=session, auto_register=False
+    )
+
+    assert client.checkout() is None
+    assert client.last_checkout_reason == "no_available"
+
+
+def test_heartbeat_returns_boolean_status():
+    session = Mock(spec=requests.Session)
+    response = _successful_response({"ok": True})
+    session.request.return_value = response
+
+    client = SwitchboardClient(
+        "http://example.com", "agent-007", session=session, auto_register=False
+    )
+
+    assert client.heartbeat(42) is True
+    session.request.assert_called_once_with(
+        "post",
+        "http://example.com/api/tasks/42/heartbeat",
+        params={"agent_id": "agent-007"},
+        timeout=DEFAULT_REQUEST_TIMEOUT,
+    )
+
+
+def test_complete_returns_boolean_status():
+    session = Mock(spec=requests.Session)
+    response = _successful_response({"ok": False})
+    session.request.return_value = response
+
+    client = SwitchboardClient(
+        "http://example.com", "agent-007", session=session, auto_register=False
+    )
+
+    assert client.complete(42, notes="done") is False
+    session.request.assert_called_once_with(
+        "post",
+        "http://example.com/api/tasks/42/complete",
+        params={"agent_id": "agent-007"},
+        json={"notes": "done"},
+        timeout=DEFAULT_REQUEST_TIMEOUT,
+    )
+
+
+def test_abandon_returns_boolean_status():
+    session = Mock(spec=requests.Session)
+    response = _successful_response({"ok": True})
+    session.request.return_value = response
+
+    client = SwitchboardClient(
+        "http://example.com", "agent-007", session=session, auto_register=False
+    )
+
+    assert client.abandon(55) is True
+    session.request.assert_called_once_with(
+        "post",
+        "http://example.com/api/tasks/55/abandon",
+        params={"agent_id": "agent-007"},
+        timeout=DEFAULT_REQUEST_TIMEOUT,
+    )
+
+
+def test_list_tasks_without_status_excludes_params():
+    session = Mock(spec=requests.Session)
+    response = _successful_response([{"id": 1}])
+    session.request.return_value = response
+
+    client = SwitchboardClient(
+        "http://example.com", "agent-007", session=session, auto_register=False
+    )
+
+    tasks = client.list_tasks()
+
+    assert tasks == [{"id": 1}]
+    session.request.assert_called_once_with(
+        "get",
+        "http://example.com/api/tasks",
+        params=None,
+        timeout=DEFAULT_REQUEST_TIMEOUT,
+    )
+
+
+def test_list_tasks_with_status_passes_filter():
+    session = Mock(spec=requests.Session)
+    response = _successful_response([{"id": 2}])
+    session.request.return_value = response
+
+    client = SwitchboardClient(
+        "http://example.com", "agent-007", session=session, auto_register=False
+    )
+
+    tasks = client.list_tasks(status="completed")
+
+    assert tasks == [{"id": 2}]
+    session.request.assert_called_once_with(
+        "get",
+        "http://example.com/api/tasks",
+        params={"status": "completed"},
+        timeout=DEFAULT_REQUEST_TIMEOUT,
+    )
