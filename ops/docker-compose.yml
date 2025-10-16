@@ -11,8 +11,15 @@ services:
       - ../.agent:/app/.agent
       - ../AGENTS.md:/app/AGENTS.md:ro
       - ../README.md:/app/README.md:ro
+      - ../ops/logging.ini:/app/ops/logging.ini:ro
+      - ../ops/otel.yaml:/app/ops/otel.yaml:ro
     environment:
       - TZ=UTC
+      - SWITCHBOARD_LOGGING_CONFIG=${SWITCHBOARD_LOGGING_CONFIG:-}
+      - SWITCHBOARD_ENABLE_STRUCTURED_LOGGING=${SWITCHBOARD_ENABLE_STRUCTURED_LOGGING:-0}
+      - SWITCHBOARD_ENABLE_METRICS=${SWITCHBOARD_ENABLE_METRICS:-0}
+      - SWITCHBOARD_ENABLE_TRACING=${SWITCHBOARD_ENABLE_TRACING:-0}
+      - SWITCHBOARD_OTEL_CONFIG=${SWITCHBOARD_OTEL_CONFIG:-}
     healthcheck:
       test:
         - CMD
