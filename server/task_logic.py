@@ -39,11 +39,21 @@ async def is_available(session: AsyncSession, task: Task) -> bool:
         return False
     return True
 
-async def checkout_task(session: AsyncSession, agent_id: str) -> Tuple[Optional[Task], Optional[str]]:
+async def checkout_task(
+    session: AsyncSession,
+    agent_id: str,
+    task_id: Optional[int] = None,
+) -> Tuple[Optional[Task], Optional[str]]:
     # expire old leases
     await session.execute(delete(Lease).where(Lease.expires_at < dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)))
     # find available task
-    tasks = (await session.execute(select(Task).order_by(Task.id))).scalars().all()
+    if task_id is not None:
+        task = await session.get(Task, task_id)
+        if task is None:
+            return None, "task_not_found"
+        tasks = [task]
+    else:
+        tasks = (await session.execute(select(Task).order_by(Task.id))).scalars().all()
     for t in tasks:
         if await is_available(session, t):
             # set status and lease
@@ -55,6 +65,8 @@ async def checkout_task(session: AsyncSession, agent_id: str) -> Tuple[Optional[
             session.add(Lease(task_id=t.id, agent_id=agent_id, expires_at=expires))
             await session.flush()
             return t, None
+        if task_id is not None:
+            return None, "task_not_available"
     return None, "no_available_tasks"
 
 async def heartbeat(session: AsyncSession, agent_id: str, task_id: int) -> bool:

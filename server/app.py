@@ -314,8 +314,12 @@ async def delete_task(task_id: int, session: AsyncSession = Depends(get_session)
     return {"ok": True}
 
 @app.post("/api/tasks/checkout", response_model=CheckoutOut)
-async def checkout(agent_id: str, session: AsyncSession = Depends(get_session)):
-    task, reason = await checkout_task(session, agent_id=agent_id)
+async def checkout(
+    agent_id: str,
+    task_id: Optional[int] = None,
+    session: AsyncSession = Depends(get_session),
+):
+    task, reason = await checkout_task(session, agent_id=agent_id, task_id=task_id)
     await session.flush()
     if task:
         version = await increment_plan_version(session)

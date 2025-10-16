@@ -40,6 +40,8 @@ class TaskOut(BaseModel):
 
 class CheckoutFailureReason(str, Enum):
     NO_AVAILABLE_TASKS = "no_available_tasks"
+    TASK_NOT_FOUND = "task_not_found"
+    TASK_NOT_AVAILABLE = "task_not_available"
 
 class CheckoutOut(BaseModel):
     task: Optional[TaskOut] = None

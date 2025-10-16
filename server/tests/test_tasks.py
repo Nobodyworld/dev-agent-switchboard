@@ -5,7 +5,7 @@ from sqlalchemy import select
 from server.app import checkout, create_task, delete_task, health, register_agent
 from server.db import AsyncSessionLocal
 from server.models import Task, TaskDependency
-from server.schema import AgentIn, TaskIn
+from server.schema import AgentIn, CheckoutFailureReason, TaskIn
 
 
 def test_health():
@@ -28,6 +28,33 @@ def test_create_and_checkout():
             checkout_result = await checkout(agent_id="bot1", session=session)
             assert checkout_result.task is not None
             assert checkout_result.task.id == first.id
+
+    asyncio.run(scenario())
+
+
+def test_targeted_checkout_respects_availability():
+    async def scenario():
+        async with AsyncSessionLocal() as session:
+            first = await create_task(
+                TaskIn(title="t1", description="a", depends_on=[]),
+                session=session,
+            )
+            second = await create_task(
+                TaskIn(title="t2", description="b", depends_on=[first.id]),
+                session=session,
+            )
+            await session.commit()
+
+            await register_agent(AgentIn(agent_name="admin"), session=session)
+            await session.commit()
+
+            unavailable = await checkout(agent_id="admin", task_id=second.id, session=session)
+            assert unavailable.task is None
+            assert unavailable.reason == CheckoutFailureReason.TASK_NOT_AVAILABLE
+
+            first_checkout = await checkout(agent_id="admin", task_id=first.id, session=session)
+            assert first_checkout.task is not None
+            assert first_checkout.task.id == first.id
 
     asyncio.run(scenario())
 
