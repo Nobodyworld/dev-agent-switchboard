@@ -56,6 +56,7 @@ This document is a human-readable snapshot of the FastAPI application's OpenAPI 
   "title": "Write docs",
   "description": "Draft endpoint guide",
   "status": "pending",
+  "completed_notes": null,
   "depends_on": [1, 2]
 }
 ```
@@ -66,6 +67,7 @@ This document is a human-readable snapshot of the FastAPI application's OpenAPI 
 | `title` | string | Task title. |
 | `description` | string | Task description. |
 | `status` | string | Current status (`pending`, `in_progress`, or `completed`). |
+| `completed_notes` | string? | Notes supplied when the task was completed, or `null` if none. |
 | `depends_on` | array&lt;int&gt; | IDs of prerequisite tasks. |
 
 ### `CheckoutOut`
@@ -77,6 +79,7 @@ This document is a human-readable snapshot of the FastAPI application's OpenAPI 
     "title": "Write docs",
     "description": "Draft endpoint guide",
     "status": "in_progress",
+    "completed_notes": null,
     "depends_on": [1, 2]
   },
   "reason": null
@@ -96,6 +99,7 @@ If no task is available, `task` is `null` and `reason` is set to `"no_available_
       "title": "Create skeleton",
       "description": "Bootstrap project",
       "status": "completed",
+      "completed_notes": "Documented all endpoints",
       "depends_on": []
     }
   ]
@@ -117,7 +121,7 @@ If no task is available, `task` is `null` and `reason` is set to `"no_available_
 
 | Field | Type | Description |
 | ----- | ---- | ----------- |
-| `notes` | string | Completion notes (defaults to empty string). |
+| `notes` | string? | Completion notes supplied with task completion. |
 
 ## Plan Version Semantics
 

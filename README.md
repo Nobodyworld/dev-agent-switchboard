@@ -52,16 +52,44 @@ python -m pip install --upgrade pip
 ### 2. Install server dependencies
 
 ```bash
-pip install -r server/requirements.txt
+pip install -r server/requirements-dev.txt
 ```
+
+Unix-like shells can run `make setup` to create the virtual environment and
+install the same dependencies in one step. On Windows, prefer the explicit
+commands above (or adapt them for `python -m pip`).
 
 ### 3. Run the API + UI locally
 
 ```bash
-uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
+python scripts/run_uvicorn.py
 ```
 
+On Windows PowerShell:
+
+```powershell
+python .\scripts\run_uvicorn.py
+```
+
+Unix-like shells also expose a convenience target: `make run`. (The Makefile
+uses POSIX-style activation; Windows users should rely on the Python helper
+instead.)
+
 Open the admin UI: <http://localhost:8000/>
+
+### 4. Run the test suite
+
+```bash
+python scripts/run_pytest.py
+```
+
+On Windows PowerShell:
+
+```powershell
+python .\scripts\run_pytest.py
+```
+
+Unix-like shells can alternatively run `make test`.
 
 ### Sample API flows (curl)
 
@@ -121,22 +149,49 @@ python -m client.python.examples.agent_example
 
 ## Observability (logging, metrics, tracing)
 
-Switchboard does not yet ship with a batteries-included observability stack, but the FastAPI/uvicorn foundation makes it easy to bolt on later. The items below document the options we intend to use and where they will land in the codebase when implemented.
+Switchboard now ships optional instrumentation modules that can be toggled entirely through environment variables. Each helper lives under `server/instrumentation/` and runs during application startup.
 
-- **Logging**
-  - Use uvicorn's built-in access and application logs. CLI flags (e.g. `uvicorn server.app:app --log-config ops/logging.ini`) let us wire a custom logging configuration without code changes.
-  - A repository-local logging config (expected path: `ops/logging.ini`) will centralize formatters/handlers and ensure that when we run under Docker or locally the behavior matches. The server entrypoint (`server/__main__.py` or the `uvicorn` invocation in docs/scripts) will be updated to reference the shared config.
-  - For structured logs, we can swap in `uvicorn --log-config` with JSON-capable handlers (e.g. `python-json-logger`) and standardize request IDs via FastAPI middleware housed in `server/instrumentation/logging.py`.
+- **Logging** (`server/instrumentation/logging.py`)
+  - Request IDs are attached via middleware and injected into log records through a `logging.Filter`. The middleware is on by default and can be disabled with `SWITCHBOARD_ENABLE_REQUEST_ID=0`.
+  - Structured logging can be enabled with `SWITCHBOARD_ENABLE_STRUCTURED_LOGGING=1`. When set, the module uses `python-json-logger` to emit JSON to stdout.
+  - Provide a logging configuration file with `SWITCHBOARD_LOGGING_CONFIG=/path/to/logging.ini`. The repository includes `ops/logging.ini`, which wires JSON handlers for uvicorn and application logs.
 
-- **Metrics**
-  - FastAPI integrates cleanly with Prometheus exporters such as `prometheus-fastapi-instrumentator`. We plan to register instrumentation inside `server/instrumentation/metrics.py` and mount the `/metrics` route from there.
-  - When the metrics module is ready, the FastAPI app factory (`server/app.py`) will import and initialize it, ensuring metrics are exposed both in development and production. Docker Compose will later include a Prometheus service scraping the same endpoint.
+- **Metrics** (`server/instrumentation/metrics.py`)
+  - Prometheus instrumentation is powered by `prometheus-fastapi-instrumentator` and is disabled by default.
+  - Turn it on with `SWITCHBOARD_ENABLE_METRICS=1`. The metrics endpoint defaults to `/metrics` and can be overridden with `SWITCHBOARD_METRICS_PATH`.
 
-- **Tracing**
-  - OpenTelemetry's FastAPI/ASGI instrumentation (`opentelemetry-instrumentation-fastapi`) provides distributed tracing that works with providers such as OTLP, Jaeger, or Honeycomb.
-  - We intend to keep tracing bootstrap code in `server/instrumentation/tracing.py`, invoked from the app startup event handlers. Configuration will live alongside other ops files (e.g. `ops/otel.yaml`) so container deployments can ship the same defaults.
+- **Tracing** (`server/instrumentation/tracing.py`)
+  - OpenTelemetry support instruments FastAPI and emits spans via either the console exporter (default) or OTLP. Enable it with `SWITCHBOARD_ENABLE_TRACING=1`.
+  - Set `SWITCHBOARD_TRACING_EXPORTER=otlp` to use the OTLP HTTP exporter. Standard `OTEL_EXPORTER_OTLP_*` variables are honored.
+  - The module can read an optional YAML file referenced by `SWITCHBOARD_OTEL_CONFIG`. The included `ops/otel.yaml` demonstrates how to define the necessary environment variables for Docker deployments.
 
-Until those modules exist, this section serves as the canonical outline for how observability should be added. Future PRs can fill in the referenced files without reshuffling documentation.
+### Local usage
+
+For ad-hoc local runs, export the desired environment variables before invoking uvicorn:
+
+```bash
+export SWITCHBOARD_ENABLE_STRUCTURED_LOGGING=1
+export SWITCHBOARD_LOGGING_CONFIG="$(pwd)/ops/logging.ini"
+export SWITCHBOARD_ENABLE_METRICS=1
+export SWITCHBOARD_ENABLE_TRACING=1
+uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
+```
+
+When `SWITCHBOARD_LOGGING_CONFIG` is set, uvicorn automatically picks up the shared formatter, so no additional CLI flags are required.
+
+### Docker Compose
+
+The Compose file (`ops/docker-compose.yml`) mounts the default observability configs into the container. To enable instrumentation, populate `ops/.env` (or export variables in your shell) with values such as:
+
+```bash
+SWITCHBOARD_LOGGING_CONFIG=/app/ops/logging.ini
+SWITCHBOARD_ENABLE_STRUCTURED_LOGGING=1
+SWITCHBOARD_ENABLE_METRICS=1
+SWITCHBOARD_ENABLE_TRACING=1
+SWITCHBOARD_OTEL_CONFIG=/app/ops/otel.yaml
+```
+
+Restart the stack (`docker compose --project-directory ops up --build`) and the service will emit JSON logs, expose `/metrics`, and initialize tracing with the parameters from `ops/otel.yaml`.
 The script registers an agent, polls for work, heartbeats while "working", and completes tasks when finished. If you are using a fresh environment just for the client, install `requests` first (`python -m pip install requests`).
 
 ## Docker

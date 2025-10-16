@@ -132,10 +132,17 @@ def test_completion_with_and_without_active_lease():
     )
     assert without_lease.status_code == 200
     assert without_lease.json()["ok"] is True
+    assert without_lease.json()["notes"] == "finishing without lease"
 
     task_record = run_async(_get_task(no_lease_task))
     assert task_record is not None
     assert task_record.status == "completed"
+    assert task_record.completed_notes == "finishing without lease"
+
+    task_list = client.get("/api/tasks")
+    assert task_list.status_code == 200
+    noted_task = next(t for t in task_list.json() if t["id"] == no_lease_task)
+    assert noted_task["completed_notes"] == "finishing without lease"
 
     with_lease_task = create_task("lease completion")
 
@@ -162,6 +169,7 @@ def test_completion_with_and_without_active_lease():
     )
     assert correct_agent_complete.status_code == 200
     assert correct_agent_complete.json()["ok"] is True
+    assert correct_agent_complete.json()["notes"] == "done"
 
     final_lease = run_async(_get_lease(with_lease_task))
     assert final_lease is None
@@ -169,3 +177,4 @@ def test_completion_with_and_without_active_lease():
     final_task = run_async(_get_task(with_lease_task))
     assert final_task is not None
     assert final_task.status == "completed"
+    assert final_task.completed_notes == "done"
