@@ -1,4 +1,5 @@
 import asyncio
+import datetime as dt
 
 import pytest
 from fastapi import HTTPException
@@ -6,7 +7,7 @@ from sqlalchemy import select
 
 from server.app import create_task, update_task
 from server.db import AsyncSessionLocal
-from server.models import TaskDependency
+from server.models import TaskDependency, Lease, Task
 from server.schema import TaskIn, TaskUpdate
 from server.task_logic import plan_version
 
@@ -99,5 +100,81 @@ def test_update_task_self_dependency_validation():
             assert exc.value.status_code == 400
 
             await session.rollback()
+
+    asyncio.run(scenario())
+
+
+def test_update_task_status_resetting_leases_to_pending():
+    async def scenario():
+        async with AsyncSessionLocal() as session:
+            created = await create_task(
+                TaskIn(title="leased", description="", depends_on=[]),
+                session=session,
+            )
+            await session.commit()
+
+            task = await session.get(Task, created.id)
+            assert task is not None
+            task.status = "in_progress"
+            await session.flush()
+
+            session.add(
+                Lease(
+                    task_id=task.id,
+                    agent_id="agent-a",
+                    expires_at=dt.datetime.utcnow() + dt.timedelta(minutes=5),
+                )
+            )
+            await session.commit()
+
+            result = await update_task(
+                task.id,
+                TaskUpdate(status="pending"),
+                session=session,
+            )
+
+            assert result.status == "pending"
+            leases = (
+                await session.execute(select(Lease).where(Lease.task_id == task.id))
+            ).scalars().all()
+            assert leases == []
+
+    asyncio.run(scenario())
+
+
+def test_update_task_status_resetting_leases_to_completed():
+    async def scenario():
+        async with AsyncSessionLocal() as session:
+            created = await create_task(
+                TaskIn(title="finishing", description="", depends_on=[]),
+                session=session,
+            )
+            await session.commit()
+
+            task = await session.get(Task, created.id)
+            assert task is not None
+            task.status = "in_progress"
+            await session.flush()
+
+            session.add(
+                Lease(
+                    task_id=task.id,
+                    agent_id="agent-b",
+                    expires_at=dt.datetime.utcnow() + dt.timedelta(minutes=5),
+                )
+            )
+            await session.commit()
+
+            result = await update_task(
+                task.id,
+                TaskUpdate(status="completed"),
+                session=session,
+            )
+
+            assert result.status == "completed"
+            leases = (
+                await session.execute(select(Lease).where(Lease.task_id == task.id))
+            ).scalars().all()
+            assert leases == []
 
     asyncio.run(scenario())

@@ -183,6 +183,8 @@ async def update_task(
         task.description = update.description
     if update.status is not None:
         task.status = update.status
+        if update.status in {"pending", "completed"}:
+            await session.execute(delete(Lease).where(Lease.task_id == task.id))
     if update.depends_on is not None:
         await update_dependencies(session, task.id, update.depends_on)
 
