@@ -113,6 +113,7 @@ async def register_agent(agent: AgentIn, session: AsyncSession = Depends(get_ses
     if exists is None:
         session.add(Agent(agent_id=agent.agent_name))
         await session.flush()
+        await session.commit()
     return {"ok": True, "agent_id": agent.agent_name}
 
 # -------- Tasks & Plan --------
