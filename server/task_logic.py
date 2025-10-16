@@ -52,18 +52,25 @@ async def heartbeat(session: AsyncSession, agent_id: str, task_id: int) -> bool:
     await session.merge(lease)
     return True
 
-async def complete(session: AsyncSession, agent_id: str, task_id: int, notes: str = "") -> bool:
+async def complete(
+    session: AsyncSession,
+    agent_id: str,
+    task_id: int,
+    notes: Optional[str] = None,
+) -> Tuple[bool, Optional[str]]:
     lease = (await session.execute(select(Lease).where(Lease.task_id == task_id))).scalar_one_or_none()
     task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
     if task is None:
-        return False
+        return False, None
     # allow completion if no conflicting lease (expired or owned)
     if lease and lease.agent_id != agent_id and lease.expires_at > dt.datetime.now(dt.timezone.utc).replace(tzinfo=None):
-        return False
+        return False, None
     task.status = "completed"
+    normalized_notes = notes if notes else None
+    task.completed_notes = normalized_notes
     await session.merge(task)
     await session.execute(delete(Lease).where(Lease.task_id == task_id))
-    return True
+    return True, task.completed_notes
 
 async def abandon(session: AsyncSession, agent_id: str, task_id: int) -> bool:
     lease = (await session.execute(select(Lease).where(Lease.task_id == task_id))).scalar_one_or_none()

@@ -1,5 +1,6 @@
 
 import datetime as dt
+from typing import Optional
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, ForeignKey, Boolean, UniqueConstraint
 )
@@ -20,6 +21,7 @@ class Task(Base):
     status: Mapped[str] = mapped_column(String(32), default="pending")  # pending|in_progress|completed
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, onupdate=dt.datetime.utcnow)
+    completed_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 class TaskDependency(Base):
     __tablename__ = "task_dependencies"
