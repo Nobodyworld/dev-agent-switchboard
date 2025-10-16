@@ -1,7 +1,8 @@
 import hashlib, os, datetime as dt
 from typing import Optional, Tuple
-from sqlalchemy import select
+from sqlalchemy import select, insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from .models import FileEntry
 from .db import AsyncSessionLocal
@@ -60,14 +61,39 @@ async def _ensure_entry_sha(session: AsyncSession, rel_path: str) -> Tuple[Optio
     now = dt.datetime.utcnow()
 
     if entry is None:
-        entry = FileEntry(path=rel_path, sha256=sha, size=size, updated_at=now)
-        session.add(entry)
-    else:
+        inserted = False
+        async with session.begin_nested() as nested:
+            try:
+                await session.execute(
+                    insert(FileEntry).values(
+                        path=rel_path,
+                        sha256=sha,
+                        size=size,
+                        updated_at=now,
+                    )
+                )
+            except IntegrityError:
+                await nested.rollback()
+            else:
+                inserted = True
+
+        if inserted:
+            return sha, True
+
+        entry = (
+            await session.execute(select(FileEntry).where(FileEntry.path == rel_path))
+        ).scalar_one_or_none()
+
+        if entry is None:
+            return sha, False
+
+    if entry.sha256 != sha or entry.size != size:
         entry.sha256 = sha
         entry.size = size
         entry.updated_at = now
+        return sha, True
 
-    return sha, True
+    return entry.sha256 or sha, False
 
 
 async def etag_for_path(rel_path: str, session: Optional[AsyncSession] = None) -> Optional[str]:
