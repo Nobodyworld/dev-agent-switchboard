@@ -133,7 +133,11 @@ async def broadcast_plan(
     if plan_payload is not None and version is None:
         version = plan_payload.get("version")
 
-    payload: Dict[str, Any] = {"type": "plan_update"}
+    # Preserve the historical event type so existing web clients refresh
+    # correctly without needing simultaneous UI changes. Additional payload
+    # fields such as the serialized plan and optional deltas are still sent
+    # for newer consumers that expect the richer structure.
+    payload: Dict[str, Any] = {"type": "plan_version"}
     if version is not None:
         payload["version"] = version
     if plan_payload is not None:

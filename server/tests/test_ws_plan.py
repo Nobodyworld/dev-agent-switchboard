@@ -33,7 +33,7 @@ async def test_ws_plan_receives_snapshot_and_updates():
             assert response.status_code == 200
 
             update = websocket.receive_json()
-            assert update["type"] == "plan_update"
+            assert update["type"] == "plan_version"
             assert update["version"] > initial["version"]
             assert len(update["plan"]["tasks"]) == 1
             assert update["plan"]["tasks"][0]["title"] == "ws-task"
@@ -51,7 +51,7 @@ async def test_broadcast_plan_can_include_delta_payload():
             await broadcast_plan(version=42, delta=delta)
 
             message = websocket.receive_json()
-            assert message["type"] == "plan_update"
+            assert message["type"] == "plan_version"
             assert message["version"] == 42
             assert message["delta"] == delta
 
