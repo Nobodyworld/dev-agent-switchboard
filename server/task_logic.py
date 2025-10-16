@@ -22,7 +22,7 @@ async def is_available(session: AsyncSession, task: Task) -> bool:
             return False
     # No active lease
     lease = (await session.execute(select(Lease).where(Lease.task_id == task.id))).scalar_one_or_none()
-    if lease and lease.expires_at > dt.datetime.utcnow():
+    if lease and lease.expires_at > dt.datetime.now(dt.timezone.utc).replace(tzinfo=None):
         return False
     return True
 
