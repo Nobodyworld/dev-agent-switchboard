@@ -8,7 +8,9 @@ import json
 import logging
 import os
 from contextlib import asynccontextmanager, suppress
-from typing import Any, Dict, List, Mapping, MutableMapping, Optional, Sequence
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, MutableMapping, Optional, Sequence, TypedDict
+from typing import Literal
 
 from fastapi import (
     Depends,
@@ -34,8 +36,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from yaml import safe_dump
 
 from .db import AsyncSessionLocal, Base, engine, get_session
-from .file_store import ensure_root, full_path, put_file
 from .execplan_registry import build_registry_index
+from .file_store import ensure_root, full_path, put_file
 from .instrumentation import (
     configure_logging,
     setup_logging,
@@ -121,19 +123,86 @@ app.add_middleware(
 )
 
 # Static UI
-WEB_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web"))
-app.mount(
-    "/static", StaticFiles(directory=os.path.join(WEB_ROOT, "static")), name="static"
-)
+WEB_ROOT = Path(__file__).resolve().parent.parent / "web"
+STATIC_ROOT = WEB_ROOT / "static"
+app.mount("/static", StaticFiles(directory=str(STATIC_ROOT)), name="static")
 
-templates = Environment(loader=FileSystemLoader(WEB_ROOT))
+templates = Environment(loader=FileSystemLoader(str(WEB_ROOT)))
 
 # WebSocket connections
 logger = logging.getLogger(__name__)
 
 
-PLAN_CONNECTIONS: List[WebSocket] = []
 PLAN_SEND_TIMEOUT = 2.0
+
+
+class PlanBroadcastPayload(TypedDict, total=False):
+    """Typed WebSocket payload used when broadcasting plan updates."""
+
+    type: Literal["plan_version", "plan_snapshot"]
+    version: int
+    plan: Dict[str, Any]
+    delta: Dict[str, Any]
+
+
+class PlanBroadcaster:
+    """Manage WebSocket connections that should receive plan updates."""
+
+    def __init__(self, *, send_timeout: float = PLAN_SEND_TIMEOUT) -> None:
+        self._connections: set[WebSocket] = set()
+        self._lock = asyncio.Lock()
+        self._send_timeout = send_timeout
+
+    async def add(self, ws: WebSocket) -> None:
+        """Register a new WebSocket connection for future broadcasts."""
+
+        async with self._lock:
+            self._connections.add(ws)
+
+    async def discard(self, ws: WebSocket) -> None:
+        """Remove a WebSocket connection if present."""
+
+        async with self._lock:
+            self._connections.discard(ws)
+
+    async def broadcast(self, payload: PlanBroadcastPayload) -> None:
+        """Send a payload to all active connections, pruning stale sockets."""
+
+        async with self._lock:
+            recipients = list(self._connections)
+
+        stale: List[WebSocket] = []
+        for ws in recipients:
+            ok = await _send_ws_payload(ws, payload, timeout=self._send_timeout)
+            if not ok:
+                stale.append(ws)
+
+        if not stale:
+            return
+
+        for ws in stale:
+            with suppress(Exception):
+                await ws.close()
+            await self.discard(ws)
+
+    def connection_count(self) -> int:
+        """Return the number of currently tracked WebSocket connections."""
+
+        return len(self._connections)
+
+    async def close_all(self) -> None:
+        """Close and drop all tracked connections (primarily used in tests)."""
+
+        async with self._lock:
+            recipients = list(self._connections)
+            self._connections.clear()
+
+        for ws in recipients:
+            with suppress(Exception):
+                await ws.close()
+
+
+PLAN_BROADCASTER = PlanBroadcaster()
 
 
 def _serialize_model(model: Any) -> Dict[str, Any]:
@@ -203,29 +272,36 @@ async def _task_out(session: AsyncSession, task: Task) -> TaskOut:
     return (await _tasks_to_out(session, [task]))[0]
 
 
+async def _load_tasks(
+    session: AsyncSession, *, status: Optional[str] = None
+) -> List[Task]:
+    """Return tasks ordered by identifier, optionally filtered by status."""
+
+    stmt = select(Task).order_by(Task.id)
+    if status and status != "all":
+        stmt = stmt.where(Task.status == status)
+    return list((await session.execute(stmt)).scalars().all())
+
+
 async def _serialize_plan(session: AsyncSession) -> Dict[str, Any]:
-    tasks = (await session.execute(select(Task).order_by(Task.id))).scalars().all()
+    tasks = await _load_tasks(session)
     outs = await _tasks_to_out(session, tasks)
     version, updated_at = await plan_version_snapshot(session)
     plan = PlanOut(version=version, updated_at=updated_at, tasks=outs)
     return _serialize_model(plan)
 
 
-async def _send_ws_payload(ws: WebSocket, payload: Dict[str, Any]) -> bool:
+async def _send_ws_payload(
+    ws: WebSocket, payload: Dict[str, Any], *, timeout: float = PLAN_SEND_TIMEOUT
+) -> bool:
     try:
-        await asyncio.wait_for(ws.send_json(payload), timeout=PLAN_SEND_TIMEOUT)
+        await asyncio.wait_for(ws.send_json(payload), timeout=timeout)
         return True
     except (asyncio.TimeoutError, WebSocketDisconnect, RuntimeError):
         return False
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.warning("Failed to broadcast plan payload", exc_info=exc)
         return False
-
-
-def _remove_ws_connection(ws: WebSocket) -> None:
-    with suppress(ValueError):
-        PLAN_CONNECTIONS.remove(ws)
-
 
 async def broadcast_plan(
     version: Optional[int] = None,
@@ -235,6 +311,8 @@ async def broadcast_plan(
     plan: Optional[Dict[str, Any]] = None,
     delta: Optional[Dict[str, Any]] = None,
 ) -> None:
+    """Broadcast the latest plan version to connected WebSocket listeners."""
+
     if version is None:
         if session is None:
             async with AsyncSessionLocal() as temp_session:
@@ -253,7 +331,7 @@ async def broadcast_plan(
     if plan_payload is not None and version is None:
         version = plan_payload.get("version")
 
-    payload: Dict[str, Any] = {"type": "plan_version"}
+    payload: PlanBroadcastPayload = {"type": "plan_version"}
     if version is not None:
         payload["version"] = version
     if plan_payload is not None:
@@ -261,22 +339,15 @@ async def broadcast_plan(
     if delta is not None:
         payload["delta"] = delta
 
-    stale: List[WebSocket] = []
-    for ws in list(PLAN_CONNECTIONS):
-        ok = await _send_ws_payload(ws, payload)
-        if not ok:
-            stale.append(ws)
-
-    for ws in stale:
-        with suppress(Exception):
-            await ws.close()
-        _remove_ws_connection(ws)
+    await PLAN_BROADCASTER.broadcast(payload)
 
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, session: AsyncSession = Depends(get_session)):
+    """Render the operator dashboard populated with current task data."""
+
     tmpl = templates.get_template("index.html")
-    tasks = (await session.execute(select(Task).order_by(Task.id))).scalars().all()
+    tasks = await _load_tasks(session)
     deps = (await session.execute(select(TaskDependency))).all()
     return tmpl.render(tasks=tasks, deps=deps)
 
@@ -284,6 +355,8 @@ async def index(request: Request, session: AsyncSession = Depends(get_session)):
 # -------- Agents --------
 @app.post("/api/agents", response_model=AgentRegistrationResponse)
 async def register_agent(agent: AgentIn, session: AsyncSession = Depends(get_session)):
+    """Ensure the provided agent exists and return the registration payload."""
+
     exists = (
         await session.execute(select(Agent).where(Agent.agent_id == agent.agent_name))
     ).scalar_one_or_none()
@@ -298,15 +371,16 @@ async def register_agent(agent: AgentIn, session: AsyncSession = Depends(get_ses
 async def list_tasks(
     status: Optional[str] = None, session: AsyncSession = Depends(get_session)
 ):
-    stmt = select(Task).order_by(Task.id)
-    if status and status != "all":
-        stmt = stmt.where(Task.status == status)
-    tasks = (await session.execute(stmt)).scalars().all()
+    """Return tasks matching the requested status filter."""
+
+    tasks = await _load_tasks(session, status=status)
     return await _tasks_to_out(session, tasks)
 
 
 @app.post("/api/tasks", response_model=TaskOut)
 async def create_task(task: TaskIn, session: AsyncSession = Depends(get_session)):
+    """Persist a new task and broadcast the resulting plan snapshot."""
+
     new_task = Task(title=task.title, description=task.description or "")
     session.add(new_task)
     await session.flush()
@@ -341,6 +415,8 @@ async def create_task(task: TaskIn, session: AsyncSession = Depends(get_session)
 async def update_task(
     task_id: int, update: TaskUpdate, session: AsyncSession = Depends(get_session)
 ):
+    """Apply field updates to an existing task and propagate plan changes."""
+
     task = await session.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="task_not_found")
@@ -387,6 +463,8 @@ async def update_task(
 
 @app.delete("/api/tasks/{task_id}", response_model=StatusResponse)
 async def delete_task(task_id: int, session: AsyncSession = Depends(get_session)):
+    """Remove a task and its related edges, broadcasting plan updates."""
+
     task = await session.get(Task, task_id)
 
     await session.execute(
@@ -415,21 +493,25 @@ async def checkout(
     task_id: Optional[int] = None,
     session: AsyncSession = Depends(get_session),
 ):
-    task, reason = await checkout_task(session, agent_id=agent_id, task_id=task_id)
+    """Checkout a task for the agent, returning the task or failure reason."""
+
+    result = await checkout_task(session, agent_id=agent_id, task_id=task_id)
     await session.flush()
-    if task:
+    if result.task:
         version = await increment_plan_version(session)
         await broadcast_plan(version=version, session=session, include_plan=True)
     await session.commit()
-    if task:
-        return CheckoutOut(task=await _task_out(session, task))
-    return CheckoutOut(task=None, reason=reason)
+    if result.task:
+        return CheckoutOut(task=await _task_out(session, result.task))
+    return CheckoutOut(task=None, reason=result.reason)
 
 
 @app.post("/api/tasks/{task_id}/heartbeat", response_model=StatusResponse)
 async def heartbeat(
     task_id: int, agent_id: str, session: AsyncSession = Depends(get_session)
 ):
+    """Extend the lease for ``task_id`` if the agent currently holds it."""
+
     ok = await lease_heartbeat(session, agent_id=agent_id, task_id=task_id)
     await session.flush()
     await session.commit()
@@ -443,24 +525,28 @@ async def complete(
     body: CompleteIn,
     session: AsyncSession = Depends(get_session),
 ):
-    ok, stored_notes = await complete_task(
+    """Mark the task as completed if the lease permits it."""
+
+    result = await complete_task(
         session,
         agent_id=agent_id,
         task_id=task_id,
         notes=body.notes,
     )
     await session.flush()
-    if ok:
+    if result.ok:
         version = await increment_plan_version(session)
         await broadcast_plan(version=version, session=session, include_plan=True)
     await session.commit()
-    return {"ok": ok, "notes": stored_notes}
+    return {"ok": result.ok, "notes": result.notes}
 
 
 @app.post("/api/tasks/{task_id}/abandon", response_model=StatusResponse)
 async def abandon(
     task_id: int, agent_id: str, session: AsyncSession = Depends(get_session)
 ):
+    """Release a task lease and revert the task to ``pending`` if possible."""
+
     ok = await abandon_task(session, agent_id=agent_id, task_id=task_id)
     await session.flush()
     if ok:
@@ -471,6 +557,8 @@ async def abandon(
 
 
 def _negotiate_execplan_format(request: Request) -> str:
+    """Return ``json`` or ``yaml`` based on query and ``Accept`` headers."""
+
     format_hint = request.query_params.get("format")
     if format_hint:
         lowered = format_hint.lower()
@@ -487,6 +575,8 @@ def _negotiate_execplan_format(request: Request) -> str:
 
 
 def _etag_matches(etag: str, header_value: Optional[str]) -> bool:
+    """Return ``True`` when the provided ``If-None-Match`` header matches ``etag``."""
+
     if not header_value:
         return False
     candidates = [tag.strip() for tag in header_value.split(",") if tag.strip()]
@@ -495,6 +585,8 @@ def _etag_matches(etag: str, header_value: Optional[str]) -> bool:
 
 @app.get("/api/execplans/index", name="execplan_index")
 async def execplan_index(request: Request, session: AsyncSession = Depends(get_session)):
+    """Return the ExecPlan registry index in JSON or YAML format."""
+
     desired_format = _negotiate_execplan_format(request)
     source_url = str(request.url)
     payload, etag, _, http_date = await build_registry_index(
@@ -519,6 +611,8 @@ async def execplan_index(request: Request, session: AsyncSession = Depends(get_s
 
 @app.get("/api/plan", response_model=PlanOut)
 async def get_plan(session: AsyncSession = Depends(get_session)):
+    """Return the full task plan, including version metadata."""
+
     plan_dict = await _serialize_plan(session)
     if hasattr(PlanOut, "model_validate"):
         return PlanOut.model_validate(plan_dict)  # type: ignore[attr-defined]
@@ -528,17 +622,19 @@ async def get_plan(session: AsyncSession = Depends(get_session)):
 # -------- WebSockets --------
 @app.websocket("/ws/plan")
 async def ws_plan(ws: WebSocket):
+    """Stream plan updates to connected web clients via WebSocket."""
+
     await ws.accept()
-    PLAN_CONNECTIONS.append(ws)
+    await PLAN_BROADCASTER.add(ws)
     try:
         async with AsyncSessionLocal() as session:
             plan_payload = await _serialize_plan(session)
-        initial_payload = {
+        initial_payload: PlanBroadcastPayload = {
             "type": "plan_snapshot",
-            "version": plan_payload.get("version"),
+            "version": plan_payload.get("version", 0),
             "plan": plan_payload,
         }
-        ok = await _send_ws_payload(ws, initial_payload)
+        ok = await _send_ws_payload(ws, initial_payload, timeout=PLAN_SEND_TIMEOUT)
         if not ok:
             return
         while True:
@@ -554,7 +650,7 @@ async def ws_plan(ws: WebSocket):
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.error("Plan websocket failure", exc_info=exc)
     finally:
-        _remove_ws_connection(ws)
+        await PLAN_BROADCASTER.discard(ws)
 
 
 # -------- Files --------
@@ -562,17 +658,26 @@ async def ws_plan(ws: WebSocket):
 async def put_live_file(
     path: str, request: Request, session: AsyncSession = Depends(get_session)
 ):
+    """Persist a live file upload and broadcast the resulting plan delta."""
+
     data = await request.body()
-    sha, size = await put_file(session, path, data)
+    write_result = await put_file(session, path, data)
     await session.flush()
     version = await increment_plan_version(session)
     await broadcast_plan(version=version, session=session, include_plan=True)
     await session.commit()
-    return {"ok": True, "sha256": sha, "size": size, "url": f"/live/{path}"}
+    return {
+        "ok": True,
+        "sha256": write_result.sha256,
+        "size": write_result.size,
+        "url": f"/live/{path}",
+    }
 
 
 @app.get("/live/{path:path}")
 async def get_live_file(path: str, request: Request):
+    """Return a stored live file with optional ETag-based caching."""
+
     fp = full_path(path)
     if not os.path.exists(fp):
         return JSONResponse({"error": "not_found"}, status_code=404)
@@ -623,6 +728,8 @@ async def get_live_file(path: str, request: Request):
 # -------- UI Helpers --------
 @app.get("/health", response_class=PlainTextResponse)
 async def health():
+    """Return a simple OK response for health checks."""
+
     return "OK"
 
 

@@ -11,6 +11,8 @@ from fastapi import FastAPI
 
 _INSTRUMENTED_APPS: "WeakSet[FastAPI]" = WeakSet()
 
+__all__ = ["setup_metrics"]
+
 
 def _truthy_env(name: str) -> bool:
     raw = os.getenv(name)

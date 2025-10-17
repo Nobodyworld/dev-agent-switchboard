@@ -1,9 +1,11 @@
+"""Interactive CLI for driving the Switchboard agent loop."""
+
 import argparse
 import json
 import sys
 import threading
 import time
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import requests
 
@@ -12,8 +14,22 @@ from switchboard_client import SwitchboardClient
 
 HEARTBEAT_SHUTDOWN_TIMEOUT = 5.0
 
+TaskPayload = Dict[str, Any]
+
+__all__ = [
+    "HEARTBEAT_SHUTDOWN_TIMEOUT",
+    "HeartbeatLoop",
+    "build_parser",
+    "format_task",
+    "main",
+    "process_task",
+    "run_command",
+]
+
 
 class HeartbeatLoop(threading.Thread):
+    """Background thread that maintains task leases via heartbeats."""
+
     def __init__(
         self, client: SwitchboardClient, task_id: int, interval: float
     ) -> None:
@@ -38,14 +54,20 @@ class HeartbeatLoop(threading.Thread):
                 return
 
     def stop(self) -> None:
+        """Signal the heartbeat loop to stop sending requests."""
+
         self._stop.set()
 
     @property
     def error(self) -> Optional[str]:
+        """Return the last error encountered by the heartbeat loop, if any."""
+
         return self._error
 
 
-def format_task(task: dict) -> str:
+def format_task(task: TaskPayload) -> str:
+    """Return a human-readable summary for ``task``."""
+
     depends = task.get("depends_on") or []
     lines = [
         f"Task {task['id']}: {task.get('title', '<no title>')}",
@@ -57,8 +79,10 @@ def format_task(task: dict) -> str:
 
 
 def process_task(
-    client: SwitchboardClient, task: dict, heartbeat_interval: float
+    client: SwitchboardClient, task: TaskPayload, heartbeat_interval: float
 ) -> bool:
+    """Interactively process ``task`` using the provided client."""
+
     task_id = task["id"]
     print()
     print(format_task(task))
@@ -142,6 +166,8 @@ def process_task(
 def confirm_completion(
     client: SwitchboardClient, task_id: int, notes: Optional[str]
 ) -> bool:
+    """Attempt to mark ``task_id`` complete, returning the server status."""
+
     try:
         return client.complete(task_id, notes=notes or "")
     except requests.HTTPError as exc:  # pragma: no cover - network errors
@@ -150,6 +176,8 @@ def confirm_completion(
 
 
 def run_command(args: argparse.Namespace) -> int:
+    """Execute the interactive agent loop using parsed arguments."""
+
     try:
         client = SwitchboardClient(args.base, args.agent)
     except requests.RequestException as exc:
@@ -180,6 +208,8 @@ def run_command(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Return the top-level argument parser for the CLI."""
+
     parser = argparse.ArgumentParser(prog="switchboard-cli")
     subparsers = parser.add_subparsers(dest="command")
     run_parser = subparsers.add_parser("run", help="Run the interactive agent loop")
@@ -206,6 +236,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    """Entry point for console scripts and ``python -m`` execution."""
+
     parser = build_parser()
     args = parser.parse_args(argv)
     if not getattr(args, "func", None):

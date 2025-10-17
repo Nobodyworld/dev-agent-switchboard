@@ -9,6 +9,8 @@ from requests import Response, Session
 
 DEFAULT_REQUEST_TIMEOUT = 10.0
 
+__all__ = ["DEFAULT_REQUEST_TIMEOUT", "SwitchboardClient"]
+
 
 class SwitchboardClient:
     """Thin wrapper around the Switchboard REST API."""
@@ -50,6 +52,25 @@ class SwitchboardClient:
         """Return the underlying :class:`requests.Session`."""
 
         return self._session
+
+    @property
+    def timeout(self) -> float:
+        """Return the request timeout applied to outbound calls."""
+
+        return self._timeout
+
+    def close(self) -> None:
+        """Close the underlying :class:`requests.Session`."""
+
+        self._session.close()
+
+    def __enter__(self) -> "SwitchboardClient":
+        """Support ``with`` statements for deterministic cleanup."""
+
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
 
     def _request(self, method: str, path: str, **kwargs: Any) -> Response:
         """Helper that performs a request with shared timeout/session settings."""

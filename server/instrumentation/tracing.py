@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+"""OpenTelemetry tracing instrumentation for Switchboard."""
+
 import logging
 import os
 from typing import Dict
@@ -13,6 +15,8 @@ _CONFIG_APPLIED = False
 _PROVIDER_CONFIGURED = False
 _PROCESSOR_INSTALLED = False
 _INSTRUMENTED_APPS: "WeakSet[FastAPI]" = WeakSet()
+
+__all__ = ["setup_tracing"]
 
 
 def _truthy_env(name: str) -> bool:
