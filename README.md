@@ -98,6 +98,23 @@ automation is available through the following make targets:
 * `make security` — scan the server code with **bandit**.
 * `make qa` — run the full formatter, lint, type, test, and security suite.
 
+## Continuous integration
+
+Incoming pull requests are validated by the `CI` GitHub Actions workflow. The
+pipeline mirrors the local setup described above:
+
+1. Set up Python 3.11 and install development dependencies from
+   `server/requirements-dev.txt`.
+2. Execute the test suite via `python scripts/run_pytest.py`.
+3. Optionally run `make fmt`, `make lint`, and `make typecheck` when the
+   corresponding repository variables (`CI_RUN_FMT`, `CI_RUN_LINT`,
+   `CI_RUN_TYPECHECK`) are set to `true`, or when triggering the workflow
+   manually with the dispatch inputs enabled.
+
+Repository maintainers can enable the optional gates globally by defining the
+above variables under **Settings → Variables → Repository variables**, or opt
+into them per run through the "Run workflow" dialog in GitHub's UI.
+
 ### Sample API flows (curl)
 
 These are copy/paste friendly for macOS/Linux shells. On Windows PowerShell, replace the trailing backslashes (`\`) with backticks (`\``) and use double quotes for JSON payloads.
