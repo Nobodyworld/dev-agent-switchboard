@@ -56,19 +56,64 @@ Insert a rate limiting middleware into the FastAPI application (e.g., [slowapi](
 - Return `429 Too Many Requests` with a retry-after header and structured log events.
 - Expose metrics via Prometheus (middleware counter) or logging hooks.
 
-## Recommendation
-Implement Option A (Reverse Proxy Enforcement) as the default path because it minimizes application changes, offloads rate limiting to well-optimized components, and aligns with the existing Docker Compose deployment story. Operators running Switchboard in managed environments (e.g., behind API gateways) can disable the bundled proxy and rely on their platform’s rate limiting instead.
+## Chosen Approach
 
-Option B can remain a future enhancement for deployments that cannot use a proxy or require per-agent limits. Should that need arise, ensure shared state is available before enabling multi-instance support.
+Switchboard currently ships with the ASGI middleware option implemented in
+[`server/middleware/rate_limit.py`](../server/middleware/rate_limit.py). The
+middleware keeps a sliding window counter per client identifier (derived from
+trusted proxy headers when present) and rejects requests with `429 Too Many
+Requests` once the configured allowance is exceeded. This in-process strategy
+was selected because it:
 
-## Open Questions
-1. Which proxy to standardize on? Traefik integrates cleanly with Docker labels, while Nginx has ubiquitous familiarity.
-2. What default thresholds balance protection with legitimate bursty traffic from agents syncing plans?
-3. How should trusted actor bypasses be configured and distributed (environment variables, config files, or admin UI)?
-4. Do we need differentiated limits for write vs. read endpoints (e.g., stricter on task mutations)?
+- Adds zero infrastructure dependencies to the default Docker Compose workflow
+  while still protecting the API and admin UI from abusive bursts.
+- Gives the application full control over how clients are identified, enabling
+  trusted bypasses for known agents without requiring proxy-specific features.
+- Keeps operational complexity low for the common single-instance deployment by
+  avoiding the need for Redis or an additional reverse proxy container.
 
-## Next Steps
-1. Choose a proxy (recommend Traefik for Docker-first workflow) and define base configuration templates.
-2. Add documentation for operators covering deployment topology, configuration knobs, and observability signals.
-3. Implement proxy service in Docker Compose and verify rate limiting behavior with load tests.
-4. Optionally prototype ASGI middleware to support non-proxy deployments once demand is confirmed.
+Operators who already terminate traffic through a load balancer or API gateway
+can continue to layer those rate limiting features in front of Switchboard. An
+external proxy remains the right choice when you need shared counters across
+multiple Switchboard instances, want more sophisticated algorithms (e.g., token
+bucket with distributed state), or must enforce per-path policies before the
+requests reach the ASGI stack.
+
+### Configuration knobs
+
+The middleware reads its thresholds from environment variables that are also
+documented in the README:
+
+- `SWITCHBOARD_RATE_LIMIT_REQUESTS` — maximum requests permitted within the
+  window (default `120`). Set to `0` to disable the middleware entirely.
+- `SWITCHBOARD_RATE_LIMIT_WINDOW_SECONDS` — sliding window size in seconds
+  (default `60`).
+- `SWITCHBOARD_RATE_LIMIT_TRUSTED_BYPASS` — comma-separated list of client IPs
+  allowed to bypass rate limiting. When Switchboard sits behind a proxy, the
+  middleware inspects the first value in `X-Forwarded-For` as long as the proxy
+  address is listed in `trusted_proxies` (configured via
+  `SWITCHBOARD_RATE_LIMIT_TRUSTED_PROXIES`).
+
+### Operational notes
+
+- Counters live in memory and reset when the process restarts. This is
+  sufficient for the single-instance deployment model but means limits are not
+  coordinated across horizontally scaled app servers.
+- When deploying behind another proxy, ensure `trusted_proxies` in
+  `RateLimitSettings` includes the proxy’s IP so that the middleware can honor
+  `X-Forwarded-For` and apply bypass rules to the real client address.
+
+## Future work
+
+If demand for the proxy-based option resurfaces, the following prerequisites
+should be satisfied before switching the default:
+
+- Define a standard reverse proxy container (likely Traefik or Nginx) within
+  `ops/docker-compose.yml`, including configuration templates checked into the
+  repository.
+- Establish guidance for propagating real client IPs through any upstream load
+  balancers so proxy-enforced limits remain accurate.
+- Document how proxy-managed limits interact with the existing middleware—e.g.,
+  whether the middleware is disabled entirely or kept as a secondary safety
+  net—and provide migration steps for operators upgrading from the
+  single-process setup.
