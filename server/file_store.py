@@ -6,7 +6,7 @@ import datetime as dt
 import hashlib
 import os
 from collections.abc import Callable
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Optional, Tuple
 
 from fastapi import HTTPException
@@ -29,10 +29,21 @@ def ensure_root() -> None:
 def full_path(rel_path: str) -> Path:
     """Return a safe filesystem path for a user-provided relative path."""
 
-    rel = rel_path.strip("/")
-    candidate = (FILES_ROOT / rel).resolve()
+    trimmed = rel_path.strip()
+    if not trimmed:
+        raise HTTPException(status_code=400, detail="invalid path")
+
+    if "\\" in trimmed:
+        raise HTTPException(status_code=400, detail="invalid path")
+
+    relative = PurePosixPath(trimmed)
+    if relative.is_absolute():
+        raise HTTPException(status_code=400, detail="invalid path")
+
+    root = FILES_ROOT.resolve()
+    candidate = (root / relative).resolve()
     try:
-        candidate.relative_to(FILES_ROOT)
+        candidate.relative_to(root)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="invalid path") from exc
     return candidate

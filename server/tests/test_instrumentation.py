@@ -94,9 +94,10 @@ def test_instrumentation_does_not_break_event_loop(monkeypatch):
     setup_metrics(app)
 
     async def call_metrics():
-        from httpx import AsyncClient
+        from httpx import ASGITransport, AsyncClient
 
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/metrics")
             assert response.status_code == 200
 

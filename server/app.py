@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import logging
 import os
 from contextlib import asynccontextmanager, suppress
@@ -139,7 +140,9 @@ def _serialize_model(model: Any) -> Dict[str, Any]:
     """Return a dictionary representation for both Pydantic v1 and v2 models."""
 
     if hasattr(model, "model_dump"):
-        return model.model_dump()  # type: ignore[no-any-return]
+        return model.model_dump(mode="json")  # type: ignore[no-any-return]
+    if hasattr(model, "json"):
+        return json.loads(model.json())  # type: ignore[no-any-return]
     return model.dict()  # type: ignore[no-any-return]
 
 
@@ -497,6 +500,7 @@ async def execplan_index(request: Request, session: AsyncSession = Depends(get_s
     payload, etag, _, http_date = await build_registry_index(
         session, source_url=source_url
     )
+    await session.commit()
 
     headers = {"ETag": etag, "Last-Modified": http_date}
 
