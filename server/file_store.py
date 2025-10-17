@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -37,8 +38,13 @@ def full_path(rel_path: str) -> Path:
     return candidate
 
 
+UTCNOW: Callable[[], dt.datetime] = utcnow
+
+
 def _now() -> dt.datetime:
-    return utcnow()
+    """Return the current UTC timestamp."""
+
+    return UTCNOW()
 
 
 async def put_file(
