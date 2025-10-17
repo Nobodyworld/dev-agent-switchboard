@@ -30,9 +30,11 @@ from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import delete, or_, select, text
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
+from yaml import safe_dump
 
 from .db import AsyncSessionLocal, Base, engine, get_session
 from .file_store import ensure_root, full_path, put_file
+from .execplan_registry import build_registry_index
 from .instrumentation import (
     configure_logging,
     setup_logging,
@@ -463,6 +465,52 @@ async def abandon(
         await broadcast_plan(version=version, session=session, include_plan=True)
     await session.commit()
     return {"ok": ok}
+
+
+def _negotiate_execplan_format(request: Request) -> str:
+    format_hint = request.query_params.get("format")
+    if format_hint:
+        lowered = format_hint.lower()
+        if lowered in {"yaml", "yml"}:
+            return "yaml"
+        if lowered == "json":
+            return "json"
+
+    accept = request.headers.get("accept", "")
+    yaml_markers = {"application/yaml", "text/yaml", "application/x-yaml"}
+    if any(marker in accept for marker in yaml_markers):
+        return "yaml"
+    return "json"
+
+
+def _etag_matches(etag: str, header_value: Optional[str]) -> bool:
+    if not header_value:
+        return False
+    candidates = [tag.strip() for tag in header_value.split(",") if tag.strip()]
+    return "*" in candidates or etag in candidates
+
+
+@app.get("/api/execplans/index", name="execplan_index")
+async def execplan_index(request: Request, session: AsyncSession = Depends(get_session)):
+    desired_format = _negotiate_execplan_format(request)
+    source_url = str(request.url)
+    payload, etag, _, http_date = await build_registry_index(
+        session, source_url=source_url
+    )
+
+    headers = {"ETag": etag, "Last-Modified": http_date}
+
+    if _etag_matches(etag, request.headers.get("if-none-match")):
+        not_modified = Response(status_code=304, headers=headers)
+        return not_modified
+
+    if desired_format == "yaml":
+        body = safe_dump(payload, sort_keys=False)
+        if not body.endswith("\n"):
+            body = f"{body}\n"
+        return Response(content=body, media_type="application/yaml", headers=headers)
+
+    return JSONResponse(payload, headers=headers)
 
 
 @app.get("/api/plan", response_model=PlanOut)
