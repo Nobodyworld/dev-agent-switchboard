@@ -2,7 +2,7 @@ import asyncio
 import datetime as dt
 
 import yaml
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 import sqlalchemy as sa
 
 from server.app import app
@@ -44,7 +44,8 @@ def _sample_plan() -> ExecPlan:
 
 def test_execplan_index_empty_registry_defaults():
     async def scenario():
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/api/execplans/index")
             assert response.status_code == 200
             data = response.json()
@@ -66,7 +67,8 @@ def test_execplan_index_includes_plan_metadata_and_yaml():
             session.add(_sample_plan())
             await session.commit()
 
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             json_response = await client.get("/api/execplans/index")
             assert json_response.status_code == 200
             body = json_response.json()
@@ -101,7 +103,8 @@ def test_execplan_index_etag_updates_on_mutation():
             session.add(plan)
             await session.commit()
 
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             first = await client.get("/api/execplans/index")
             assert first.status_code == 200
             first_tag = first.headers["ETag"]
@@ -113,7 +116,8 @@ def test_execplan_index_etag_updates_on_mutation():
             plan.summary = "Updated summary"
             await session.commit()
 
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             second = await client.get("/api/execplans/index")
             assert second.status_code == 200
             assert second.headers["ETag"] != first_tag
