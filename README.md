@@ -9,6 +9,7 @@ Switchboard is a small, production‑leaning FastAPI service that:
 - Ships a lightweight admin UI with color-coded status badges and a friendly empty state so task filters always communicate what you're seeing.
 - Ships with **AGENTS.md** and a **.agent/PLANS.md** template aligned with the ExecPlan pattern.
 - Includes a **Python client** for agent integrations and **Docker** packaging.
+- Documents the full stack layout in [docs/architecture.md](docs/architecture.md).
 
 ## Quickstart (local)
 

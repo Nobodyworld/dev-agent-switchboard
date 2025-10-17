@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+"""Simple sliding-window rate limiting middleware."""
+
 import asyncio
 import time
-from collections import deque, defaultdict
+from collections import defaultdict, deque
 from typing import Awaitable, Callable, Deque, Dict, Optional
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -17,6 +19,12 @@ from server.settings import RateLimitSettings
 SettingsProvider = Callable[[], RateLimitSettings]
 
 _current_middleware: Optional["RateLimitMiddleware"] = None
+
+__all__ = [
+    "RateLimitMiddleware",
+    "SettingsProvider",
+    "get_current_rate_limit_middleware",
+]
 
 
 def get_current_rate_limit_middleware() -> Optional["RateLimitMiddleware"]:
@@ -44,6 +52,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def _client_identifier(
         self, request: Request, settings: RateLimitSettings
     ) -> str | None:
+        """Return the identifier used for rate-limiting decisions."""
+
         client_host = request.client.host if request.client else None
         if (
             client_host
@@ -64,11 +74,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def _should_bypass(
         self, settings: RateLimitSettings, identifier: str | None
     ) -> bool:
+        """Return ``True`` when the identifier should bypass rate limiting."""
+
         if identifier and identifier in settings.trusted_bypass:
             return True
         return False
 
-    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:  # type: ignore[override]
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:  # type: ignore[override]
         settings = self._settings_provider()
         if not settings.enabled:
             return await call_next(request)

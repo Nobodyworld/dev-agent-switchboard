@@ -251,3 +251,25 @@ def test_list_tasks_with_status_passes_filter():
         params={"status": "completed"},
         timeout=DEFAULT_REQUEST_TIMEOUT,
     )
+
+
+def test_timeout_property_reflects_constructor_value():
+    client = SwitchboardClient(
+        "http://example.com", "agent-007", timeout=7.5, auto_register=False
+    )
+
+    try:
+        assert client.timeout == 7.5
+    finally:
+        client.close()
+
+
+def test_context_manager_closes_session():
+    session = Mock(spec=requests.Session)
+
+    with SwitchboardClient(
+        "http://example.com", "agent-007", session=session, auto_register=False
+    ) as client:
+        assert isinstance(client, SwitchboardClient)
+
+    session.close.assert_called_once_with()

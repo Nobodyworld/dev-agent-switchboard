@@ -1,11 +1,48 @@
+"""Domain logic shared by the Switchboard FastAPI endpoints."""
+
+from __future__ import annotations
+
 import datetime as dt
-from typing import Iterable, List, Optional, Tuple
+from typing import Iterable, List, NamedTuple, Optional, Tuple
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import Lease, PlanVersion, Task, TaskDependency
 from .time_utils import utcnow_naive
+
+
+__all__ = [
+    "LEASE_SECONDS",
+    "PLAN_VERSION_ROW_ID",
+    "CheckoutResult",
+    "CompleteResult",
+    "abandon",
+    "checkout_task",
+    "complete",
+    "current_plan_version",
+    "get_dependencies",
+    "heartbeat",
+    "increment_plan_version",
+    "is_available",
+    "plan_version",
+    "plan_version_snapshot",
+    "update_dependencies",
+]
+
+
+class CheckoutResult(NamedTuple):
+    """Result wrapper returned by :func:`checkout_task`."""
+
+    task: Optional[Task]
+    reason: Optional[str]
+
+
+class CompleteResult(NamedTuple):
+    """Result wrapper returned by :func:`complete`."""
+
+    ok: bool
+    notes: Optional[str]
 
 LEASE_SECONDS = 300
 PLAN_VERSION_ROW_ID = 1
@@ -19,6 +56,8 @@ def _lease_deadline(now: Optional[dt.datetime] = None) -> dt.datetime:
 
 
 async def get_dependencies(session: AsyncSession, task_id: int) -> List[int]:
+    """Return task identifiers that ``task_id`` depends on."""
+
     rows = (
         await session.execute(
             select(TaskDependency.depends_on_task_id).where(
@@ -47,6 +86,8 @@ async def update_dependencies(
 
 
 async def is_available(session: AsyncSession, task: Task) -> bool:
+    """Return ``True`` when ``task`` can be checked out for work."""
+
     if task.status == "completed":
         return False
     # Dependencies must be completed
@@ -72,7 +113,9 @@ async def checkout_task(
     session: AsyncSession,
     agent_id: str,
     task_id: Optional[int] = None,
-) -> Tuple[Optional[Task], Optional[str]]:
+) -> CheckoutResult:
+    """Return the next available task for ``agent_id`` or a failure reason."""
+
     # expire old leases
     now = utcnow_naive()
     await session.execute(delete(Lease).where(Lease.expires_at < now))
@@ -80,7 +123,7 @@ async def checkout_task(
     if task_id is not None:
         task = await session.get(Task, task_id)
         if task is None:
-            return None, "task_not_found"
+            return CheckoutResult(None, "task_not_found")
         tasks = [task]
     else:
         tasks = (await session.execute(select(Task).order_by(Task.id))).scalars().all()
@@ -94,13 +137,15 @@ async def checkout_task(
             await session.execute(delete(Lease).where(Lease.task_id == t.id))
             session.add(Lease(task_id=t.id, agent_id=agent_id, expires_at=expires))
             await session.flush()
-            return t, None
+            return CheckoutResult(t, None)
         if task_id is not None:
-            return None, "task_not_available"
-    return None, "no_available_tasks"
+            return CheckoutResult(None, "task_not_available")
+    return CheckoutResult(None, "no_available_tasks")
 
 
 async def heartbeat(session: AsyncSession, agent_id: str, task_id: int) -> bool:
+    """Extend the lease for ``task_id`` if it belongs to ``agent_id``."""
+
     lease = (
         await session.execute(select(Lease).where(Lease.task_id == task_id))
     ).scalar_one_or_none()
@@ -116,7 +161,8 @@ async def complete(
     agent_id: str,
     task_id: int,
     notes: Optional[str] = None,
-) -> Tuple[bool, Optional[str]]:
+) -> CompleteResult:
+    """Mark ``task_id`` complete if ``agent_id`` holds the lease."""
     lease = (
         await session.execute(select(Lease).where(Lease.task_id == task_id))
     ).scalar_one_or_none()
@@ -124,21 +170,23 @@ async def complete(
         await session.execute(select(Task).where(Task.id == task_id))
     ).scalar_one_or_none()
     if task is None:
-        return False, None
+        return CompleteResult(False, None)
     # allow completion if no conflicting lease (expired or owned)
     if lease and lease.agent_id != agent_id:
         now = utcnow_naive()
         if lease.expires_at > now:
-            return False, None
+            return CompleteResult(False, None)
     task.status = "completed"
     normalized_notes = notes if notes else None
     task.completed_notes = normalized_notes
     await session.merge(task)
     await session.execute(delete(Lease).where(Lease.task_id == task_id))
-    return True, task.completed_notes
+    return CompleteResult(True, task.completed_notes)
 
 
 async def abandon(session: AsyncSession, agent_id: str, task_id: int) -> bool:
+    """Release an active lease and reset the task to ``pending`` if allowed."""
+
     lease = (
         await session.execute(select(Lease).where(Lease.task_id == task_id))
     ).scalar_one_or_none()
@@ -158,10 +206,14 @@ async def abandon(session: AsyncSession, agent_id: str, task_id: int) -> bool:
 
 
 async def plan_version(session: AsyncSession) -> int:
+    """Return the current plan version without updating it."""
+
     return await current_plan_version(session)
 
 
 async def plan_version_snapshot(session: AsyncSession) -> Tuple[int, dt.datetime]:
+    """Return the current plan version and last updated timestamp."""
+
     row = await _ensure_plan_version_row(session)
     # `updated_at` may be None immediately after creation prior to flush; ensure defaults apply.
     if row.updated_at is None:
@@ -171,6 +223,8 @@ async def plan_version_snapshot(session: AsyncSession) -> Tuple[int, dt.datetime
 
 
 async def _ensure_plan_version_row(session: AsyncSession) -> PlanVersion:
+    """Ensure the singleton plan-version row exists and return it."""
+
     row = await session.get(PlanVersion, PLAN_VERSION_ROW_ID)
     if row is None:
         row = PlanVersion(id=PLAN_VERSION_ROW_ID, value=0)
@@ -180,6 +234,8 @@ async def _ensure_plan_version_row(session: AsyncSession) -> PlanVersion:
 
 
 async def increment_plan_version(session: AsyncSession) -> int:
+    """Increment and return the plan version."""
+
     await _ensure_plan_version_row(session)
     row = (
         await session.execute(
@@ -194,6 +250,8 @@ async def increment_plan_version(session: AsyncSession) -> int:
 
 
 async def current_plan_version(session: AsyncSession) -> int:
+    """Return the current plan version without mutating it."""
+
     row = await _ensure_plan_version_row(session)
     return row.value
 

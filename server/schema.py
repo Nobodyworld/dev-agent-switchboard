@@ -1,8 +1,32 @@
+"""Pydantic models for the Switchboard API surface."""
+
 from enum import Enum
 import datetime as dt
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
+
+__all__ = [
+    "AgentIn",
+    "AgentRegistrationResponse",
+    "CheckoutFailureReason",
+    "CheckoutOut",
+    "CompleteIn",
+    "CompleteResponse",
+    "ExecPlanEntry",
+    "ExecPlanLifecycle",
+    "ExecPlanOwner",
+    "ExecPlanRegistryIndex",
+    "ExecPlanRegistrySource",
+    "FileUploadResponse",
+    "OkResponse",
+    "PlanOut",
+    "StatusResponse",
+    "TaskIn",
+    "TaskOut",
+    "TaskStatus",
+    "TaskUpdate",
+]
 
 
 class TaskStatus(str, Enum):

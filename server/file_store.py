@@ -7,7 +7,7 @@ import hashlib
 import os
 from collections.abc import Callable
 from pathlib import Path, PurePosixPath
-from typing import Optional, Tuple
+from typing import NamedTuple, Optional, Tuple
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -18,6 +18,22 @@ from .models import FileEntry
 from .time_utils import utcnow
 
 FILES_ROOT = Path(CONFIGURED_FILES_ROOT)
+
+__all__ = [
+    "FILES_ROOT",
+    "FileWriteResult",
+    "ensure_root",
+    "full_path",
+    "put_file",
+    "etag_for_path",
+]
+
+
+class FileWriteResult(NamedTuple):
+    """Metadata describing a file write performed via :func:`put_file`."""
+
+    sha256: str
+    size: int
 
 
 def ensure_root() -> None:
@@ -60,8 +76,8 @@ def _now() -> dt.datetime:
 
 async def put_file(
     session: AsyncSession, rel_path: str, data: bytes
-) -> Tuple[str, int]:
-    """Persist ``data`` to ``rel_path`` and update or create the tracking database entry."""
+) -> FileWriteResult:
+    """Persist ``data`` to ``rel_path`` and update or create the tracking entry."""
 
     ensure_root()
     path = full_path(rel_path)
@@ -83,7 +99,7 @@ async def put_file(
         entry = FileEntry(path=rel_path, sha256=sha, size=size, updated_at=now)
         session.add(entry)
     await session.flush()
-    return sha, size
+    return FileWriteResult(sha, size)
 
 
 async def _ensure_entry_sha(

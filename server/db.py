@@ -1,8 +1,13 @@
+"""Database configuration helpers for the Switchboard server."""
+
+from __future__ import annotations
+
 import os
 from pathlib import Path
+from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 DEFAULT_DATABASE_URL = "sqlite+aiosqlite:///./switchboard.db"
 
@@ -28,6 +33,20 @@ AsyncSessionLocal = sessionmaker(
 Base = declarative_base()
 
 
-async def get_session() -> AsyncSession:
+__all__ = [
+    "AsyncSession",
+    "AsyncSessionLocal",
+    "Base",
+    "DATABASE_URL",
+    "FILES_ROOT",
+    "STORAGE_ROOT",
+    "engine",
+    "get_session",
+]
+
+
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
+    """Yield an :class:`AsyncSession` suitable for FastAPI dependency injection."""
+
     async with AsyncSessionLocal() as session:
         yield session

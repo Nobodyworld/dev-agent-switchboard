@@ -25,6 +25,8 @@ from .time_utils import utcnow
 DEFAULT_REGISTRY_ID = "switchboard-default"
 DEFAULT_SCHEMA_VERSION = 1
 
+__all__ = ["build_registry_index", "ensure_registry", "load_plans"]
+
 
 def _as_utc(value: dt.datetime) -> dt.datetime:
     if value.tzinfo is None:

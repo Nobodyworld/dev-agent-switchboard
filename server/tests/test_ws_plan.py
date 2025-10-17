@@ -2,14 +2,14 @@ import pytest
 
 from fastapi.testclient import TestClient
 
-from server.app import app, PLAN_CONNECTIONS, broadcast_plan
+from server.app import PLAN_BROADCASTER, app, broadcast_plan
 
 
 @pytest.fixture(autouse=True)
-def clear_ws_connections():
-    PLAN_CONNECTIONS.clear()
+async def clear_ws_connections():
+    await PLAN_BROADCASTER.close_all()
     yield
-    PLAN_CONNECTIONS.clear()
+    await PLAN_BROADCASTER.close_all()
 
 
 @pytest.fixture
@@ -38,7 +38,7 @@ async def test_ws_plan_receives_snapshot_and_updates():
             assert len(update["plan"]["tasks"]) == 1
             assert update["plan"]["tasks"][0]["title"] == "ws-task"
 
-        assert not PLAN_CONNECTIONS
+        assert PLAN_BROADCASTER.connection_count() == 0
 
 
 @pytest.mark.anyio
@@ -55,4 +55,4 @@ async def test_broadcast_plan_can_include_delta_payload():
             assert message["version"] == 42
             assert message["delta"] == delta
 
-        assert not PLAN_CONNECTIONS
+        assert PLAN_BROADCASTER.connection_count() == 0
