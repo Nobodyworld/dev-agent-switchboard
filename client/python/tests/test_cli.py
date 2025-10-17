@@ -58,6 +58,7 @@ class RunCommandTests(TestCase):
         client.checkout.side_effect = requests.RequestException("checkout failed")
         with mock.patch("switchboard_cli.SwitchboardClient", return_value=client):
             self.assertEqual(1, run_command(self.args))
+        client.close.assert_called_once()
 
     def test_idle_interrupt_exits_cleanly(self) -> None:
         from switchboard_cli import run_command
@@ -69,6 +70,7 @@ class RunCommandTests(TestCase):
             "switchboard_cli.SwitchboardClient", return_value=client
         ), mock.patch("switchboard_cli.time.sleep", side_effect=KeyboardInterrupt):
             self.assertEqual(0, run_command(self.args))
+        client.close.assert_called_once()
 
     def test_process_task_failure_propagates(self) -> None:
         from switchboard_cli import run_command
@@ -80,6 +82,7 @@ class RunCommandTests(TestCase):
             "switchboard_cli.SwitchboardClient", return_value=client
         ), mock.patch("switchboard_cli.process_task", return_value=False):
             self.assertEqual(1, run_command(self.args))
+        client.close.assert_called_once()
 
     def test_process_task_success_loops_until_interrupt(self) -> None:
         from switchboard_cli import run_command
@@ -93,6 +96,7 @@ class RunCommandTests(TestCase):
             "switchboard_cli.time.sleep", side_effect=KeyboardInterrupt
         ):
             self.assertEqual(0, run_command(self.args))
+        client.close.assert_called_once()
 
 
 class ProcessTaskTests(TestCase):
