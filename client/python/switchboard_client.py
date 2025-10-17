@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import TracebackType
 from typing import Any, Dict, List, Optional, cast
 
 from requests import Response, Session
@@ -69,7 +70,14 @@ class SwitchboardClient:
 
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Ensure the underlying session is closed when leaving a context."""
+
         self.close()
 
     def _request(self, method: str, path: str, **kwargs: Any) -> Response:

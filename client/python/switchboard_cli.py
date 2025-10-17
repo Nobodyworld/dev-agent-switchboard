@@ -183,28 +183,31 @@ def run_command(args: argparse.Namespace) -> int:
     except requests.RequestException as exc:
         print(f"Failed to register agent: {exc}", file=sys.stderr)
         return 1
-    print(f"Registered agent '{args.agent}' against {args.base}.")
-    poll_interval = args.poll_interval
-    while True:
-        try:
-            task = client.checkout()
-        except requests.RequestException as exc:
-            print(f"Checkout failed: {exc}", file=sys.stderr)
-            return 1
-        if not task:
-            reason = getattr(client, "last_checkout_reason", None)
-            if reason:
-                print(f"No task available ({reason}).")
-            else:
-                print("No task available.")
+    try:
+        print(f"Registered agent '{args.agent}' against {args.base}.")
+        poll_interval = args.poll_interval
+        while True:
             try:
-                time.sleep(poll_interval)
-            except KeyboardInterrupt:
-                print()
-                return 0
-            continue
-        if not process_task(client, task, args.heartbeat_interval):
-            return 1
+                task = client.checkout()
+            except requests.RequestException as exc:
+                print(f"Checkout failed: {exc}", file=sys.stderr)
+                return 1
+            if not task:
+                reason = getattr(client, "last_checkout_reason", None)
+                if reason:
+                    print(f"No task available ({reason}).")
+                else:
+                    print("No task available.")
+                try:
+                    time.sleep(poll_interval)
+                except KeyboardInterrupt:
+                    print()
+                    return 0
+                continue
+            if not process_task(client, task, args.heartbeat_interval):
+                return 1
+    finally:
+        client.close()
 
 
 def build_parser() -> argparse.ArgumentParser:

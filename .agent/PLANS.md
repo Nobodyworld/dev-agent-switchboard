@@ -325,6 +325,92 @@ Key modules:
 - `PlanOut` now consistently includes `updated_at` timestamp retrieved from `plan_version_snapshot`.
 - `etag_for_path` optionally reuses provided SQLAlchemy session to avoid nested transactions.
 
+# Deliver production-grade cleanup across repository
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Elevate the entire codebase to production readiness by addressing lingering TODOs, shoring up type coverage and documentation, consolidating configuration, and tightening runtime behavior. The end state should be a repo that lint/tests cleanly, enforces consistent style, eliminates dead code, and provides reliable operational confidence.
+
+## Progress
+
+- [x] Initial state captured.
+- [x] Repository audit complete.
+- [x] Refactors and fixes implemented.
+- [x] Tests and documentation updated.
+- [x] Validation complete.
+
+## Surprises & Discoveries
+
+- Observation: CLI runs left HTTP sessions open when exiting early, risking connection pool exhaustion in long-lived environments.
+  Evidence: `client/python/switchboard_cli.py` lacked any `close()` call around the `SwitchboardClient` lifecycle.
+
+## Decision Log
+
+- Decision: Guard CLI session lifecycle with a `try`/`finally` and assert closure in tests.
+  Rationale: Ensures deterministic cleanup without altering observable CLI behavior.
+  Date/Author: 2024-10-25 / gpt-5-codex
+- Decision: Tighten type annotations on `SwitchboardClient.__exit__` for static analysis clarity.
+  Rationale: Aligns context manager protocol with modern typing expectations.
+  Date/Author: 2024-10-25 / gpt-5-codex
+
+## Outcomes & Retrospective
+
+- CLI now releases HTTP resources reliably, and regression coverage enforces the behavior.
+- Client context manager typings match the runtime protocol, improving maintainability for static tooling.
+
+## Context and Orientation
+
+- Review `README.md`, `REPORT.md`, and `PROJECT_STATUS.md` for current expectations and known gaps.
+- Inspect both CLI (`switchboard_cli.py`) and server components (`server/`) for TODOs and inconsistencies.
+- Verify client library under `client/python/` and mirrored compatibility modules in repo root remain synchronized.
+- Confirm documentation in `docs/` and operational scripts under `ops/`, `scripts/` align with runtime behavior.
+
+## Plan of Work
+
+1. Inventory existing TODOs and FIXME markers across repository, categorizing by module.
+2. Standardize configuration and dependency declarations, removing unused imports and dead code paths.
+3. Improve typing, docstrings, and error handling in core modules (client, CLI, server utilities).
+4. Strengthen modularity by reorganizing helper modules where appropriate without altering external behavior.
+5. Expand or add tests to cover refactored behavior and verify documentation build steps.
+6. Ensure formatting and lint checks run cleanly, updating tooling configs as required.
+
+## Concrete Steps
+
+1. Use `rg "TODO"` and `rg "FIXME"` to locate outstanding items and document findings.
+2. For each targeted module, refactor for clarity/performance while keeping public interfaces stable.
+3. Introduce or update tests in `tests/` (and module-specific test suites) to cover new safeguards.
+4. Run `pytest -q`, type checkers (`mypy` if configured), and documentation builds (`make docs` if available).
+5. Update relevant docs/CHANGELOG files summarizing improvements.
+
+## Validation and Acceptance
+
+- All automated tests and lint/type checks pass locally.
+- Documentation builds without warnings.
+- Repo contains no unresolved TODOs/FIXMEs within targeted scope.
+- Code review confirms improved modularity, documentation, and error handling with no regressions.
+
+## Idempotence and Recovery
+
+- Changes applied modularly; individual commits can be reverted if regressions discovered.
+- Tests provide regression safety net for reverted modules.
+- Documented configuration ensures reproducibility.
+
+## Artifacts and Notes
+
+- `pytest client/python/tests/test_cli.py -q` ⇒ 14 passed.
+- `pytest -q` ⇒ 30 passed, 2 skipped.
+- Summarize key refactors and removals in PR description.
+
+## Interfaces and Dependencies
+
+- Maintain compatibility for `SwitchboardClient` public methods used by external agents.
+- Preserve CLI entry points (`switchboard_cli.py` and `client/python/switchboard_cli.py`).
+- Ensure server API schemas remain backward compatible unless defects demand changes.
+
 # Expand reliability test coverage across accessible components
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
