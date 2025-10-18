@@ -86,6 +86,7 @@ async def ensure_registry(session: AsyncSession) -> ExecPlanRegistry:
         await session.execute(select(ExecPlanRegistry).order_by(ExecPlanRegistry.id).limit(1))
     ).scalar_one_or_none()
     if registry is None:
+        # TODO - Acquire a transaction-level lock here to avoid creating duplicate registries under concurrent startups.
         registry = ExecPlanRegistry(
             registry_id=DEFAULT_REGISTRY_ID,
             schema_version=DEFAULT_SCHEMA_VERSION,
@@ -129,6 +130,7 @@ async def build_registry_index(
     session: AsyncSession, *, source_url: str
 ) -> Tuple[Dict[str, Any], str, dt.datetime, str]:
     registry = await ensure_registry(session)
+    # TODO - Cache the serialized registry when inputs are unchanged to reduce database load.
     plans = await load_plans(session)
     generated_at = _latest_generated_at(registry, plans)
 

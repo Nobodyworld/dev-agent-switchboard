@@ -45,6 +45,7 @@ class Task(Base):
     status: Mapped[str] = mapped_column(
         String(32), default="pending"
     )  # pending|in_progress|completed
+    # TODO - Replace string status field with an Enum to enforce valid workflow states at the database layer.
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime, default=dt.datetime.utcnow
     )

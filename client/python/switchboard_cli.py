@@ -185,7 +185,9 @@ def run_command(args: argparse.Namespace) -> int:
         return 1
     try:
         print(f"Registered agent '{args.agent}' against {args.base}.")
+        # TODO - Provide a non-interactive mode so agents can run unattended in CI environments.
         poll_interval = args.poll_interval
+        # TODO - Add adaptive backoff when no tasks are available to reduce server polling load.
         while True:
             try:
                 task = client.checkout()

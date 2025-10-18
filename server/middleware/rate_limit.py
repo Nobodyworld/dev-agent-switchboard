@@ -83,6 +83,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:  # type: ignore[override]
+        # TODO - Emit metrics for throttled requests so operators can monitor rate limit impact.
         settings = self._settings_provider()
         if not settings.enabled:
             return await call_next(request)

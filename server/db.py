@@ -24,6 +24,7 @@ if _files_root_env:
 else:
     FILES_ROOT = (STORAGE_ROOT / "files").resolve()
 
+# TODO - Expose async engine settings so deployments can tune pool sizing and timeouts per environment.
 engine = create_async_engine(DATABASE_URL, echo=False, future=True)
 
 AsyncSessionLocal = sessionmaker(

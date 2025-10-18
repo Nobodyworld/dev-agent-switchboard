@@ -40,6 +40,7 @@ def ensure_root() -> None:
     """Ensure the backing directory for live files exists."""
 
     FILES_ROOT.mkdir(parents=True, exist_ok=True)
+    # TODO - Validate filesystem permissions so uploads fail fast when the directory is not writable.
 
 
 def full_path(rel_path: str) -> Path:
@@ -83,6 +84,7 @@ async def put_file(
     path = full_path(rel_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    # TODO - Write file contents atomically to guard against partial writes on failure.
     path.write_bytes(data)
 
     sha = hashlib.sha256(data).hexdigest()

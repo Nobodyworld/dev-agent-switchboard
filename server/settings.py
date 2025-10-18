@@ -54,6 +54,7 @@ def _parse_trusted(raw: str | None) -> FrozenSet[str]:
 def get_rate_limit_settings() -> RateLimitSettings:
     """Load rate limit settings from environment variables."""
 
+    # TODO - Validate settings eagerly and surface configuration errors instead of silently falling back to defaults.
     requests = _parse_int(os.getenv(RATE_LIMIT_REQUESTS_ENV), _DEFAULT_REQUESTS)
     window = _parse_int(os.getenv(RATE_LIMIT_WINDOW_ENV), _DEFAULT_WINDOW_SECONDS)
     trusted = _parse_trusted(os.getenv(RATE_LIMIT_TRUSTED_ENV))

@@ -44,6 +44,7 @@ class SwitchboardClient:
         self._session = session or Session()
         self._timeout = timeout
         self.last_checkout_reason: Optional[str] = None
+        # TODO - Support per-endpoint timeout overrides to better accommodate long-running operations like file uploads.
 
         if auto_register:
             self.register()
@@ -85,6 +86,7 @@ class SwitchboardClient:
 
         kwargs.setdefault("timeout", self._timeout)
         url = f"{self.base}{path}"
+        # TODO - Retry transient HTTP errors to smooth over short-lived API outages.
         response = self._session.request(method, url, **kwargs)
         response.raise_for_status()
         return response

@@ -95,6 +95,7 @@ async def lifespan(app: FastAPI):
             inspector = sa_inspect(sync_conn)
             columns = {column["name"] for column in inspector.get_columns("tasks")}
             if "completed_notes" not in columns:
+                # TODO - Move this schema migration into a formal Alembic revision to avoid runtime DDL. 
                 sync_conn.execute(
                     text("ALTER TABLE tasks ADD COLUMN completed_notes TEXT")
                 )
@@ -110,6 +111,7 @@ app = FastAPI(title="Switchboard", version="0.1.0", lifespan=lifespan)
 setup_logging(app)
 setup_tracing(app)
 
+# TODO - Restrict CORS origins to trusted hosts once deployment domains are known.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -157,6 +159,7 @@ class PlanBroadcaster:
         """Register a new WebSocket connection for future broadcasts."""
 
         async with self._lock:
+            # TODO - Record connection metadata to help with targeted disconnects and diagnostics.
             self._connections.add(ws)
 
     async def discard(self, ws: WebSocket) -> None:

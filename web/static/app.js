@@ -208,6 +208,7 @@ function renderTaskList() {
     })
     .join('');
 
+  // TODO - Replace innerHTML templating with DOM diffing to improve performance on large task lists.
   container.innerHTML = `
     <div class="overflow-x-auto">
       <table class="w-full text-sm border-collapse">
@@ -307,6 +308,7 @@ function connectWS() {
     stopPing();
     reconnectAttempts += 1;
     console.warn(`ws closed; reconnecting in ${WS_RECONNECT_DELAY_MS / 1000}s (attempt #${reconnectAttempts})`);
+    // TODO - Switch to exponential backoff with jitter to avoid synchronized reconnect storms.
     setTimeout(connectWS, WS_RECONNECT_DELAY_MS);
   };
 }
