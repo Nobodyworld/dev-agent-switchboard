@@ -43,6 +43,7 @@ class TaskIn(BaseModel):
     title: str
     description: str = ""
     depends_on: List[int] = Field(default_factory=list)
+    # TODO - Add max_length validators so untrusted clients cannot create excessively large titles or descriptions.
 
 
 class TaskUpdate(BaseModel):

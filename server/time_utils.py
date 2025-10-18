@@ -10,6 +10,7 @@ UTC = dt.timezone.utc
 def utcnow() -> dt.datetime:
     """Return the current timezone-aware UTC timestamp."""
 
+    # TODO - Allow injecting a time provider for tests to avoid relying on real clocks.
     return dt.datetime.now(UTC)
 
 

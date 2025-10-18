@@ -28,6 +28,7 @@ async def run_app():
         lifespan="on",
         log_level="error",
     )
+    # TODO - Add coverage for TLS endpoints so we ensure secure websocket upgrades continue to function.
     reload_rate_limit_settings()
     middleware = get_current_rate_limit_middleware()
     if middleware is not None:

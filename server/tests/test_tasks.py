@@ -1,6 +1,8 @@
 import asyncio
 
 import pytest
+
+# TODO - Replace direct asyncio.run calls with pytest-asyncio tests for clearer failure reporting.
 from fastapi import HTTPException
 from sqlalchemy import select
 

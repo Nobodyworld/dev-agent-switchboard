@@ -14,6 +14,7 @@ STATIC_ROOT = Path(__file__).resolve().parents[2] / "web" / "static"
 STATIC_ROOT.mkdir(parents=True, exist_ok=True)
 
 FILES_ROOT = Path(CONFIGURED_FILES_ROOT)
+# TODO - Use TemporaryDirectory fixtures so tests never touch shared filesystem state between runs.
 
 
 @pytest.fixture(autouse=True)

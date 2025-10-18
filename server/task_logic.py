@@ -44,6 +44,7 @@ class CompleteResult(NamedTuple):
     ok: bool
     notes: Optional[str]
 
+# TODO - Make the lease duration configurable via settings for different deployment needs.
 LEASE_SECONDS = 300
 PLAN_VERSION_ROW_ID = 1
 
@@ -127,6 +128,7 @@ async def checkout_task(
         tasks = [task]
     else:
         tasks = (await session.execute(select(Task).order_by(Task.id))).scalars().all()
+    # TODO - Prioritize tasks using explicit ordering (e.g., status or dependencies) instead of raw iteration.
     for t in tasks:
         if await is_available(session, t):
             # set status and lease

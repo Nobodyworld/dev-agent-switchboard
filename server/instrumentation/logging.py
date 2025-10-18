@@ -77,6 +77,7 @@ def configure_logging() -> bool:
         return True
 
     configured = False
+    # TODO - Support dictConfig payloads so deployments can supply inline logging setups without filesystem access.
     config_path = os.getenv("SWITCHBOARD_LOGGING_CONFIG")
     if config_path and os.path.exists(config_path):
         try:

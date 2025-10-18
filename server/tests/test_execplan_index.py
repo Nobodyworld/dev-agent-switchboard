@@ -5,6 +5,8 @@ import yaml
 from httpx import ASGITransport, AsyncClient
 import sqlalchemy as sa
 
+# TODO - Modernize these tests to use pytest-asyncio fixtures instead of manual asyncio.run wrappers.
+
 from server.app import app
 from server.db import AsyncSessionLocal
 from server.models import ExecPlan

@@ -3,6 +3,8 @@ import datetime as dt
 
 import pytest
 from fastapi.testclient import TestClient
+
+# TODO - Port these integration tests to async clients so we exercise the real middleware stack end-to-end.
 from sqlalchemy import delete, select
 
 from server.app import app

@@ -44,6 +44,7 @@ def setup_metrics(app: FastAPI, endpoint: Optional[str] = None) -> bool:
         return False
 
     metrics_endpoint = endpoint or os.getenv("SWITCHBOARD_METRICS_PATH", "/metrics")
+    # TODO - Allow registering a custom Prometheus registry so multiple processes can expose shared metrics.
     Instrumentator().instrument(app).expose(
         app,
         endpoint=metrics_endpoint,

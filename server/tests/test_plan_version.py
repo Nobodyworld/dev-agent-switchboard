@@ -2,6 +2,8 @@ import asyncio
 
 from starlette.requests import Request
 
+# TODO - Convert these tests to async def coroutines managed by pytest fixtures for better readability and teardown ordering.
+
 from server.app import (
     abandon,
     checkout,
