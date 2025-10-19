@@ -1,19 +1,21 @@
 import asyncio
-from typing import Any, Dict
+from collections.abc import AsyncGenerator
+from typing import Any
 
 import pytest
 
 from server.app import PLAN_BROADCASTER, PlanBroadcastPayload
 
-# TODO - Add tests that simulate slow websocket consumers to verify broadcaster backpressure handling.
+# TODO - Add tests that simulate slow websocket consumers to verify broadcaster
+# backpressure handling.
 
 
 class _RecordingWebSocket:
     def __init__(self) -> None:
-        self.messages: list[Dict[str, Any]] = []
+        self.messages: list[dict[str, Any]] = []
         self.close_calls = 0
 
-    async def send_json(self, payload: Dict[str, Any]) -> None:
+    async def send_json(self, payload: dict[str, Any]) -> None:
         await asyncio.sleep(0)
         self.messages.append(payload)
 
@@ -26,7 +28,7 @@ class _FailingWebSocket:
         self.send_attempts = 0
         self.closed = False
 
-    async def send_json(self, payload: Dict[str, Any]) -> None:
+    async def send_json(self, _payload: dict[str, Any]) -> None:
         self.send_attempts += 1
         await asyncio.sleep(0)
         raise RuntimeError("send failed")
@@ -36,7 +38,7 @@ class _FailingWebSocket:
 
 
 @pytest.fixture(autouse=True)
-async def reset_plan_broadcaster() -> None:
+async def reset_plan_broadcaster() -> AsyncGenerator[None, None]:
     await PLAN_BROADCASTER.close_all()
     yield
     await PLAN_BROADCASTER.close_all()

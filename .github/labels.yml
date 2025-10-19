@@ -1,0 +1,37 @@
+# Label schema for Switchboard. Sync with `github-label-sync` or your preferred automation.
+- name: type/bug
+  color: d73a4a
+  description: "Something is not working"
+- name: type/feature
+  color: a2eeef
+  description: "New feature request"
+- name: type/docs
+  color: 1d76db
+  description: "Documentation updates"
+- name: type/chore
+  color: 8c8c8c
+  description: "Repository maintenance"
+- name: priority/critical
+  color: b60205
+  description: "Needs immediate attention"
+- name: priority/high
+  color: d93f0b
+  description: "High priority"
+- name: priority/medium
+  color: fbca04
+  description: "Normal priority"
+- name: priority/low
+  color: 0e8a16
+  description: "Low priority"
+- name: area/api
+  color: 5319e7
+  description: "FastAPI server and business logic"
+- name: area/client
+  color: 0b61a4
+  description: "Python client library"
+- name: area/web
+  color: 5319e7
+  description: "Static admin UI"
+- name: area/infra
+  color: 0052cc
+  description: "CI/CD, tooling, operations"

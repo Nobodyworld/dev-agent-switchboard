@@ -1,9 +1,10 @@
 import asyncio
+from typing import Optional
 
 from starlette.requests import Request
 
-# TODO - Convert these tests to async def coroutines managed by pytest fixtures for better readability and teardown ordering.
-
+# TODO - Convert these tests to async def coroutines managed by pytest fixtures
+# for better readability and teardown ordering.
 from server.app import (
     abandon,
     checkout,
@@ -27,7 +28,7 @@ async def _fetch_plan(session):
 
 
 def _make_request(body: bytes) -> Request:
-    payload = body
+    payload: Optional[bytes] = body
 
     async def receive() -> dict:
         nonlocal payload

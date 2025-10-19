@@ -1,6 +1,6 @@
 import argparse
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from switchboard_client import SwitchboardClient
 
@@ -53,14 +53,14 @@ def dry_run(client: SwitchboardClient, args: argparse.Namespace) -> None:
     agent = client.agent_id
     print(f"[dry-run] Would POST {base}/api/agents with {{'agent_name': '{agent}'}}")
 
-    planned_task: Optional[dict] = None
+    planned_task: Optional[dict[str, Any]] = None
     try:
         tasks = client.list_tasks()
         for task in tasks:
             if task.get("status") == "pending":
                 planned_task = task
                 break
-    except Exception as exc:  # noqa: BLE001 - surface the failure in output
+    except Exception as exc:
         print(f"[dry-run] Unable to fetch available tasks: {exc}")
 
     checkout_url = f"{base}/api/tasks/checkout?agent_id={agent}"
@@ -71,7 +71,8 @@ def dry_run(client: SwitchboardClient, args: argparse.Namespace) -> None:
         for i in range(args.heartbeat_count):
             hb_url = f"{base}/api/tasks/{tid}/heartbeat?agent_id={agent}"
             print(
-                f"[dry-run] Would POST {hb_url} (heartbeat {i + 1}/{args.heartbeat_count})"
+                "[dry-run] Would POST "
+                f"{hb_url} (heartbeat {i + 1}/{args.heartbeat_count})"
             )
         complete_url = f"{base}/api/tasks/{tid}/complete?agent_id={agent}"
         print(

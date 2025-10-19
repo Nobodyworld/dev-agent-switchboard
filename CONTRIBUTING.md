@@ -1,0 +1,88 @@
+# Contributing to Switchboard
+
+Thank you for your interest in improving Switchboard! This guide explains how we work, what we expect from contributors, and how to ship changes with confidence.
+
+## Code of Conduct
+
+Participation in this project is governed by our [Code of Conduct](CODE_OF_CONDUCT.md). Please read it carefully before engaging with the community.
+
+## Getting Started
+
+1. **Fork and clone** the repository.
+2. **Create a virtual environment** and install dependencies:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   python -m pip install --upgrade pip
+   pip install -r server/requirements-dev.txt
+   ```
+3. **Install the pre-commit hooks** so every commit automatically runs the same checks as CI:
+   ```bash
+   pre-commit install --install-hooks
+   pre-commit install --hook-type commit-msg
+   ```
+
+## Workflow Overview
+
+- Work in feature branches derived from `main`.
+- Keep pull requests focused; avoid mixing unrelated changes.
+- Ensure all CI jobs pass before requesting review.
+- Update documentation and changelogs when behavior changes.
+
+## Commit Messages
+
+We use the [Conventional Commits](https://www.conventionalcommits.org/) specification. A valid commit message follows the pattern `type(scope?): description`. Common types include `feat`, `fix`, `docs`, `refactor`, `test`, `build`, `ci`, and `chore`.
+
+Our tooling enforces commit structure locally (via [`conventional-pre-commit`](https://github.com/compilerla/conventional-pre-commit)) and in CI (via [commitlint](https://commitlint.js.org/)).
+
+## Quality Gates
+
+Before pushing, run the full quality suite:
+
+```bash
+make qa
+```
+
+This command executes formatting, linting, type checking, security scanning, and tests. Individual commands are also available:
+
+- `make fmt` – Format Python code with Black and organize imports via Ruff.
+- `make lint` – Static analysis with Ruff and Prettier lint checks for web assets.
+- `make typecheck` – MyPy static type checking.
+- `make test` – Run the pytest suite.
+- `make security` – Bandit static analysis (CI additionally runs gitleaks for
+  repository-wide secret scanning).
+
+The `pre-commit` configuration also runs
+[`detect-secrets`](https://github.com/Yelp/detect-secrets) against the
+`.secrets.baseline` shipped in this repo so local commits stay secret-free. If
+new findings are legitimate (e.g., generated test credentials), regenerate the
+baseline via `detect-secrets scan > .secrets.baseline` and include rationale in
+your PR description.
+
+## Pull Request Checklist
+
+- [ ] Tests added or updated where appropriate.
+- [ ] Documentation updated (README, docs/, or inline docstrings).
+- [ ] `pre-commit run --all-files` passes locally.
+- [ ] CI is green (lint, type, tests, docs, security).
+- [ ] Any configuration or migration changes include rollback instructions in the PR description.
+
+## Triaging Issues
+
+We use labels to communicate priority and workstream. When opening or grooming an issue:
+
+- Assign one of `type/*` labels (bug, feature, docs, chore).
+- Use `priority/*` labels to express urgency.
+- Apply `area/*` labels for affected subsystems (API, client, web, infra).
+
+Refer to `.github/labels.yml` for the authoritative list.
+
+## Security Disclosures
+
+If you discover a vulnerability, please follow our [Security Policy](SECURITY.md) and contact us at <security@openai.com> instead of filing a public issue.
+
+## Support
+
+Questions about setup or day-to-day usage should go to [SUPPORT.md](SUPPORT.md).
+
+We appreciate your contributions and look forward to collaborating with you!

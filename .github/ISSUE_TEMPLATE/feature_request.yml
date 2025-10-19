@@ -1,0 +1,49 @@
+name: "Feature request"
+description: Suggest an enhancement or new capability for Switchboard.
+labels: ["type/feature"]
+title: "feat: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing an improvement! Help us understand the value and scope of your idea.
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: What problem does this feature solve?
+      placeholder: "Expose plan last-updated timestamp in API responses"
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: Why is this important? Who benefits?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe your approach or desired changes. Include API/CLI/UI details if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Links, diagrams, related issues, etc.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Submission checklist
+      options:
+        - label: This request aligns with the roadmap in PLAN.md or includes justification for the divergence.
+          required: true
+        - label: I am willing to contribute a PR for this feature.
+          required: false
