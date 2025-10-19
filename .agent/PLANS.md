@@ -497,3 +497,86 @@ Deliver a dependable test harness that covers the Python client, CLI tooling, an
 
 - Python `requests` library remains the only third-party dependency exercised by the client/CLI tests.
 - `pytest` is used for the test harness; thread behavior is simulated via mocks to avoid real concurrency.
+# Modernize Switchboard for production-grade operations
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Deliver a multi-PR modernization that brings Switchboard to production-grade quality: governance guardrails, automated CI/CD, strict typing, resilient runtime posture, comprehensive tests, observability, and DX that enables new agents to ship within minutes. Each slice must preserve existing API/CLI behavior unless defects are documented and fixed with migrations or feature flags.
+
+## Progress
+
+- [x] Initial state captured.
+- [ ] Governance foundations PR merged.
+- [ ] Type safety & dead code clean-up landed.
+- [ ] Testing/observability upgrades delivered.
+- [ ] Security & supply-chain hardening merged.
+- [ ] Performance & resilience improvements merged.
+- [ ] Release automation & DX polish completed.
+- [ ] Final documentation/status hand-off complete.
+
+## Surprises & Discoveries
+
+- Observation: Repository already includes partial tooling (Black, Ruff) but lacks unified configuration and governance docs; opportunity to layer new standards incrementally.
+  Evidence: `.pre-commit-config.yaml` only references Ruff/Black against Python paths; no EditorConfig or commit linting present.
+
+## Decision Log
+
+- Decision: Sequence work by foundations → safety → coverage → optimization to minimize regression risk while enabling parallel future work.
+  Rationale: Governance/CI upgrades unblock secure automation, which is prerequisite for tightening typing/tests without destabilizing main branch.
+  Date/Author: 2025-02-14 / gpt-5-codex
+
+## Outcomes & Retrospective
+
+- Pending; to be filled after completion.
+
+## Context and Orientation
+
+- `server/` holds the FastAPI application, rate limiting middleware, SQLAlchemy models, and instrumentation utilities.
+- `client/python/` exposes the agent SDK & CLI packaged for reuse; root-level `switchboard_client.py` and `switchboard_cli.py` are shims.
+- `web/` contains the static operator UI served by FastAPI.
+- `.github/` includes legacy workflows; modernization will replace or extend them.
+- `docs/`, `REPORTS/`, and `ARCHITECTURE.md` document past efforts but are not currently authoritative.
+
+## Plan of Work
+
+1. Author REPORT.md & PLAN.md capturing current intelligence and modernization roadmap.
+2. Governance & CI/CD PR: add repo policies, CODEOWNERS, templates, EditorConfig, Renovate, hardened CI, and an expanded pre-commit stack without touching runtime behavior.
+3. Type safety & dead code PR: enable strict mypy/ruff settings, remove unused modules, add typing stubs, and ensure zero behavior changes.
+4. Testing & observability PR: extend unit/integration coverage, add OTEL-friendly logging/metrics defaults, and ensure tests run headless.
+5. Security & supply chain PR: introduce SBOM generation, secret scanning, dependency review automation, and configuration validation.
+6. Performance & resilience PR: profile hot paths, add timeouts/circuit breakers, optimize DB indices/migrations, and ensure graceful shutdowns.
+7. Release & DX PR: add Make/Just tasks, bootstrapping docs, changelog automation, and finalize STATUS.md summary.
+
+## Concrete Steps
+
+1. Inventory existing docs/config to inform REPORT.md and PLAN.md.
+2. Commit REPORT.md & PLAN.md updates.
+3. For each subsequent PR, follow sequence above, running lint/test suites locally and capturing outputs.
+4. Update STATUS.md after each PR describing progress and next steps.
+
+## Validation and Acceptance
+
+- REPORT.md summarizes architecture, dependencies, risks, and opportunities.
+- PLAN.md outlines milestones, workstreams, tasks with acceptance criteria and rollback.
+- Subsequent PRs satisfy their acceptance criteria without regressions, evidenced by passing CI and updated STATUS.md entries.
+
+## Idempotence and Recovery
+
+- REPORT.md/PLAN.md updates are pure documentation; revertible without affecting runtime.
+- Each PR will be atomic; revert via `git revert` if regressions emerge.
+- STATUS.md logs progress for continuity between agents or sessions.
+
+## Artifacts and Notes
+
+- To be populated as work proceeds (e.g., CI logs, coverage reports).
+
+## Interfaces and Dependencies
+
+- Python 3.11+ toolchain (per pyproject/mypy configs).
+- FastAPI/SQLAlchemy stack for server components.
+- Requests-based client library.
+- GitHub Actions for CI/CD automation.

@@ -1,6 +1,9 @@
 
 # Switchboard — Real‑Time Agent Task Switchboard & Live File Host
 
+[![CI](https://github.com/openai/switchboard/actions/workflows/ci.yml/badge.svg)](https://github.com/openai/switchboard/actions/workflows/ci.yml)
+[![Commitlint](https://github.com/openai/switchboard/actions/workflows/commitlint.yml/badge.svg)](https://github.com/openai/switchboard/actions/workflows/commitlint.yml)
+
 Switchboard is a small, production‑leaning FastAPI service that:
 
 - Hosts a **live, editable plan** (DAG of tasks with dependencies) that agents can **discover, check out, heartbeat, complete, or abandon**.
@@ -60,7 +63,18 @@ Unix-like shells can run `make setup` to create the virtual environment and
 install the same dependencies in one step. On Windows, prefer the explicit
 commands above (or adapt them for `python -m pip`).
 
-### 3. Run the API + UI locally
+### 3. Install developer tooling
+
+```bash
+pip install pre-commit
+pre-commit install --install-hooks
+pre-commit install --hook-type commit-msg
+```
+
+This keeps formatting, linting, and commit message policies aligned with CI. See
+[CONTRIBUTING](CONTRIBUTING.md) for more detail.
+
+### 4. Run the API + UI locally
 
 ```bash
 python scripts/run_uvicorn.py
@@ -78,7 +92,7 @@ instead.)
 
 Open the admin UI: <http://localhost:8000/>
 
-### 4. Run the test suite and quality gates
+### 5. Run the test suite and quality gates
 
 ```bash
 python scripts/run_pytest.py
@@ -118,20 +132,21 @@ on where each setting is consumed.
 
 ## Continuous integration
 
-Incoming pull requests are validated by the `CI` GitHub Actions workflow. The
-pipeline mirrors the local setup described above:
+Incoming pull requests are validated by the [`CI`](.github/workflows/ci.yml)
+workflow. Each stage runs in parallel for fast feedback and publishes artifacts
+for reviewers:
 
-1. Set up Python 3.11 and install development dependencies from
-   `server/requirements-dev.txt`.
-2. Execute the test suite via `python scripts/run_pytest.py`.
-3. Optionally run `make fmt`, `make lint`, and `make typecheck` when the
-   corresponding repository variables (`CI_RUN_FMT`, `CI_RUN_LINT`,
-   `CI_RUN_TYPECHECK`) are set to `true`, or when triggering the workflow
-   manually with the dispatch inputs enabled.
+1. **Lint** – `pre-commit run --all-files` (Ruff, Black, Prettier,
+   `detect-secrets`, and hygiene checks).
+2. **Typecheck** – `mypy --config-file mypy.ini server client scripts`.
+3. **Test** – `pytest --maxfail=1 --disable-warnings --junitxml=reports/pytest.xml`.
+4. **Docs** – [`lychee`](https://github.com/lycheeverse/lychee) verifies Markdown
+   links across README, PLAN, REPORT, and `docs/`.
 
-Repository maintainers can enable the optional gates globally by defining the
-above variables under **Settings → Variables → Repository variables**, or opt
-into them per run through the "Run workflow" dialog in GitHub's UI.
+Secret scanning runs in parallel via
+[`gitleaks`](https://github.com/gitleaks/gitleaks-action) on every push, and
+commit messages are validated by [`commitlint`](commitlint.config.js) in a
+dedicated workflow to enforce Conventional Commits.
 
 ### Sample API flows (curl)
 
@@ -188,6 +203,17 @@ The repository ships a minimal Python helper that behaves like a CLI. With the v
 ```bash
 python -m client.python.examples.agent_example
 ```
+
+## Community & Governance
+
+- [CODE_OF_CONDUCT](CODE_OF_CONDUCT.md)
+- [CONTRIBUTING](CONTRIBUTING.md)
+- [SECURITY](SECURITY.md)
+- [SUPPORT](SUPPORT.md)
+- [STATUS](STATUS.md)
+- [PLAN](PLAN.md) – modernization roadmap
+- [REPORT](REPORT.md) – system overview and risk hotspots
+- [renovate.json](renovate.json) – automated dependency updates
 
 ## Observability (logging, metrics, tracing)
 

@@ -5,16 +5,15 @@ import json
 import sys
 import threading
 import time
-from typing import Any, Dict, Optional
+from collections.abc import Callable
+from typing import Any, Optional
 
 import requests
-
 from switchboard_client import SwitchboardClient
-
 
 HEARTBEAT_SHUTDOWN_TIMEOUT = 5.0
 
-TaskPayload = Dict[str, Any]
+TaskPayload = dict[str, Any]
 
 __all__ = [
     "HEARTBEAT_SHUTDOWN_TIMEOUT",
@@ -79,7 +78,9 @@ def format_task(task: TaskPayload) -> str:
 
 
 def process_task(
-    client: SwitchboardClient, task: TaskPayload, heartbeat_interval: float
+    client: SwitchboardClient,
+    task: TaskPayload,
+    heartbeat_interval: float,
 ) -> bool:
     """Interactively process ``task`` using the provided client."""
 
@@ -92,7 +93,9 @@ def process_task(
     # never leaks if the command exits early.
     loop.start()
     print(
-        f"Heartbeat thread started (every {heartbeat_interval:.0f}s). Type 'help' for options."
+        "Heartbeat thread started "
+        f"(every {heartbeat_interval:.0f}s). "
+        "Type 'help' for options."
     )
     notes: Optional[str] = None
 
@@ -151,7 +154,8 @@ def process_task(
                 continue
             if command in {"help", "?"}:
                 print(
-                    "Commands: complete (c), abandon (a), heartbeat (h), status (s), notes, help (?)"
+                    "Commands: complete (c), abandon (a), heartbeat (h), status (s), "
+                    "notes, help (?)"
                 )
                 continue
             if command == "":
@@ -185,9 +189,11 @@ def run_command(args: argparse.Namespace) -> int:
         return 1
     try:
         print(f"Registered agent '{args.agent}' against {args.base}.")
-        # TODO - Provide a non-interactive mode so agents can run unattended in CI environments.
+        # TODO - Provide a non-interactive mode so agents can run unattended in CI
+        # environments.
         poll_interval = args.poll_interval
-        # TODO - Add adaptive backoff when no tasks are available to reduce server polling load.
+        # TODO - Add adaptive backoff when no tasks are available to reduce server
+        # polling load.
         while True:
             try:
                 task = client.checkout()
@@ -245,10 +251,11 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(argv)
-    if not getattr(args, "func", None):
+    func: Callable[[argparse.Namespace], int] | None = getattr(args, "func", None)
+    if func is None:
         parser.print_help()
         return 1
-    return args.func(args)
+    return func(args)
 
 
 if __name__ == "__main__":

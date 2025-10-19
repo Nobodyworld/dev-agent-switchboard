@@ -7,10 +7,17 @@ import inspect
 import json
 import logging
 import os
+from collections.abc import Mapping, MutableMapping, Sequence
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, MutableMapping, Optional, Sequence, TypedDict
-from typing import Literal
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    TypedDict,
+)
 
 from fastapi import (
     Depends,
@@ -30,8 +37,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader
-from sqlalchemy import delete, or_, select, text
-from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import delete, inspect as sa_inspect, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from yaml import safe_dump
 
@@ -295,7 +301,10 @@ async def _serialize_plan(session: AsyncSession) -> Dict[str, Any]:
 
 
 async def _send_ws_payload(
-    ws: WebSocket, payload: Dict[str, Any], *, timeout: float = PLAN_SEND_TIMEOUT
+    ws: WebSocket,
+    payload: Mapping[str, Any] | PlanBroadcastPayload,
+    *,
+    timeout: float = PLAN_SEND_TIMEOUT,
 ) -> bool:
     try:
         await asyncio.wait_for(ws.send_json(payload), timeout=timeout)

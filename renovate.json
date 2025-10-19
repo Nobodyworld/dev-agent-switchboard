@@ -1,0 +1,18 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":semanticCommits"],
+  "timezone": "UTC",
+  "schedule": ["before 8am on monday"],
+  "rangeStrategy": "replace",
+  "packageRules": [
+    {
+      "matchManagers": ["pip_requirements"],
+      "dependencyDashboard": true,
+      "separateMajorMinor": true
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions"
+    }
+  ]
+}

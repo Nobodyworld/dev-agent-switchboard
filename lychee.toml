@@ -1,0 +1,12 @@
+# Configuration for lychee link checker
+cache = true
+max_retries = 2
+retry_wait_time = 2
+user_agent = "switchboard-ci-link-checker/1.0"
+
+[[exclude]]
+regex = "^http://localhost"
+
+[output]
+format = "markdown"
+path = "lychee/out.md"

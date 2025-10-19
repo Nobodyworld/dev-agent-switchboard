@@ -1,0 +1,59 @@
+name: "Bug report"
+description: Report a reproducible problem with Switchboard.
+labels: ["type/bug"]
+title: "bug: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please provide as much detail as possible so we can reproduce and fix the issue quickly.
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened? What did you expect to happen instead?
+      placeholder: "Agent heartbeat 500s when lease expires early"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: List the precise steps (commands, API calls, etc.) to reproduce the issue.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and screenshots
+      description: Paste relevant stack traces, logs, or attach screenshots.
+  - type: input
+    id: version
+    attributes:
+      label: Switchboard version / git commit
+      placeholder: e.g. v1.2.3 or 0123abcd
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Deployment details (OS, Python version, database, cloud provider, etc.).
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Who is affected? How severe is the issue?
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission checklist
+      options:
+        - label: I have searched existing issues for duplicates.
+          required: true
+        - label: I have run `make qa` or the relevant subset locally.
+          required: false

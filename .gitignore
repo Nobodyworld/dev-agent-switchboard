@@ -95,6 +95,7 @@ pnpm-debug.log*
 # Documentation build output
 docs/_build/
 site/
+lychee/
 
 # IDE / editor settings
 .vscode/
