@@ -1,98 +1,146 @@
 # Switchboard Repo Intelligence Report
 
-_Last updated: 2025-02-14_
+_Last updated: 2025-02-15_
+
+> **Executive Snapshot**
+> - Switchboard coordinates autonomous coding agents through a FastAPI backend, HTMX operator console, and Python SDK/CLI.
+> - Operational maturity is uneven: governance and CI guardrails exist but are permissive, typing is partial, and observability is nascent.
+> - Highest-value investments: rebuild CI + security scanning, enforce strict typing, replace runtime schema mutations with migrations, and formalize developer onboarding.
 
 ## System Overview
 
-| Layer | Responsibilities | Key Modules |
+### Domain & Responsibilities
+| Domain | Responsibilities | Primary Modules |
 | --- | --- | --- |
-| **API Server (FastAPI)** | Task lifecycle management (register, checkout, heartbeat, complete/abandon), plan version broadcasting over WebSocket, file uploads, settings + instrumentation bootstrap | `server/app.py`, `server/task_logic.py`, `server/models.py`, `server/schema.py`, `server/file_store.py`, `server/instrumentation/` |
-| **Persistence** | Async SQLAlchemy engine + Alembic migrations, lightweight runtime DDL safety checks, SQLite storage (default) | `server/db.py`, `server/migrations/`, `server/settings.py` |
-| **Rate Limiting & Middleware** | Request throttling with cached settings, correlation ID/logging hooks | `server/middleware/`, `server/settings.py`, `server/instrumentation/logging.py` |
-| **ExecPlan Registry** | Serves historical plans and registry index for UI consumption | `server/execplan_registry.py`, `docs/execplans/` |
-| **Static Operator UI** | HTMX-based dashboard rendered from templates, consumes REST + WebSocket APIs | `web/index.html`, `web/static/`, served via `server/app.py` |
-| **Python Client SDK** | Requests-based wrapper for agent operations, retries/heartbeats, CLI orchestrator | `client/python/switchboard_client.py`, `client/python/switchboard_cli.py`, root shims `switchboard_client.py` & `switchboard_cli.py` |
-| **Tooling & Ops** | Makefile targets, docker-compose environment, telemetry configs | `Makefile`, `ops/docker-compose.yml`, `ops/otel.yaml` |
-| **Tests** | Pytest suites for client SDK/CLI and selected server components | `client/python/tests/`, `tests/`, `server/tests/` |
+| **Task Orchestration** | Manage agent registration, task checkout, heartbeats, completion/abandon, dependency unlocking. | `server/app.py`, `server/task_logic.py`, `server/models.py`, `server/schema.py` |
+| **Plan Registry & Broadcasting** | Persist DAG versions, stream WebSocket updates, expose historical ExecPlans. | `server/task_logic.py`, `server/execplan_registry.py`, `server/app.PlanBroadcaster` |
+| **File Mirroring** | Accept live file uploads, write to disk, serve via `/live/*` with optional ETag helpers. | `server/file_store.py`, storage directories under `FILES_ROOT` |
+| **Operator UI** | Render HTMX/Tailwind dashboard for plan/task inspection with live updates. | `web/index.html`, `web/static/` |
+| **Client Integrations** | Python SDK + CLI for autonomous/human agents, heartbeat threads, retries. | `client/python/switchboard_client.py`, `client/python/switchboard_cli.py`, root shims |
+| **Tooling & Ops** | Bootstrap scripts, Make targets, Docker Compose, instrumentation wiring. | `Makefile`, `scripts/*.py`, `ops/docker-compose.yml`, `server/instrumentation/` |
+
+### Component Inventory
+| Component | Description | Ownership Notes |
+| --- | --- | --- |
+| `server/` | FastAPI application, SQLAlchemy ORM models, instrumentation glue. | Needs module boundaries, ownership split between API, task engine, instrumentation. |
+| `client/python/` | Installable SDK and CLI entry points. | Duplicated by root-level shims; clarify deprecation policy. |
+| `web/` | HTMX/Tailwind dashboard assets and templates. | Build pipeline absent; adopt Prettier/Tailwind lint to prevent drift. |
+| `ops/` | Docker Compose, deployment manifests. | Ensure Compose reflects production topology; currently SQLite-only. |
+| `scripts/` | Utility scripts for running services/tests. | Some scripts stale (e.g., `run_pytest.py` vs Make targets); evaluate consolidation. |
+| `docs/` & `REPORTS/` | ADRs, migration notes, archival reports. | Deduplicate authoritative sources vs. historical artifacts. |
 
 ### Data Flows
-
-1. Agents register via `POST /api/agents`; responses include lease heartbeat cadence and plan version metadata.
-2. Agents poll for work via `POST /api/tasks/checkout`; server consults `tasks`/`leases` tables, returning the next available task.
-3. Long-running agents maintain leases with `POST /api/tasks/{id}/heartbeat`; stale leases are pruned in `task_logic.py`.
-4. Task completions trigger `plan_version` increments and broadcast messages through `PlanBroadcaster` WebSocket hub to connected dashboards.
-5. File uploads stream to disk under `file_store.py` utilities, then are referenced in plan/task metadata.
-6. Operator UI loads via `GET /` (Jinja template) and uses HTMX fragments plus `/ws/plan` WebSocket for live updates.
-7. CLI tooling wraps the client SDK, providing interactive prompts and heartbeat threads for human operators.
+1. **Agent lifecycle** — `POST /api/agents` registers clients, returning lease cadence; `POST /api/tasks/checkout` issues work conditioned on dependencies stored in `tasks`/`task_dependencies` tables; `POST /api/tasks/{id}/heartbeat` extends leases; `POST /api/tasks/{id}/complete` records completion and increments plan version.
+2. **Plan broadcasting** — Mutations call `increment_plan_version()` and push payloads through `PlanBroadcaster` to `/ws/plan`; UI subscribes for live state.
+3. **File hosting** — `PUT /api/files/{path}` writes content to `FILES_ROOT`; downloads served via `/live/<path>` with optional ETag/Last-Modified.
+4. **Operator UI** — `GET /` renders template with plan snapshot; HTMX fragments hit `/api/plan` and subscribe to WebSocket for deltas.
+5. **ExecPlan registry** — `GET /api/plan` returns active DAG; `GET /api/plan/{version}` or docs endpoints expose archived plans from `docs/execplans/`.
 
 ### Public Surfaces
+- **REST API**: `/api/agents`, `/api/tasks`, `/api/plan`, `/api/status`, `/api/files`.
+- **WebSocket**: `/ws/plan` for plan snapshots/version deltas.
+- **Static UI**: root index + `/static/*` assets.
+- **CLI / SDK**: `switchboard_cli.py`, `switchboard_client.py`, package `client/python`.
+- **Scripts & Jobs**: `scripts/run_uvicorn.py`, `scripts/run_pytest.py`, Make targets (`make run`, `make qa`). No long-running background workers; lease pruning is synchronous in request handlers.
 
-- **REST API**: `/api/agents`, `/api/tasks` (CRUD + checkout/heartbeat), `/api/status`, `/api/files`, `/api/plan`.
-- **WebSocket**: `/ws/plan` for plan snapshot/version push notifications.
-- **Static UI**: served at `/` with supporting `/static/*` assets.
-- **CLI Entrypoints**: `python -m client.python.switchboard_cli` or `switchboard_cli.py` shim for backwards compatibility.
-- **Automation Hooks**: `scripts/run_pytest.py`, Makefile targets (`make run`, `make test`, `make qa`).
+### Data Stores & External Services
+| Store / Service | Usage | Notes |
+| --- | --- | --- |
+| SQLite (default) | Primary relational store for tasks, plans, leases. | Alembic in place but runtime still performs manual DDL on startup. |
+| Filesystem (`FILES_ROOT`) | Mirrors uploaded artifacts and live ExecPlan docs. | Needs quota limits and periodic pruning strategy. |
+| WebSockets (in-process) | Push plan updates to operators/agents. | Implemented via FastAPI `WebSocket` with naive broadcast; lacks backpressure controls. |
+| Prometheus endpoint (scaffold) | Exposes metrics when instrumentation is enabled. | Needs validation, default disabled. |
+| External APIs | None by default; clients interact directly with server. | Future integrations should pass through typed gateways.
 
-### Background Jobs & Cron
-
-- No persistent workers; lease cleanup and plan versioning are handled inline with API requests. Opportunity to extract into background scheduler if scale grows.
+### Deployment & Environment Matrix
+| Environment | Status | Notes |
+| --- | --- | --- |
+| Local development | Supported via `make run`, SQLite, `.env` overrides. | Requires manual dependency installation; no bootstrap script. |
+| CI (GitHub Actions) | Single Python version, lint/test matrix minimal. | Needs caching, SBOM, artifact retention. |
+| Production (assumed) | Not codified; Compose suggests containerized FastAPI + SQLite. | Define IaC + runtime expectations before release automation.
 
 ## Tech Stack & Dependency Map
 
-- **Languages**: Python 3.11+, HTML/Tailwind/HTMX for UI, YAML/TOML configs.
-- **Frameworks**: FastAPI + Starlette, SQLAlchemy (async), Jinja2, Requests, Pytest, Playwright (optional), Prometheus + OpenTelemetry instrumentation.
-- **Tooling**: Ruff, Black, Mypy (configured but not strict), Makefile, Docker Compose, GitHub Actions (basic pipeline), pre-commit (limited hooks).
+- **Languages**: Python 3.11, HTML/JS (HTMX), YAML/TOML configs.
+- **Frameworks/Libraries**: FastAPI, Starlette, SQLAlchemy (async), Alembic, Jinja2, HTTPX/Requests, Pydantic v1, Prometheus/OpenTelemetry instrumentation scaffolding, Ruff, Black, Pytest, Bandit.
+- **Tooling**: GitHub Actions (`ci.yml`, `commitlint.yml`), Renovate (`renovate.json`), pre-commit, Makefile automation, Docker/Compose, commitlint.
 
-### Dependency Graph (High Level)
-
-```
-Client CLI ─┐
-            ├─> client/python/switchboard_client.py ──> REST API (`server/app.py`)
-Client SDK ─┘                                            │
-                                                     SQLAlchemy ORM ──> SQLite (default)
-                                                     │
-                                                     ├─> File Store (`server/file_store.py`) ──> Local disk
-                                                     ├─> ExecPlan Registry (`server/execplan_registry.py`) ──> docs/execplans
-                                                     └─> Instrumentation (`server/instrumentation/`) ──> logging/prometheus/OTel
-
-Operator UI (web/) ──> FastAPI template rendering + WebSocket broadcaster
+```mermaid
+flowchart TD
+    subgraph Clients
+        CLI[CLI \n client/python]
+        AgentBots[External agents]
+    end
+    subgraph API
+        FastAPI[server/app.py]
+        TaskLogic[server/task_logic.py]
+        FileStore[server/file_store.py]
+        Middleware[server/middleware]
+    end
+    subgraph Data
+        DB[(SQLite/Alembic)]
+        Files[(FILES_ROOT)]
+        ExecPlans[docs/execplans]
+    end
+    CLI -->|REST/WebSocket| FastAPI
+    AgentBots -->|REST/WebSocket| FastAPI
+    FastAPI --> TaskLogic
+    FastAPI --> FileStore
+    TaskLogic --> DB
+    FastAPI --> Middleware
+    FileStore --> Files
+    TaskLogic --> ExecPlans
+    FastAPI -->|Telemetry| Instrumentation[server/instrumentation]
+    subgraph Ops
+        Makefile
+        Scripts[scripts/*.py]
+        CI[.github/workflows]
+    end
+    Ops --> FastAPI
+    Ops --> Clients
 ```
 
 ### Hotspots & Potential Dead Code
-
-- `server/app.py` is ~800 lines and mixes routing, broadcasting, templating, and runtime migrations — prime candidate for modularization.
-- `RateLimitMiddleware` caches settings globally; combined with mutable environment overrides, this can leak state across tests.
-- `server/app.py` performs ad-hoc schema migration (`ALTER TABLE tasks ADD COLUMN completed_notes`) on startup despite Alembic migrations existing — indicates drift between runtime and migrations.
-- Root shims `switchboard_client.py`/`switchboard_cli.py` duplicate exports from `client/python/` package; confirm if external users still rely on them (possible deprecation path).
-- `REPORTS/` directory appears archival; contents are not referenced by code.
-- Some Alembic migrations may be unused because runtime DDL still compensates; need audit.
+- **`server/app.py` monolith** — ~800 LOC mixing API routes, templating, WebSocket state, startup migrations. Break into routers + app factory with explicit dependency graph.
+- **Runtime schema mutations** — Startup lifespan executes raw `ALTER TABLE` for `completed_notes`; replace with Alembic revision and migration smoke test.
+- **Mutable global config** — Rate limit middleware caches env-derived settings globally; tests manipulating env vars may leak state between runs.
+- **Client shims duplication** — Root `switchboard_client.py`/`switchboard_cli.py` mirror package entry points; plan staged deprecation with import compatibility layer.
+- **Legacy artifacts** — `REPORTS/` and older scripts appear archival; verify references prior to pruning to avoid breaking governance audit trails.
+- **Instrumentation guards** — Optional logging/metrics modules rely on `try/except ImportError`; provide typed fallbacks to eliminate hidden failures.
+- **UI asset drift** — Tailwind/HTMX assets lack build validation; add Prettier/ESLint/Stylelint to catch regressions.
 
 ## Risks & Quick Wins
 
-| Area | Risk | Quick Win |
-| --- | --- | --- |
-| **Governance** | Missing CODEOWNERS, CODE_OF_CONDUCT, SECURITY policy; inconsistent contributor guidance. | Introduce governance docs + PR templates to codify expectations. |
-| **CI/CD** | Existing workflows limited; lack of matrix builds, caching, or strict enforcement. | Build GitHub Actions pipeline running lint/format/type/test with caching + artifact uploads. |
-| **Typing** | Mypy config exists but not strict; optional imports bypass type checking. | Enable strict mode incrementally with stub packages + targeted suppressions. |
-| **Security** | No SBOM/secret scanning; runtime allows arbitrary file uploads without size guard. | Add gitleaks/trivy pre-commit + CI, implement upload size/config validation. |
-| **DX** | Setup steps scattered; no first-hour guide or bootstrap script. | Provide `make bootstrap`/`just` targets and quick-start documentation. |
-| **Observability** | Logging/tracing modules exist but inconsistent usage; metrics not enforced. | Standardize structured logging + ensure metrics/traces registered in FastAPI startup tests. |
+| Area | Risk | Suggested Mitigation | Effort | Impact |
+| --- | --- | --- | --- | --- |
+| Governance | Inconsistent contribution guidance; lack of CODEOWNERS enforcement in reviews. | Refresh governance docs, CODEOWNERS, templates, align README links. | Low | High |
+| CI/CD | Workflow lacks matrix/cache; coverage artifacts missing. | Rebuild `ci.yml` with Py311/312 matrix, caching, coverage upload, gating. | Medium | High |
+| Typing | `mypy` not strict; `type: ignore` scattered. | Enable `mypy --strict`, remediate top offenders via staged PRs. | Medium | High |
+| Security | No SBOM generation; upload API unbounded. | Add gitleaks/trivy/pip-audit, enforce file size/type limits with config toggles. | Medium | High |
+| Observability | Logging/tracing optional; metrics endpoint untested. | Introduce structured logging middleware, health/metrics tests. | Medium | Medium |
+| DX | Multiple entrypoints; docs drift; bootstrap unclear. | Provide `make bootstrap`, align docs, add first-hour guide. | Low | Medium |
+| Data | Runtime DDL indicates migration debt. | Replace with Alembic revision + migration smoke tests. | Low | High |
+| Testing | WebSocket/CLI flows lack integration coverage. | Build pytest markers + CLI/WebSocket integration tests. | Medium | High |
+| Performance | Broadcast loop lacks backpressure; DB indices minimal. | Add async broadcast queue, index migrations, performance benchmarks. | Medium | Medium |
+| Reliability | Missing readiness checks and graceful shutdown hooks. | Add `/readyz` + signal handling, test with orchestrated shutdowns. | Medium | Medium |
 
 ## Top 10 Opportunities by ROI
 
-1. **Governance & Automation Baseline** – Add CODEOWNERS, CONTRIBUTING, SECURITY, PR templates, Renovate, commitlint, EditorConfig; unlock consistent contributions. _(Impact: High, Effort: Low)_
-2. **CI/CD Hardening** – Replace existing workflow with cached multi-stage pipeline (lint/type/test/build), add status checks. _(Impact: High, Effort: Medium)_
-3. **Strict Typing & Lint Enforcement** – Turn on `mypy --strict`, `ruff --select ALL`, add type hints; prevents regressions. _(Impact: High, Effort: Medium)_
-4. **Runtime Migration Cleanup** – Remove startup DDL, rely on Alembic migrations with migration tests. _(Impact: Medium, Effort: Low)_
-5. **Configuration Validation** – Introduce Pydantic `BaseSettings` with schema validation + `.env.example`. _(Impact: Medium, Effort: Low)_
-6. **Secret & Dependency Scanning** – Add gitleaks, pip-audit/uv pip compile, SBOM via Syft/CycloneDX. _(Impact: High, Effort: Medium)_
-7. **Observability Instrumentation** – Adopt OpenTelemetry context propagation, Prometheus metrics, log correlation IDs. _(Impact: Medium, Effort: Medium)_
-8. **Test Pyramid Expansion** – Add integration tests for WebSocket broadcaster + CLI e2e under docker-compose with ephemeral DB. _(Impact: High, Effort: Medium)_
-9. **Performance Guardrails** – Add request timeouts, DB indices on `leases`, caching plan snapshots, and profiling scripts. _(Impact: Medium, Effort: Medium)_
-10. **DX Improvements** – Create `make dev`/`make test` orchestrations, first-hour guide, troubleshooting doc, align formatting (Black/Ruff + Prettier for web). _(Impact: Medium, Effort: Low)_
+| Rank | Opportunity | Why It Matters | Dependencies |
+| --- | --- | --- | --- |
+| 1 | **Governance & Policy Baseline** | Prevents process drift, enables CODEOWNERS enforcement, aligns contributors. | None |
+| 2 | **CI Rebuild with Caching & Coverage** | Gives deterministic feedback, reduces feedback loop cost, prerequisites for future gating. | Task M1.TOOL.1/2 |
+| 3 | **Strict Typing Initiative** | Shrinks runtime defect surface, unlocks safer refactors. | CI rebuild |
+| 4 | **Runtime Migration Cleanup** | Eliminates startup race conditions, supports multi-node deploys. | Typing initiative |
+| 5 | **Configuration Schema Validation** | Hardens config boundaries, improves DX. | Governance baseline |
+| 6 | **Security Scanning & SBOM** | Provides supply-chain assurance and audit trail. | CI rebuild |
+| 7 | **Observability Consistency** | Enables triage, ensures SLO monitoring readiness. | App modularization |
+| 8 | **Test Pyramid Expansion** | Gives confidence across CLI/WebSocket flows, supports release automation. | CI rebuild |
+| 9 | **Performance Guardrails** | Shields operators from cascading failures, informs capacity planning. | Observability instrumentation |
+| 10 | **DX Improvements** | Reduces onboarding friction, codifies workflows. | Governance baseline |
 
-## Additional Notes
-
-- README, ARCHITECTURE.md, and PROJECT_STATUS.md contain overlapping narratives; align them with PLAN.md outputs to avoid drift.
-- Ops manifests (otel.yaml, docker-compose) lack automation hooks; consider Helm/Kustomize or Terraform integration in later milestones.
-- Maintain STATUS.md after each PR per directive to signal progress and open questions.
+## Additional Observations
+- README, ARCHITECTURE.md, and MIGRATION.md partially overlap with REPORT/PLAN; consolidate into canonical architecture + operational guides to avoid drift.
+- Observability scaffolding exists but lacks explicit configuration tests — instrumentation modules should expose typed factories and fail fast when optional deps missing.
+- STATUS.md must be updated after every PR with summary + next steps per directive.
+- Introduce ADRs for architectural shifts (e.g., app factory, settings system) to capture rationale and keep modernization traceable.
