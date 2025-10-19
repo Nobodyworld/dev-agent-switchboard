@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 
+import pytest
 from starlette.testclient import TestClient
 
 from server.app import app
@@ -9,6 +10,7 @@ from server.settings import (
     RATE_LIMIT_TRUSTED_ENV,
     RATE_LIMIT_TRUSTED_PROXIES_ENV,
     RATE_LIMIT_WINDOW_ENV,
+    RateLimitConfigurationError,
     reload_rate_limit_settings,
 )
 
@@ -32,7 +34,6 @@ def _configure_limit(
     else:
         monkeypatch.delenv(RATE_LIMIT_TRUSTED_PROXIES_ENV, raising=False)
     reload_rate_limit_settings()
-    # TODO - Assert that invalid environment inputs raise clear errors instead of silently falling back to defaults.
 
 
 @contextmanager
@@ -83,3 +84,10 @@ def test_trusted_proxy_uses_forwarded_for(monkeypatch):
         assert client.get("/health", headers=headers_a).status_code == 200
         # Different forwarded identifier should be treated as a different client
         assert client.get("/health", headers=headers_b).status_code == 200
+
+
+def test_invalid_rate_limit_configuration_raises(monkeypatch):
+    monkeypatch.setenv(RATE_LIMIT_REQUESTS_ENV, "invalid")
+    with pytest.raises(RateLimitConfigurationError):
+        reload_rate_limit_settings()
+    monkeypatch.delenv(RATE_LIMIT_REQUESTS_ENV, raising=False)
