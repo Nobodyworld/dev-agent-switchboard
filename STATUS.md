@@ -1,13 +1,14 @@
 # Modernization Status
 
-_Last updated: 2025-02-14_
+_Last updated: 2025-02-15_
 
 ## Completed
-- Published the modernization Repo Intelligence Report and execution PLAN to baseline scope and risks.
-- Hardened the CLI toolchain with targeted mypy strict checks, refreshed tests, and dependency stubs so typing becomes actionable without impacting runtime behavior.
+- Elevated the Repo Intelligence Report with executive summary, component inventory, data store catalog, and ROI tables to steer modernization priorities.
+- Hardened the execution roadmap with milestone exit criteria, delivery governance guidelines, cross-cutting dependency matrix, and rollback playbook.
 
 ## In Progress
-- Broaden strict typing coverage to core server modules and start pruning mechanical dead code now that governance and CLI foundations are in place.
+- Drafting governance + CI hardening implementation details (M1 tasks) so the first code-oriented PR can focus on tooling/config changes without runtime risk.
 
 ## Next Up
-- Expand observability, security scanning, and performance workstreams once strict typing and dead-code cleanup land.
+- Ship the governance + CI/CD + lint/format + pre-commit baseline PR (Tasks M1.GOV.1, M1.TOOL.1, M1.TOOL.2, M1.CI.1) followed by CI instrumentation (M1.CI.1a).
+- Kick off strict typing and dead-code remediation once CI guardrails are in place (M2.TYPE.1, M2.HEALTH.1).
