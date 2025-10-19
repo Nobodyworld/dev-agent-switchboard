@@ -99,6 +99,23 @@ automation is available through the following make targets:
 * `make security` — scan the server code with **bandit**.
 * `make qa` — run the full formatter, lint, type, test, and security suite.
 
+## Configuration
+
+Switchboard reads its operational settings from environment variables. Copy
+`.env.example` to `.env` (or export variables in your shell) to tune runtime
+behavior:
+
+* `DATABASE_URL` — SQLAlchemy connection string (defaults to SQLite).
+* `STORAGE_ROOT` / `FILES_ROOT` — filesystem locations for live file storage.
+* `SWITCHBOARD_RATE_LIMIT_*` — request limiter configuration. Invalid values
+  now raise a clear startup error instead of silently falling back to
+  defaults.
+* Optional observability controls such as `SWITCHBOARD_LOGGING_LEVEL`,
+  `SWITCHBOARD_METRICS_PATH`, and `SWITCHBOARD_TRACING_EXPORTER`.
+
+Refer to the [Architecture overview](ARCHITECTURE.md) for additional context
+on where each setting is consumed.
+
 ## Continuous integration
 
 Incoming pull requests are validated by the `CI` GitHub Actions workflow. The

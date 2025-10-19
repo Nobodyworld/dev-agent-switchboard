@@ -39,16 +39,33 @@ class AgentIn(BaseModel):
     agent_name: str = Field(..., description="Human-readable or unique agent ID")
 
 
+MAX_TITLE_LENGTH = 200
+MAX_DESCRIPTION_LENGTH = 5000
+
+
 class TaskIn(BaseModel):
-    title: str
-    description: str = ""
+    title: str = Field(
+        ..., max_length=MAX_TITLE_LENGTH, description="Short task summary"
+    )
+    description: str = Field(
+        default="",
+        max_length=MAX_DESCRIPTION_LENGTH,
+        description="Long-form task details",
+    )
     depends_on: List[int] = Field(default_factory=list)
-    # TODO - Add max_length validators so untrusted clients cannot create excessively large titles or descriptions.
 
 
 class TaskUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
+    title: Optional[str] = Field(
+        default=None,
+        max_length=MAX_TITLE_LENGTH,
+        description="Updated task title",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        max_length=MAX_DESCRIPTION_LENGTH,
+        description="Updated task description",
+    )
     status: Optional[TaskStatus] = None
     depends_on: Optional[List[int]] = Field(default=None)
 

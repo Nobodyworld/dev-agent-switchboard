@@ -8,6 +8,10 @@ from functools import lru_cache
 from typing import FrozenSet
 
 
+class RateLimitConfigurationError(ValueError):
+    """Raised when rate limit environment variables are invalid."""
+
+
 RATE_LIMIT_REQUESTS_ENV = "SWITCHBOARD_RATE_LIMIT_REQUESTS"
 RATE_LIMIT_WINDOW_ENV = "SWITCHBOARD_RATE_LIMIT_WINDOW_SECONDS"
 RATE_LIMIT_TRUSTED_ENV = "SWITCHBOARD_RATE_LIMIT_TRUSTED_BYPASS"
@@ -33,14 +37,20 @@ class RateLimitSettings:
         return self.requests > 0 and self.window_seconds > 0
 
 
-def _parse_int(value: str | None, default: int) -> int:
+def _parse_int(name: str, value: str | None, default: int) -> int:
     if value is None:
         return default
     try:
         parsed = int(value)
-        return parsed if parsed >= 0 else default
-    except (TypeError, ValueError):
-        return default
+    except (TypeError, ValueError) as exc:
+        raise RateLimitConfigurationError(
+            f"{name} must be a non-negative integer; got {value!r}"
+        ) from exc
+    if parsed < 0:
+        raise RateLimitConfigurationError(
+            f"{name} must be a non-negative integer; got {value!r}"
+        )
+    return parsed
 
 
 def _parse_trusted(raw: str | None) -> FrozenSet[str]:
@@ -54,9 +64,16 @@ def _parse_trusted(raw: str | None) -> FrozenSet[str]:
 def get_rate_limit_settings() -> RateLimitSettings:
     """Load rate limit settings from environment variables."""
 
-    # TODO - Validate settings eagerly and surface configuration errors instead of silently falling back to defaults.
-    requests = _parse_int(os.getenv(RATE_LIMIT_REQUESTS_ENV), _DEFAULT_REQUESTS)
-    window = _parse_int(os.getenv(RATE_LIMIT_WINDOW_ENV), _DEFAULT_WINDOW_SECONDS)
+    requests = _parse_int(
+        RATE_LIMIT_REQUESTS_ENV,
+        os.getenv(RATE_LIMIT_REQUESTS_ENV),
+        _DEFAULT_REQUESTS,
+    )
+    window = _parse_int(
+        RATE_LIMIT_WINDOW_ENV,
+        os.getenv(RATE_LIMIT_WINDOW_ENV),
+        _DEFAULT_WINDOW_SECONDS,
+    )
     trusted = _parse_trusted(os.getenv(RATE_LIMIT_TRUSTED_ENV))
     proxies = _parse_trusted(os.getenv(RATE_LIMIT_TRUSTED_PROXIES_ENV))
     return RateLimitSettings(
