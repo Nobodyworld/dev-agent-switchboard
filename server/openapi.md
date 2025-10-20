@@ -66,7 +66,7 @@ This document is a human-readable snapshot of the FastAPI application's OpenAPI 
 | `id` | integer | Unique task ID. |
 | `title` | string | Task title. |
 | `description` | string | Task description. |
-| `status` | string | Current status (`pending`, `in_progress`, or `completed`). |
+| `status` | string (enum) | Current status (`pending`, `in_progress`, or `completed`). |
 | `completed_notes` | string? | Notes supplied when the task was completed, or `null` if none. |
 | `depends_on` | array&lt;int&gt; | IDs of prerequisite tasks. |
 
@@ -181,7 +181,7 @@ Register an agent if it does not already exist.
 List tasks, optionally filtered by status.
 
 - **Query Parameters:**
-  - `status` *(optional string)* — filter by exact status.
+  - `status` *(optional enum or `all`)* — restrict results to a lifecycle state (use `all` to disable filtering).
 - **Response 200 Example:**
 
 ```json

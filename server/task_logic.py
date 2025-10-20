@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Iterable, List, NamedTuple, Optional, Tuple
+from collections.abc import Iterable
+from typing import NamedTuple
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import Lease, PlanVersion, Task, TaskDependency
+from .task_status import TaskStatus
 from .time_utils import utcnow_naive
-
 
 __all__ = [
     "LEASE_SECONDS",
@@ -34,29 +35,30 @@ __all__ = [
 class CheckoutResult(NamedTuple):
     """Result wrapper returned by :func:`checkout_task`."""
 
-    task: Optional[Task]
-    reason: Optional[str]
+    task: Task | None
+    reason: str | None
 
 
 class CompleteResult(NamedTuple):
     """Result wrapper returned by :func:`complete`."""
 
     ok: bool
-    notes: Optional[str]
+    notes: str | None
 
-# TODO - Make the lease duration configurable via settings for different deployment needs.
+# TODO - Make the lease duration configurable via settings for different
+# deployment needs.
 LEASE_SECONDS = 300
 PLAN_VERSION_ROW_ID = 1
 
 
-def _lease_deadline(now: Optional[dt.datetime] = None) -> dt.datetime:
+def _lease_deadline(now: dt.datetime | None = None) -> dt.datetime:
     """Return the lease expiration timestamp based on ``LEASE_SECONDS``."""
 
     base = now or utcnow_naive()
     return base + dt.timedelta(seconds=LEASE_SECONDS)
 
 
-async def get_dependencies(session: AsyncSession, task_id: int) -> List[int]:
+async def get_dependencies(session: AsyncSession, task_id: int) -> list[int]:
     """Return task identifiers that ``task_id`` depends on."""
 
     rows = (
@@ -89,7 +91,7 @@ async def update_dependencies(
 async def is_available(session: AsyncSession, task: Task) -> bool:
     """Return ``True`` when ``task`` can be checked out for work."""
 
-    if task.status == "completed":
+    if task.status == TaskStatus.COMPLETED:
         return False
     # Dependencies must be completed
     deps = await get_dependencies(session, task.id)
@@ -97,7 +99,7 @@ async def is_available(session: AsyncSession, task: Task) -> bool:
         rows = (
             await session.execute(select(Task.id, Task.status).where(Task.id.in_(deps)))
         ).all()
-        if any(r[1] != "completed" for r in rows):
+        if any(r[1] != TaskStatus.COMPLETED for r in rows):
             return False
     # No active lease
     lease = (
@@ -113,7 +115,7 @@ async def is_available(session: AsyncSession, task: Task) -> bool:
 async def checkout_task(
     session: AsyncSession,
     agent_id: str,
-    task_id: Optional[int] = None,
+    task_id: int | None = None,
 ) -> CheckoutResult:
     """Return the next available task for ``agent_id`` or a failure reason."""
 
@@ -128,11 +130,12 @@ async def checkout_task(
         tasks = [task]
     else:
         tasks = (await session.execute(select(Task).order_by(Task.id))).scalars().all()
-    # TODO - Prioritize tasks using explicit ordering (e.g., status or dependencies) instead of raw iteration.
+    # TODO - Prioritize tasks using explicit ordering (e.g., status or dependencies)
+    # instead of raw iteration.
     for t in tasks:
         if await is_available(session, t):
             # set status and lease
-            t.status = "in_progress"
+            t.status = TaskStatus.IN_PROGRESS
             expires = _lease_deadline()
             await session.merge(t)
             await session.flush()
@@ -162,7 +165,7 @@ async def complete(
     session: AsyncSession,
     agent_id: str,
     task_id: int,
-    notes: Optional[str] = None,
+    notes: str | None = None,
 ) -> CompleteResult:
     """Mark ``task_id`` complete if ``agent_id`` holds the lease."""
     lease = (
@@ -178,7 +181,7 @@ async def complete(
         now = utcnow_naive()
         if lease.expires_at > now:
             return CompleteResult(False, None)
-    task.status = "completed"
+    task.status = TaskStatus.COMPLETED
     normalized_notes = notes if notes else None
     task.completed_notes = normalized_notes
     await session.merge(task)
@@ -201,7 +204,7 @@ async def abandon(session: AsyncSession, agent_id: str, task_id: int) -> bool:
         now = utcnow_naive()
         if lease.expires_at > now:
             return False
-    task.status = "pending"
+    task.status = TaskStatus.PENDING
     await session.merge(task)
     await session.execute(delete(Lease).where(Lease.task_id == task_id))
     return True
@@ -213,11 +216,12 @@ async def plan_version(session: AsyncSession) -> int:
     return await current_plan_version(session)
 
 
-async def plan_version_snapshot(session: AsyncSession) -> Tuple[int, dt.datetime]:
+async def plan_version_snapshot(session: AsyncSession) -> tuple[int, dt.datetime]:
     """Return the current plan version and last updated timestamp."""
 
     row = await _ensure_plan_version_row(session)
-    # `updated_at` may be None immediately after creation prior to flush; ensure defaults apply.
+    # `updated_at` may be None immediately after creation prior to flush;
+    # ensure defaults apply.
     if row.updated_at is None:
         await session.flush()
         await session.refresh(row)

@@ -82,6 +82,7 @@ def test_put_file_returns_url_and_uses_shared_timeout():
         "agent-007",
         session=session,
         timeout=3,
+        operation_timeouts={"put_file": 3},
         auto_register=False,
     )
 
@@ -103,7 +104,11 @@ def test_put_file_raises_when_url_missing():
     session.request.return_value = response
 
     client = SwitchboardClient(
-        "http://example.com", "agent-007", session=session, auto_register=False
+        "http://example.com",
+        "agent-007",
+        session=session,
+        operation_timeouts={"put_file": DEFAULT_REQUEST_TIMEOUT},
+        auto_register=False,
     )
 
     with pytest.raises(ValueError):
@@ -254,12 +259,16 @@ def test_list_tasks_with_status_passes_filter():
 
 
 def test_timeout_property_reflects_constructor_value():
+    custom_timeout = 7.5
     client = SwitchboardClient(
-        "http://example.com", "agent-007", timeout=7.5, auto_register=False
+        "http://example.com",
+        "agent-007",
+        timeout=custom_timeout,
+        auto_register=False,
     )
 
     try:
-        assert client.timeout == 7.5
+        assert client.timeout == custom_timeout
     finally:
         client.close()
 

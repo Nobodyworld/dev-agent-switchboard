@@ -1,15 +1,18 @@
 import asyncio
 import datetime as dt
+from http import HTTPStatus
 
 import pytest
 from fastapi.testclient import TestClient
 
-# TODO - Port these integration tests to async clients so we exercise the real middleware stack end-to-end.
+# TODO - Port these integration tests to async clients so we exercise the
+# full middleware stack end-to-end.
 from sqlalchemy import delete, select
 
 from server.app import app
 from server.db import AsyncSessionLocal
 from server.models import Agent, Lease, Task, TaskDependency
+from server.task_status import TaskStatus
 
 client = TestClient(app)
 
@@ -58,7 +61,7 @@ async def _get_task(task_id: int) -> Task | None:
 
 def register_agent(agent_name: str) -> None:
     response = client.post("/api/agents", json={"agent_name": agent_name})
-    assert response.status_code == 200
+    assert response.status_code == HTTPStatus.OK
     assert response.json()["ok"] is True
 
 
@@ -66,7 +69,7 @@ def create_task(title: str) -> int:
     response = client.post(
         "/api/tasks", json={"title": title, "description": "", "depends_on": []}
     )
-    assert response.status_code == 200
+    assert response.status_code == HTTPStatus.OK
     return response.json()["id"]
 
 
@@ -76,7 +79,7 @@ def test_checkout_heartbeat_expiry_and_recheckout():
     task_id = create_task("lifecycle")
 
     checkout = client.post("/api/tasks/checkout", params={"agent_id": "alpha"})
-    assert checkout.status_code == 200
+    assert checkout.status_code == HTTPStatus.OK
     data = checkout.json()
     assert data["task"]["id"] == task_id
 
@@ -86,7 +89,7 @@ def test_checkout_heartbeat_expiry_and_recheckout():
     heartbeat = client.post(
         f"/api/tasks/{task_id}/heartbeat", params={"agent_id": "alpha"}
     )
-    assert heartbeat.status_code == 200
+    assert heartbeat.status_code == HTTPStatus.OK
     assert heartbeat.json() == {"ok": True}
 
     lease_after = run_async(_get_lease(task_id))
@@ -96,7 +99,7 @@ def test_checkout_heartbeat_expiry_and_recheckout():
     run_async(_force_expire(task_id))
 
     recheckout = client.post("/api/tasks/checkout", params={"agent_id": "beta"})
-    assert recheckout.status_code == 200
+    assert recheckout.status_code == HTTPStatus.OK
     recheckout_data = recheckout.json()
     assert recheckout_data["task"]["id"] == task_id
 
@@ -107,24 +110,24 @@ def test_abandon_releases_task_to_other_agent():
     task_id = create_task("abandonable")
 
     first_checkout = client.post("/api/tasks/checkout", params={"agent_id": "alpha"})
-    assert first_checkout.status_code == 200
+    assert first_checkout.status_code == HTTPStatus.OK
     assert first_checkout.json()["task"]["id"] == task_id
 
     unavailable = client.post("/api/tasks/checkout", params={"agent_id": "beta"})
-    assert unavailable.status_code == 200
+    assert unavailable.status_code == HTTPStatus.OK
     assert unavailable.json()["task"] is None
     assert unavailable.json()["reason"] == "no_available_tasks"
 
     abandon = client.post(f"/api/tasks/{task_id}/abandon", params={"agent_id": "alpha"})
-    assert abandon.status_code == 200
+    assert abandon.status_code == HTTPStatus.OK
     assert abandon.json() == {"ok": True}
 
     task_after_abandon = run_async(_get_task(task_id))
     assert task_after_abandon is not None
-    assert task_after_abandon.status == "pending"
+    assert task_after_abandon.status == TaskStatus.PENDING
 
     second_checkout = client.post("/api/tasks/checkout", params={"agent_id": "beta"})
-    assert second_checkout.status_code == 200
+    assert second_checkout.status_code == HTTPStatus.OK
     assert second_checkout.json()["task"]["id"] == task_id
 
 
@@ -138,24 +141,24 @@ def test_completion_with_and_without_active_lease():
         params={"agent_id": "alpha"},
         json={"notes": "finishing without lease"},
     )
-    assert without_lease.status_code == 200
+    assert without_lease.status_code == HTTPStatus.OK
     assert without_lease.json()["ok"] is True
     assert without_lease.json()["notes"] == "finishing without lease"
 
     task_record = run_async(_get_task(no_lease_task))
     assert task_record is not None
-    assert task_record.status == "completed"
+    assert task_record.status == TaskStatus.COMPLETED
     assert task_record.completed_notes == "finishing without lease"
 
     task_list = client.get("/api/tasks")
-    assert task_list.status_code == 200
+    assert task_list.status_code == HTTPStatus.OK
     noted_task = next(t for t in task_list.json() if t["id"] == no_lease_task)
     assert noted_task["completed_notes"] == "finishing without lease"
 
     with_lease_task = create_task("lease completion")
 
     checkout = client.post("/api/tasks/checkout", params={"agent_id": "alpha"})
-    assert checkout.status_code == 200
+    assert checkout.status_code == HTTPStatus.OK
     assert checkout.json()["task"]["id"] == with_lease_task
 
     lease = run_async(_get_lease(with_lease_task))
@@ -167,7 +170,7 @@ def test_completion_with_and_without_active_lease():
         params={"agent_id": "beta"},
         json={"notes": "should fail"},
     )
-    assert wrong_agent_complete.status_code == 200
+    assert wrong_agent_complete.status_code == HTTPStatus.OK
     assert wrong_agent_complete.json()["ok"] is False
 
     correct_agent_complete = client.post(
@@ -175,7 +178,7 @@ def test_completion_with_and_without_active_lease():
         params={"agent_id": "alpha"},
         json={"notes": "done"},
     )
-    assert correct_agent_complete.status_code == 200
+    assert correct_agent_complete.status_code == HTTPStatus.OK
     assert correct_agent_complete.json()["ok"] is True
     assert correct_agent_complete.json()["notes"] == "done"
 
@@ -184,5 +187,5 @@ def test_completion_with_and_without_active_lease():
 
     final_task = run_async(_get_task(with_lease_task))
     assert final_task is not None
-    assert final_task.status == "completed"
+    assert final_task.status == TaskStatus.COMPLETED
     assert final_task.completed_notes == "done"

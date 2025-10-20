@@ -1,5 +1,6 @@
 import asyncio
 import datetime as dt
+from http import HTTPStatus
 
 import pytest
 from fastapi import HTTPException
@@ -7,9 +8,11 @@ from sqlalchemy import select
 
 from server.app import create_task, update_task
 from server.db import AsyncSessionLocal
-from server.models import TaskDependency, Lease, Task
+from server.models import Lease, Task, TaskDependency
 from server.schema import TaskIn, TaskUpdate
 from server.task_logic import plan_version
+from server.task_status import TaskStatus
+from server.time_utils import utcnow_naive
 
 
 def test_update_task_successful_edit_and_dependency_replacement():
@@ -79,7 +82,7 @@ def test_update_task_missing_dependency_validation():
                     TaskUpdate(depends_on=[9999]),
                     session=session,
                 )
-            assert exc.value.status_code == 400
+            assert exc.value.status_code == HTTPStatus.BAD_REQUEST
 
             await session.rollback()
 
@@ -101,7 +104,7 @@ def test_update_task_self_dependency_validation():
                     TaskUpdate(depends_on=[task.id]),
                     session=session,
                 )
-            assert exc.value.status_code == 400
+            assert exc.value.status_code == HTTPStatus.BAD_REQUEST
 
             await session.rollback()
 
@@ -119,25 +122,25 @@ def test_update_task_status_resetting_leases_to_pending():
 
             task = await session.get(Task, created.id)
             assert task is not None
-            task.status = "in_progress"
+            task.status = TaskStatus.IN_PROGRESS
             await session.flush()
 
             session.add(
                 Lease(
                     task_id=task.id,
                     agent_id="agent-a",
-                    expires_at=dt.datetime.utcnow() + dt.timedelta(minutes=5),
+                    expires_at=utcnow_naive() + dt.timedelta(minutes=5),
                 )
             )
             await session.commit()
 
             result = await update_task(
                 task.id,
-                TaskUpdate(status="pending"),
+                TaskUpdate(status=TaskStatus.PENDING),
                 session=session,
             )
 
-            assert result.status == "pending"
+            assert result.status == TaskStatus.PENDING
             leases = (
                 (await session.execute(select(Lease).where(Lease.task_id == task.id)))
                 .scalars()
@@ -159,25 +162,25 @@ def test_update_task_status_resetting_leases_to_completed():
 
             task = await session.get(Task, created.id)
             assert task is not None
-            task.status = "in_progress"
+            task.status = TaskStatus.IN_PROGRESS
             await session.flush()
 
             session.add(
                 Lease(
                     task_id=task.id,
                     agent_id="agent-b",
-                    expires_at=dt.datetime.utcnow() + dt.timedelta(minutes=5),
+                    expires_at=utcnow_naive() + dt.timedelta(minutes=5),
                 )
             )
             await session.commit()
 
             result = await update_task(
                 task.id,
-                TaskUpdate(status="completed"),
+                TaskUpdate(status=TaskStatus.COMPLETED),
                 session=session,
             )
 
-            assert result.status == "completed"
+            assert result.status == TaskStatus.COMPLETED
             leases = (
                 (await session.execute(select(Lease).where(Lease.task_id == task.id)))
                 .scalars()

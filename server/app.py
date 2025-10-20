@@ -1,5 +1,7 @@
 """FastAPI application entrypoint for Switchboard."""
 
+# ruff: noqa: B008  # FastAPI relies on Depends() defaults for dependency injection.
+
 from __future__ import annotations
 
 import asyncio
@@ -10,19 +12,13 @@ import os
 from collections.abc import Mapping, MutableMapping, Sequence
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
-from typing import (
-    Any,
-    Dict,
-    List,
-    Literal,
-    Optional,
-    TypedDict,
-)
+from typing import Any, Literal, TypedDict
 
 from fastapi import (
     Depends,
     FastAPI,
     HTTPException,
+    Query,
     Request,
     Response,
     WebSocket,
@@ -36,7 +32,7 @@ from fastapi.responses import (
     PlainTextResponse,
 )
 from fastapi.staticfiles import StaticFiles
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy import delete, inspect as sa_inspect, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from yaml import safe_dump
@@ -76,6 +72,7 @@ from .task_logic import (
     plan_version_snapshot,
     update_dependencies,
 )
+from .task_status import TaskStatus
 
 try:  # optional plan version helper
     from .task_logic import plan_version_counter  # type: ignore[attr-defined]
@@ -91,7 +88,7 @@ configure_logging()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     """Create the database schema and storage roots on application startup."""
 
     async with engine.begin() as conn:
@@ -101,7 +98,8 @@ async def lifespan(app: FastAPI):
             inspector = sa_inspect(sync_conn)
             columns = {column["name"] for column in inspector.get_columns("tasks")}
             if "completed_notes" not in columns:
-                # TODO - Move this schema migration into a formal Alembic revision to avoid runtime DDL. 
+                # TODO - Move this schema migration into a formal Alembic revision
+                # to avoid runtime DDL.
                 sync_conn.execute(
                     text("ALTER TABLE tasks ADD COLUMN completed_notes TEXT")
                 )
@@ -135,7 +133,10 @@ WEB_ROOT = Path(__file__).resolve().parent.parent / "web"
 STATIC_ROOT = WEB_ROOT / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC_ROOT)), name="static")
 
-templates = Environment(loader=FileSystemLoader(str(WEB_ROOT)))
+templates = Environment(
+    loader=FileSystemLoader(str(WEB_ROOT)),
+    autoescape=select_autoescape(enabled_extensions=("html", "xml")),
+)
 
 # WebSocket connections
 logger = logging.getLogger(__name__)
@@ -149,8 +150,8 @@ class PlanBroadcastPayload(TypedDict, total=False):
 
     type: Literal["plan_version", "plan_snapshot"]
     version: int
-    plan: Dict[str, Any]
-    delta: Dict[str, Any]
+    plan: dict[str, Any]
+    delta: dict[str, Any]
 
 
 class PlanBroadcaster:
@@ -165,7 +166,8 @@ class PlanBroadcaster:
         """Register a new WebSocket connection for future broadcasts."""
 
         async with self._lock:
-            # TODO - Record connection metadata to help with targeted disconnects and diagnostics.
+            # TODO - Record connection metadata to help with targeted disconnects
+            # and diagnostics.
             self._connections.add(ws)
 
     async def discard(self, ws: WebSocket) -> None:
@@ -180,7 +182,7 @@ class PlanBroadcaster:
         async with self._lock:
             recipients = list(self._connections)
 
-        stale: List[WebSocket] = []
+        stale: list[WebSocket] = []
         for ws in recipients:
             ok = await _send_ws_payload(ws, payload, timeout=self._send_timeout)
             if not ok:
@@ -214,7 +216,7 @@ class PlanBroadcaster:
 PLAN_BROADCASTER = PlanBroadcaster()
 
 
-def _serialize_model(model: Any) -> Dict[str, Any]:
+def _serialize_model(model: Any) -> dict[str, Any]:
     """Return a dictionary representation for both Pydantic v1 and v2 models."""
 
     if hasattr(model, "model_dump"):
@@ -225,7 +227,7 @@ def _serialize_model(model: Any) -> Dict[str, Any]:
 
 
 async def _resolve_plan_version(session: AsyncSession) -> int:
-    """Resolve the current plan version using the optional counter helper when available."""
+    """Resolve the plan version, using the counter helper when available."""
 
     if plan_version_counter:
         version_candidate = plan_version_counter(session)
@@ -237,7 +239,7 @@ async def _resolve_plan_version(session: AsyncSession) -> int:
 
 async def _dependency_map(
     session: AsyncSession, task_ids: Sequence[int]
-) -> Mapping[int, List[int]]:
+) -> Mapping[int, list[int]]:
     """Return a mapping of task id to sorted dependency ids."""
 
     if not task_ids:
@@ -248,7 +250,7 @@ async def _dependency_map(
         .where(TaskDependency.task_id.in_(task_ids))
         .order_by(TaskDependency.task_id, TaskDependency.depends_on_task_id)
     )
-    dependencies: MutableMapping[int, List[int]] = {task_id: [] for task_id in task_ids}
+    dependencies: MutableMapping[int, list[int]] = {task_id: [] for task_id in task_ids}
     for task_id, depends_on_id in rows:
         dependencies.setdefault(task_id, []).append(depends_on_id)
     return dependencies
@@ -268,7 +270,7 @@ def _task_to_out(task: Task, dependencies: Mapping[int, Sequence[int]]) -> TaskO
     )
 
 
-async def _tasks_to_out(session: AsyncSession, tasks: Sequence[Task]) -> List[TaskOut]:
+async def _tasks_to_out(session: AsyncSession, tasks: Sequence[Task]) -> list[TaskOut]:
     """Serialize multiple tasks with a single dependency query."""
 
     if not tasks:
@@ -282,8 +284,8 @@ async def _task_out(session: AsyncSession, task: Task) -> TaskOut:
 
 
 async def _load_tasks(
-    session: AsyncSession, *, status: Optional[str] = None
-) -> List[Task]:
+    session: AsyncSession, *, status: TaskStatus | Literal["all"] | None = None
+) -> list[Task]:
     """Return tasks ordered by identifier, optionally filtered by status."""
 
     stmt = select(Task).order_by(Task.id)
@@ -292,7 +294,7 @@ async def _load_tasks(
     return list((await session.execute(stmt)).scalars().all())
 
 
-async def _serialize_plan(session: AsyncSession) -> Dict[str, Any]:
+async def _serialize_plan(session: AsyncSession) -> dict[str, Any]:
     tasks = await _load_tasks(session)
     outs = await _tasks_to_out(session, tasks)
     version, updated_at = await plan_version_snapshot(session)
@@ -316,12 +318,12 @@ async def _send_ws_payload(
         return False
 
 async def broadcast_plan(
-    version: Optional[int] = None,
-    session: Optional[AsyncSession] = None,
+    version: int | None = None,
+    session: AsyncSession | None = None,
     *,
     include_plan: bool = False,
-    plan: Optional[Dict[str, Any]] = None,
-    delta: Optional[Dict[str, Any]] = None,
+    plan: dict[str, Any] | None = None,
+    delta: dict[str, Any] | None = None,
 ) -> None:
     """Broadcast the latest plan version to connected WebSocket listeners."""
 
@@ -332,7 +334,7 @@ async def broadcast_plan(
         else:
             version = await _resolve_plan_version(session)
 
-    plan_payload: Optional[Dict[str, Any]] = plan
+    plan_payload: dict[str, Any] | None = plan
     if include_plan and plan_payload is None:
         if session is None:
             async with AsyncSessionLocal() as temp_session:
@@ -355,7 +357,7 @@ async def broadcast_plan(
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request, session: AsyncSession = Depends(get_session)):
+async def index(_request: Request, session: AsyncSession = Depends(get_session)):
     """Render the operator dashboard populated with current task data."""
 
     tmpl = templates.get_template("index.html")
@@ -379,9 +381,12 @@ async def register_agent(agent: AgentIn, session: AsyncSession = Depends(get_ses
 
 
 # -------- Tasks & Plan --------
-@app.get("/api/tasks", response_model=List[TaskOut])
+@app.get("/api/tasks", response_model=list[TaskOut])
 async def list_tasks(
-    status: Optional[str] = None, session: AsyncSession = Depends(get_session)
+    status: TaskStatus | Literal["all"] | None = Query(
+        None, description="Filter by status (use 'all' to disable filtering)."
+    ),
+    session: AsyncSession = Depends(get_session),
 ):
     """Return tasks matching the requested status filter."""
 
@@ -393,7 +398,11 @@ async def list_tasks(
 async def create_task(task: TaskIn, session: AsyncSession = Depends(get_session)):
     """Persist a new task and broadcast the resulting plan snapshot."""
 
-    new_task = Task(title=task.title, description=task.description or "")
+    new_task = Task(
+        title=task.title,
+        description=task.description or "",
+        status=TaskStatus.PENDING,
+    )
     session.add(new_task)
     await session.flush()
 
@@ -460,7 +469,7 @@ async def update_task(
         task.description = update.description
     if update.status is not None:
         task.status = update.status
-        if update.status in {"pending", "completed"}:
+        if update.status in {TaskStatus.PENDING, TaskStatus.COMPLETED}:
             await session.execute(delete(Lease).where(Lease.task_id == task.id))
     if update.depends_on is not None:
         await update_dependencies(session, task.id, update.depends_on)
@@ -502,7 +511,7 @@ async def delete_task(task_id: int, session: AsyncSession = Depends(get_session)
 @app.post("/api/tasks/checkout", response_model=CheckoutOut)
 async def checkout(
     agent_id: str,
-    task_id: Optional[int] = None,
+    task_id: int | None = None,
     session: AsyncSession = Depends(get_session),
 ):
     """Checkout a task for the agent, returning the task or failure reason."""
@@ -586,7 +595,7 @@ def _negotiate_execplan_format(request: Request) -> str:
     return "json"
 
 
-def _etag_matches(etag: str, header_value: Optional[str]) -> bool:
+def _etag_matches(etag: str, header_value: str | None) -> bool:
     """Return ``True`` when the provided ``If-None-Match`` header matches ``etag``."""
 
     if not header_value:
@@ -596,7 +605,9 @@ def _etag_matches(etag: str, header_value: Optional[str]) -> bool:
 
 
 @app.get("/api/execplans/index", name="execplan_index")
-async def execplan_index(request: Request, session: AsyncSession = Depends(get_session)):
+async def execplan_index(
+    request: Request, session: AsyncSession = Depends(get_session)
+):
     """Return the ExecPlan registry index in JSON or YAML format."""
 
     desired_format = _negotiate_execplan_format(request)
@@ -694,7 +705,7 @@ async def get_live_file(path: str, request: Request):
     if not os.path.exists(fp):
         return JSONResponse({"error": "not_found"}, status_code=404)
 
-    etag_value: Optional[str] = None
+    etag_value: str | None = None
     if etag_for_path:
         etag_candidate = etag_for_path(path)
         if inspect.isawaitable(etag_candidate):
@@ -708,7 +719,7 @@ async def get_live_file(path: str, request: Request):
             etag_candidates = [
                 tag.strip() for tag in incoming.split(",") if tag.strip()
             ]
-            normalized_request_tags: List[str] = []
+            normalized_request_tags: list[str] = []
             for candidate in etag_candidates:
                 if candidate == "*":
                     normalized_request_tags.append("*")

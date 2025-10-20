@@ -15,10 +15,14 @@ HEARTBEAT_SHUTDOWN_TIMEOUT = 5.0
 
 TaskPayload = dict[str, Any]
 
+DEFAULT_MAX_POLL_INTERVAL = 120.0
+
 __all__ = [
+    "DEFAULT_MAX_POLL_INTERVAL",
     "HEARTBEAT_SHUTDOWN_TIMEOUT",
     "HeartbeatLoop",
     "build_parser",
+    "compute_backoff_interval",
     "format_task",
     "main",
     "process_task",
@@ -167,6 +171,21 @@ def process_task(
         loop.join(HEARTBEAT_SHUTDOWN_TIMEOUT)
 
 
+def compute_backoff_interval(
+    base_interval: float,
+    misses: int,
+    *,
+    max_interval: float,
+    multiplier: float,
+) -> float:
+    """Return the next poll interval using exponential backoff."""
+
+    if misses <= 1 or multiplier <= 1.0:
+        return max(base_interval, 0.0)
+    candidate = base_interval * (multiplier ** (misses - 1))
+    return min(max_interval, max(candidate, base_interval, 0.0))
+
+
 def confirm_completion(
     client: SwitchboardClient, task_id: int, notes: Optional[str]
 ) -> bool:
@@ -189,11 +208,15 @@ def run_command(args: argparse.Namespace) -> int:
         return 1
     try:
         print(f"Registered agent '{args.agent}' against {args.base}.")
-        # TODO - Provide a non-interactive mode so agents can run unattended in CI
-        # environments.
-        poll_interval = args.poll_interval
-        # TODO - Add adaptive backoff when no tasks are available to reduce server
-        # polling load.
+        poll_interval = max(args.poll_interval, 0.0)
+        max_poll_interval = max(
+            getattr(args, "max_poll_interval", poll_interval), poll_interval
+        )
+        backoff_multiplier = max(
+            getattr(args, "backoff_multiplier", 1.0), 1.0
+        )
+        misses = 0
+        current_interval = poll_interval
         while True:
             try:
                 task = client.checkout()
@@ -206,12 +229,21 @@ def run_command(args: argparse.Namespace) -> int:
                     print(f"No task available ({reason}).")
                 else:
                     print("No task available.")
+                misses += 1
+                current_interval = compute_backoff_interval(
+                    poll_interval,
+                    misses,
+                    max_interval=max_poll_interval,
+                    multiplier=backoff_multiplier,
+                )
                 try:
-                    time.sleep(poll_interval)
+                    time.sleep(current_interval)
                 except KeyboardInterrupt:
                     print()
                     return 0
                 continue
+            misses = 0
+            current_interval = poll_interval
             if not process_task(client, task, args.heartbeat_interval):
                 return 1
     finally:
@@ -235,6 +267,18 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=10.0,
         help="Seconds to wait before retrying checkout",
+    )
+    run_parser.add_argument(
+        "--max-poll-interval",
+        type=float,
+        default=DEFAULT_MAX_POLL_INTERVAL,
+        help="Upper bound for adaptive polling backoff",
+    )
+    run_parser.add_argument(
+        "--backoff-multiplier",
+        type=float,
+        default=2.0,
+        help="Multiplier applied to the poll interval after consecutive misses",
     )
     run_parser.add_argument(
         "--heartbeat-interval",
