@@ -1,8 +1,10 @@
 import asyncio
+from http import HTTPStatus
 
 import pytest
 
-# TODO - Replace direct asyncio.run calls with pytest-asyncio tests for clearer failure reporting.
+# TODO - Replace direct asyncio.run calls with pytest-asyncio tests
+# for clearer failure reporting.
 from fastapi import HTTPException
 from sqlalchemy import select
 
@@ -18,6 +20,7 @@ from server.app import (
 from server.db import AsyncSessionLocal
 from server.models import Task, TaskDependency
 from server.schema import AgentIn, CheckoutFailureReason, TaskIn, TaskUpdate
+from server.task_status import TaskStatus
 
 
 def test_health():
@@ -96,7 +99,7 @@ def test_delete_prerequisite_cleans_dependencies():
             remaining_task = (
                 await session.execute(select(Task).where(Task.id == dependent.id))
             ).scalar_one()
-            assert remaining_task.status == "pending"
+            assert remaining_task.status == TaskStatus.PENDING
 
             outbound_deps = (
                 (
@@ -135,7 +138,7 @@ def test_create_task_rejects_missing_dependencies():
                     TaskIn(title="orphan", description="", depends_on=[9999]),
                     session=session,
                 )
-            assert exc_info.value.status_code == 400
+            assert exc_info.value.status_code == HTTPStatus.BAD_REQUEST
             assert exc_info.value.detail == {"missing_dependencies": [9999]}
 
     asyncio.run(scenario())
@@ -187,12 +190,16 @@ def test_list_tasks_filters_by_status():
             )
             await update_task(
                 completed.id,
-                TaskUpdate(status="completed"),
+                TaskUpdate(status=TaskStatus.COMPLETED),
                 session=session,
             )
 
-            pending_only = await list_tasks(status="pending", session=session)
-            completed_only = await list_tasks(status="completed", session=session)
+            pending_only = await list_tasks(
+                status=TaskStatus.PENDING, session=session
+            )
+            completed_only = await list_tasks(
+                status=TaskStatus.COMPLETED, session=session
+            )
 
             assert {task.id for task in pending_only} == {pending.id}
             assert {task.id for task in completed_only} == {completed.id}

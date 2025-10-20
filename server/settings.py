@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import FrozenSet
 
 
 class RateLimitConfigurationError(ValueError):
@@ -27,8 +26,8 @@ class RateLimitSettings:
 
     requests: int
     window_seconds: int
-    trusted_bypass: FrozenSet[str]
-    trusted_proxies: FrozenSet[str]
+    trusted_bypass: frozenset[str]
+    trusted_proxies: frozenset[str]
 
     @property
     def enabled(self) -> bool:
@@ -53,7 +52,7 @@ def _parse_int(name: str, value: str | None, default: int) -> int:
     return parsed
 
 
-def _parse_trusted(raw: str | None) -> FrozenSet[str]:
+def _parse_trusted(raw: str | None) -> frozenset[str]:
     if not raw:
         return frozenset()
     items = [item.strip() for item in raw.split(",")]

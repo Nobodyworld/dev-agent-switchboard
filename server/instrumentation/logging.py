@@ -7,22 +7,35 @@ configuration. It is intentionally lightweight so it can be imported from
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import uuid
 from contextvars import ContextVar
-from logging.config import fileConfig
-from typing import Optional
+from logging.config import dictConfig, fileConfig
 from weakref import WeakSet
 
 from fastapi import FastAPI, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
-_LOGGING_CONFIGURED = False
-_INSTRUMENTED_APPS: "WeakSet[FastAPI]" = WeakSet()
+try:  # pragma: no cover - optional dependency may be absent
+    from pythonjsonlogger import jsonlogger  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    jsonlogger = None  # type: ignore[assignment]
+
+_INSTRUMENTED_APPS: WeakSet[FastAPI] = WeakSet()
 _REQUEST_ID_CTX: ContextVar[str] = ContextVar("switchboard_request_id", default="-")
-_REQUEST_ID_FILTER_INSTALLED = False
+
+
+class _LoggingState:
+    def __init__(self) -> None:
+        self.configured = False
+        self.initialized = False
+        self.request_filter_installed = False
+
+
+_STATE = _LoggingState()
 
 DEFAULT_REQUEST_ID_HEADER = "X-Request-ID"
 STRUCTURED_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s %(request_id)s"
@@ -71,13 +84,22 @@ def configure_logging() -> bool:
     idempotent and safe to call multiple times.
     """
 
-    global _LOGGING_CONFIGURED, _REQUEST_ID_FILTER_INSTALLED
-
-    if _LOGGING_CONFIGURED:
+    if _STATE.initialized and _STATE.configured:
         return True
 
     configured = False
-    # TODO - Support dictConfig payloads so deployments can supply inline logging setups without filesystem access.
+    filter_installed = False
+    dict_payload = os.getenv("SWITCHBOARD_LOGGING_DICT")
+    if dict_payload:
+        try:
+            config = json.loads(dict_payload)
+            dictConfig(config)
+            configured = True
+        except Exception:  # pragma: no cover - configuration errors logged below
+            logging.getLogger(__name__).warning(
+                "Failed to load logging dictConfig", exc_info=True
+            )
+
     config_path = os.getenv("SWITCHBOARD_LOGGING_CONFIG")
     if config_path and os.path.exists(config_path):
         try:
@@ -93,9 +115,7 @@ def configure_logging() -> bool:
             )
 
     if _truthy_env("SWITCHBOARD_ENABLE_STRUCTURED_LOGGING"):
-        try:
-            from pythonjsonlogger import jsonlogger  # type: ignore
-        except Exception:  # pragma: no cover - optional dependency
+        if jsonlogger is None:
             logging.getLogger(__name__).warning(
                 "Structured logging requested but python-json-logger is unavailable."
             )
@@ -111,15 +131,17 @@ def configure_logging() -> bool:
             root.setLevel(getattr(logging, level_name.upper(), logging.INFO))
             configured = True
 
-    if not _REQUEST_ID_FILTER_INSTALLED:
+    if not _STATE.request_filter_installed:
         logging.getLogger().addFilter(RequestIdFilter())
-        _REQUEST_ID_FILTER_INSTALLED = True
+        _STATE.request_filter_installed = True
+        filter_installed = True
 
-    _LOGGING_CONFIGURED = True
-    return configured
+    _STATE.configured = configured
+    _STATE.initialized = True
+    return configured or filter_installed
 
 
-def setup_logging(app: FastAPI, header_name: Optional[str] = None) -> bool:
+def setup_logging(app: FastAPI, header_name: str | None = None) -> bool:
     """Attach request ID middleware when enabled.
 
     The middleware is enabled by default but can be disabled via the

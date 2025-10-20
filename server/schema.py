@@ -1,10 +1,12 @@
 """Pydantic models for the Switchboard API surface."""
 
-from enum import Enum
 import datetime as dt
-from typing import Any, Dict, List, Optional
+from enum import Enum
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
+
+from .task_status import TaskStatus
 
 __all__ = [
     "AgentIn",
@@ -29,12 +31,6 @@ __all__ = [
 ]
 
 
-class TaskStatus(str, Enum):
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-
-
 class AgentIn(BaseModel):
     agent_name: str = Field(..., description="Human-readable or unique agent ID")
 
@@ -52,7 +48,7 @@ class TaskIn(BaseModel):
         max_length=MAX_DESCRIPTION_LENGTH,
         description="Long-form task details",
     )
-    depends_on: List[int] = Field(default_factory=list)
+    depends_on: list[int] = Field(default_factory=list)
 
 
 class TaskUpdate(BaseModel):
@@ -67,7 +63,7 @@ class TaskUpdate(BaseModel):
         description="Updated task description",
     )
     status: Optional[TaskStatus] = None
-    depends_on: Optional[List[int]] = Field(default=None)
+    depends_on: Optional[list[int]] = Field(default=None)
 
 
 class TaskOut(BaseModel):
@@ -76,7 +72,7 @@ class TaskOut(BaseModel):
     description: str
     status: TaskStatus
     completed_notes: Optional[str] = None
-    depends_on: List[int] = Field(default_factory=list)
+    depends_on: list[int] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
@@ -96,7 +92,7 @@ class CheckoutOut(BaseModel):
 class PlanOut(BaseModel):
     version: int
     updated_at: dt.datetime
-    tasks: List[TaskOut]
+    tasks: list[TaskOut]
 
 
 class CompleteIn(BaseModel):
@@ -149,13 +145,13 @@ class ExecPlanEntry(BaseModel):
     summary: Optional[str] = None
     status: str
     lifecycle: Optional[ExecPlanLifecycle] = None
-    owners: Optional[List[ExecPlanOwner]] = None
-    tags: Optional[List[str]] = None
-    scope: Optional[Dict[str, Any]] = None
-    links: Dict[str, Dict[str, Any]]
-    metrics: Optional[Dict[str, Any]] = None
+    owners: Optional[list[ExecPlanOwner]] = None
+    tags: Optional[list[str]] = None
+    scope: Optional[dict[str, Any]] = None
+    links: dict[str, dict[str, Any]]
+    metrics: Optional[dict[str, Any]] = None
     changelog_token: Optional[str] = None
-    extensions: Optional[List[Dict[str, Any]]] = None
+    extensions: Optional[list[dict[str, Any]]] = None
 
 
 class ExecPlanRegistrySource(BaseModel):
@@ -168,5 +164,5 @@ class ExecPlanRegistryIndex(BaseModel):
     registry_id: str
     generated_at: dt.datetime
     source: Optional[ExecPlanRegistrySource] = None
-    plans: List[ExecPlanEntry]
-    extensions: Optional[List[Dict[str, Any]]] = None
+    plans: list[ExecPlanEntry]
+    extensions: Optional[list[dict[str, Any]]] = None

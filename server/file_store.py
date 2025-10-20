@@ -5,15 +5,15 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import os
-from collections.abc import Callable
+import tempfile
 from pathlib import Path, PurePosixPath
-from typing import NamedTuple, Optional, Tuple
+from typing import NamedTuple
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .db import AsyncSessionLocal, FILES_ROOT as CONFIGURED_FILES_ROOT
+from .db import FILES_ROOT as CONFIGURED_FILES_ROOT, AsyncSessionLocal
 from .models import FileEntry
 from .time_utils import utcnow
 
@@ -23,9 +23,9 @@ __all__ = [
     "FILES_ROOT",
     "FileWriteResult",
     "ensure_root",
+    "etag_for_path",
     "full_path",
     "put_file",
-    "etag_for_path",
 ]
 
 
@@ -36,11 +36,19 @@ class FileWriteResult(NamedTuple):
     size: int
 
 
-def ensure_root() -> None:
-    """Ensure the backing directory for live files exists."""
+UNWRITABLE_DETAIL = "file storage is not writable"
 
-    FILES_ROOT.mkdir(parents=True, exist_ok=True)
-    # TODO - Validate filesystem permissions so uploads fail fast when the directory is not writable.
+
+def ensure_root() -> None:
+    """Ensure the backing directory for live files exists and is writable."""
+
+    try:
+        FILES_ROOT.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=UNWRITABLE_DETAIL) from exc
+
+    if not os.access(FILES_ROOT, os.W_OK | os.X_OK):
+        raise HTTPException(status_code=500, detail=UNWRITABLE_DETAIL)
 
 
 def full_path(rel_path: str) -> Path:
@@ -66,13 +74,33 @@ def full_path(rel_path: str) -> Path:
     return candidate
 
 
-UTCNOW: Callable[[], dt.datetime] = utcnow
-
-
 def _now() -> dt.datetime:
     """Return the current UTC timestamp."""
 
-    return UTCNOW()
+    return utcnow()
+
+
+def _write_bytes_atomic(path: Path, data: bytes) -> None:
+    """Write ``data`` to ``path`` atomically within its directory."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            delete=False,
+        ) as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+            temp_path = Path(handle.name)
+        temp_path.replace(path)
+    except Exception:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+        raise
 
 
 async def put_file(
@@ -82,10 +110,8 @@ async def put_file(
 
     ensure_root()
     path = full_path(rel_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
 
-    # TODO - Write file contents atomically to guard against partial writes on failure.
-    path.write_bytes(data)
+    _write_bytes_atomic(path, data)
 
     sha = hashlib.sha256(data).hexdigest()
     size = len(data)
@@ -106,7 +132,7 @@ async def put_file(
 
 async def _ensure_entry_sha(
     session: AsyncSession, rel_path: str
-) -> Tuple[Optional[str], bool]:
+) -> tuple[str | None, bool]:
     """Return the SHA for ``rel_path`` and whether the database entry was updated."""
 
     entry = (
@@ -140,15 +166,15 @@ async def _ensure_entry_sha(
 
 
 async def etag_for_path(
-    rel_path: str, session: Optional[AsyncSession] = None
-) -> Optional[str]:
+    rel_path: str, session: AsyncSession | None = None
+) -> str | None:
     """Return a quoted ETag for the given relative path if the file exists."""
 
     file_path = full_path(rel_path)
     if not os.path.exists(file_path):
         return None
 
-    async def _resolve(target_session: AsyncSession) -> Tuple[Optional[str], bool]:
+    async def _resolve(target_session: AsyncSession) -> tuple[str | None, bool]:
         return await _ensure_entry_sha(target_session, rel_path)
 
     if session is not None:

@@ -5,11 +5,13 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+from collections.abc import Iterable
 from copy import deepcopy
 from email.utils import format_datetime
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import ExecPlan, ExecPlanRegistry
@@ -40,16 +42,21 @@ def _normalize_timestamp(value: dt.datetime) -> dt.datetime:
     return value.astimezone(dt.timezone.utc).replace(tzinfo=None)
 
 
-def _optional_owners(raw: Optional[List[Dict[str, Any]]]) -> Optional[List[ExecPlanOwner]]:
+def _optional_owners(
+    raw: list[dict[str, Any]] | None,
+) -> list[ExecPlanOwner] | None:
     if not raw:
         return None
     return [ExecPlanOwner(**owner) for owner in raw]
 
 
-def _optional_lifecycle(plan: ExecPlan) -> Optional[ExecPlanLifecycle]:
-    if not any(
-        (plan.lifecycle_created_at, plan.lifecycle_updated_at, plan.lifecycle_target_completion)
-    ):
+def _optional_lifecycle(plan: ExecPlan) -> ExecPlanLifecycle | None:
+    lifecycle_fields = (
+        plan.lifecycle_created_at,
+        plan.lifecycle_updated_at,
+        plan.lifecycle_target_completion,
+    )
+    if not any(lifecycle_fields):
         return None
     return ExecPlanLifecycle(
         created_at=plan.lifecycle_created_at,
@@ -58,13 +65,13 @@ def _optional_lifecycle(plan: ExecPlan) -> Optional[ExecPlanLifecycle]:
     )
 
 
-def _optional_list(value: Optional[List[Any]]) -> Optional[List[Any]]:
+def _optional_list(value: list[Any] | None) -> list[Any] | None:
     if not value:
         return None
     return value
 
 
-def _optional_dict(value: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def _optional_dict(value: dict[str, Any] | None) -> dict[str, Any] | None:
     if not value:
         return None
     return value
@@ -82,22 +89,26 @@ def _plan_timestamp(plan: ExecPlan) -> Iterable[dt.datetime]:
 
 
 async def ensure_registry(session: AsyncSession) -> ExecPlanRegistry:
-    registry = (
-        await session.execute(select(ExecPlanRegistry).order_by(ExecPlanRegistry.id).limit(1))
-    ).scalar_one_or_none()
+    """Return the singleton ExecPlan registry, creating it if needed."""
+
+    stmt = select(ExecPlanRegistry).order_by(ExecPlanRegistry.id).limit(1)
+    registry = (await session.execute(stmt)).scalar_one_or_none()
     if registry is None:
-        # TODO - Acquire a transaction-level lock here to avoid creating duplicate registries under concurrent startups.
         registry = ExecPlanRegistry(
             registry_id=DEFAULT_REGISTRY_ID,
             schema_version=DEFAULT_SCHEMA_VERSION,
             generated_at=utcnow().replace(tzinfo=None),
         )
         session.add(registry)
-        await session.flush()
+        try:
+            await session.flush()
+        except IntegrityError:
+            await session.rollback()
+            registry = (await session.execute(stmt)).scalar_one()
     return registry
 
 
-async def load_plans(session: AsyncSession) -> List[ExecPlan]:
+async def load_plans(session: AsyncSession) -> list[ExecPlan]:
     rows = await session.execute(select(ExecPlan).order_by(ExecPlan.plan_id))
     return list(rows.scalars().all())
 
@@ -105,7 +116,7 @@ async def load_plans(session: AsyncSession) -> List[ExecPlan]:
 def _latest_generated_at(
     registry: ExecPlanRegistry, plans: Iterable[ExecPlan]
 ) -> dt.datetime:
-    candidates: List[dt.datetime] = []
+    candidates: list[dt.datetime] = []
     if registry.generated_at:
         candidates.append(_normalize_timestamp(registry.generated_at))
     for plan in plans:
@@ -116,7 +127,7 @@ def _latest_generated_at(
     return _as_utc(latest)
 
 
-def _compute_etag(payload: Dict[str, Any]) -> str:
+def _compute_etag(payload: dict[str, Any]) -> str:
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     return f'W/"{digest[:32]}"'
@@ -128,9 +139,10 @@ def _http_date(timestamp: dt.datetime) -> str:
 
 async def build_registry_index(
     session: AsyncSession, *, source_url: str
-) -> Tuple[Dict[str, Any], str, dt.datetime, str]:
+) -> tuple[dict[str, Any], str, dt.datetime, str]:
     registry = await ensure_registry(session)
-    # TODO - Cache the serialized registry when inputs are unchanged to reduce database load.
+    # TODO - Cache the serialized registry when inputs are unchanged to
+    # reduce database load.
     plans = await load_plans(session)
     generated_at = _latest_generated_at(registry, plans)
 
