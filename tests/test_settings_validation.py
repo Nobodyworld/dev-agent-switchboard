@@ -3,11 +3,17 @@
 import pytest
 
 from server.settings import (
+    LEASE_SECONDS_ENV,
     RATE_LIMIT_REQUESTS_ENV,
     RATE_LIMIT_WINDOW_ENV,
+    LeaseConfigurationError,
     RateLimitConfigurationError,
+    get_lease_settings,
     get_rate_limit_settings,
+    get_settings_bundle,
+    reload_lease_settings,
     reload_rate_limit_settings,
+    reload_settings_bundle,
 )
 
 
@@ -40,3 +46,64 @@ def test_zero_requests_disables_rate_limit(monkeypatch):
     monkeypatch.delenv(RATE_LIMIT_WINDOW_ENV, raising=False)
     restored = reload_rate_limit_settings()
     assert restored.requests > 0
+
+
+def test_invalid_lease_env_raises(monkeypatch):
+    monkeypatch.setenv(LEASE_SECONDS_ENV, "oops")
+    with pytest.raises(LeaseConfigurationError):
+        reload_lease_settings()
+    monkeypatch.delenv(LEASE_SECONDS_ENV, raising=False)
+    reload_lease_settings()
+
+
+def test_zero_lease_env_raises(monkeypatch):
+    monkeypatch.setenv(LEASE_SECONDS_ENV, "0")
+    with pytest.raises(LeaseConfigurationError, match="positive integer"):
+        reload_lease_settings()
+    monkeypatch.delenv(LEASE_SECONDS_ENV, raising=False)
+    reload_lease_settings()
+
+
+def test_positive_lease_env_updates_setting(monkeypatch):
+    monkeypatch.setenv(LEASE_SECONDS_ENV, "900")
+    settings = reload_lease_settings()
+    assert settings.duration_seconds == 900
+    cached = get_lease_settings()
+    assert cached.duration_seconds == 900
+    monkeypatch.delenv(LEASE_SECONDS_ENV, raising=False)
+    restored = reload_lease_settings()
+    assert restored.duration_seconds == get_lease_settings().duration_seconds
+
+
+def test_settings_bundle_tracks_current_configuration(monkeypatch):
+    bundle = reload_settings_bundle()
+    assert bundle.rate_limit == get_rate_limit_settings()
+    assert bundle.lease == get_lease_settings()
+
+    monkeypatch.setenv(RATE_LIMIT_REQUESTS_ENV, "200")
+    monkeypatch.setenv(LEASE_SECONDS_ENV, "180")
+    reload_rate_limit_settings()
+    reload_lease_settings()
+
+    updated_bundle = get_settings_bundle()
+    assert updated_bundle.rate_limit.requests == 200
+    assert updated_bundle.lease.duration_seconds == 180
+
+    monkeypatch.delenv(RATE_LIMIT_REQUESTS_ENV, raising=False)
+    monkeypatch.delenv(LEASE_SECONDS_ENV, raising=False)
+    reload_rate_limit_settings()
+    reload_lease_settings()
+    reload_settings_bundle()
+
+
+def test_lease_duration_helper_reflects_configuration(monkeypatch):
+    pytest.importorskip("sqlalchemy")
+    from server.task_logic import lease_duration_seconds  # local import to avoid optional deps
+
+    monkeypatch.setenv(LEASE_SECONDS_ENV, "120")
+    reload_lease_settings()
+    try:
+        assert lease_duration_seconds() == 120
+    finally:
+        monkeypatch.delenv(LEASE_SECONDS_ENV, raising=False)
+        reload_lease_settings()

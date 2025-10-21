@@ -102,6 +102,8 @@ documented in the README:
 - When deploying behind another proxy, ensure `trusted_proxies` in
   `RateLimitSettings` includes the proxy’s IP so that the middleware can honor
   `X-Forwarded-For` and apply bypass rules to the real client address.
+- Operators can query `/api/settings` to confirm the active thresholds and
+  verify that trusted bypass/proxy lists are applied as expected.
 
 ## Future work
 

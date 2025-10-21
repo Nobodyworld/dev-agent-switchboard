@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `/api/settings` endpoint exposing rate limit and lease configuration for operators and clients.
+- Python CLI now fetches server settings and adjusts heartbeat intervals that would outlive the lease duration.
+
+### Changed
+- Lease duration parsing raises clearer "positive integer" errors and is validated during FastAPI startup, logging the active configuration.
+- Settings caching now exposes an aggregated bundle so `/api/settings` and startup logging read a single coherent snapshot while cache reloads keep the views in sync.
+- Python CLI surfaces warnings when server settings are missing or invalid and honours per-operation timeouts for `/api/settings` requests.
+
 ## 2024-10-19 — Adaptive Perfection Update
 
 ### Added

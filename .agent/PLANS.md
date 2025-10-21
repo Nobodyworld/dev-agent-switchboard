@@ -580,3 +580,87 @@ Deliver a multi-PR modernization that brings Switchboard to production-grade qua
 - FastAPI/SQLAlchemy stack for server components.
 - Requests-based client library.
 - GitHub Actions for CI/CD automation.
+
+# Harden lease configuration exposure across server and client
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Ensure task lease configuration is production-ready by validating settings on startup, surfacing the active values through an API, and teaching the Python CLI to respect server-provided durations when choosing heartbeat cadence. Operators should be able to inspect configuration easily, and agents should avoid accidentally letting leases expire due to mismatched intervals.
+
+## Progress
+
+- [x] Initial state captured.
+- [x] Server settings hardened and exposed.
+- [x] Client/CLI consumes settings safely.
+- [x] Documentation and tests updated.
+- [x] Validation complete.
+
+## Surprises & Discoveries
+
+- Observation: FastAPI's cached settings persist across tests when the client reuses module-level state, so integration tests need to clear both environment variables and cached helpers.
+  Evidence: Failing assertions in early `/api/settings` tests until `reload_*` helpers were invoked during teardown.
+
+## Decision Log
+
+- Decision: Surface `/api/settings` with derived trusted host lists and lease duration, letting the CLI and operators observe runtime values from a single endpoint.
+  Rationale: Keeps configuration introspection simple while avoiding redundant environment parsing in multiple components.
+  Date/Author: 2025-10-20 / gpt-5-codex
+- Decision: Clamp CLI heartbeat intervals to half the lease duration whenever the requested cadence is invalid (non-positive or longer than the lease).
+  Rationale: Guarantees at least two automatic renewals before expiry without over-constraining operators who intentionally pick shorter cadences.
+  Date/Author: 2025-10-20 / gpt-5-codex
+
+## Outcomes & Retrospective
+
+- `/api/settings` provides a single source of truth for rate limiting and lease duration, enabling automated clients to stay in sync.
+- CLI agents now respect server-configured leases by clamping unsafe heartbeat cadences and logging adjustments to stderr.
+
+## Context and Orientation
+
+- `server/settings.py` loads rate limit configuration and now lease durations, with helpers cached via `lru_cache`.
+- `server/task_logic.py` computes lease expiration timestamps and currently embeds a helper returning cached settings.
+- `server/app.py` defines the FastAPI application and middleware stack; new endpoints should live here alongside existing REST handlers.
+- `server/schema.py` hosts Pydantic response models consumed by API routes.
+- `client/python/switchboard_client.py` exposes the agent SDK; `client/python/switchboard_cli.py` implements the interactive CLI loop.
+- Tests live both in root-level `tests/` for unit coverage and `server/tests/` for integration flows using FastAPI's `TestClient`.
+
+## Plan of Work
+
+1. Extend `server/settings.py` to improve validation messaging and make lease settings fail-fast during app startup.
+2. Introduce API response models in `server/schema.py` and expose a new `GET /api/settings` route from `server/app.py` that returns rate limit and lease configuration.
+3. Add tests covering lease parsing helpers and the new API endpoint (unit + integration) ensuring overrides propagate via `reload_lease_settings`.
+4. Add a `get_settings` helper to the Python client and update the CLI to fetch settings, adjusting/logging heartbeat cadence when it would exceed the lease duration.
+5. Expand CLI tests to cover the new behavior and update documentation/ops manifests (`README.md`, `MIGRATION.md`, `ops/.env.example`, etc.) with the lease variable and settings endpoint.
+
+## Concrete Steps
+
+1. Edit `server/settings.py` to refine `_parse_int` error handling and call `get_lease_settings()` within `lifespan` in `server/app.py`; add logging if appropriate.
+2. Update `server/schema.py` and `server/app.py` with settings models/endpoint, then add `server/tests/test_settings_endpoint.py` verifying responses under default and overridden leases.
+3. Adjust `tests/test_settings_validation.py` to assert lease helper behavior and new error messaging.
+4. Implement `SwitchboardClient.get_settings()` and CLI heartbeat safeguards, followed by unit tests in `client/python/tests/test_switchboard_client.py` and `client/python/tests/test_cli.py`.
+5. Document the new environment variable and endpoint in `README.md`, `MIGRATION.md`, `CHANGELOG.md`, and ops manifests; run `pytest` to confirm test coverage.
+
+## Validation and Acceptance
+
+- `pytest -q` passes, including new server integration tests and CLI/client unit coverage.
+- Hitting `/api/settings` in development returns both rate limit and lease configuration reflecting environment overrides.
+- CLI defaults choose a safe heartbeat interval when the server lease is shorter than the requested cadence, emitting informative console output.
+- Documentation enumerates `SWITCHBOARD_LEASE_SECONDS` and the settings endpoint for operators.
+
+## Idempotence and Recovery
+
+- Configuration caches can be reset via `reload_lease_settings()`; tests clean up environment overrides to avoid cross-test pollution.
+- CLI heartbeat adjustments only happen at runtime and log recommended settings, so reverting to prior behavior involves removing the new call sites.
+- Documentation updates can be amended without impacting runtime behavior.
+
+## Artifacts and Notes
+
+- `pytest` (root) ⇒ 45 passed, 3 skipped — confirms new server endpoint, CLI adjustments, and configuration tests.
+
+## Interfaces and Dependencies
+
+- FastAPI route addition depends on `server/schema.SettingsResponse` (new) and existing `get_rate_limit_settings`/`get_lease_settings` helpers.
+- Python CLI relies on the `SwitchboardClient.get_settings()` method and continues to depend on `requests` for HTTP interactions.

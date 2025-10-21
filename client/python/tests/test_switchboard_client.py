@@ -142,6 +142,51 @@ def test_register_returns_json_payload():
     )
 
 
+def test_get_settings_returns_payload():
+    session = Mock(spec=requests.Session)
+    response = _successful_response({"lease": {"duration_seconds": 123}})
+    session.request.return_value = response
+
+    client = SwitchboardClient(
+        "http://example.com",
+        "agent-007",
+        session=session,
+        auto_register=False,
+    )
+
+    payload = client.get_settings()
+
+    assert payload == {"lease": {"duration_seconds": 123}}
+    session.request.assert_called_once_with(
+        "get",
+        "http://example.com/api/settings",
+        timeout=DEFAULT_REQUEST_TIMEOUT,
+    )
+    response.raise_for_status.assert_called_once()
+
+
+def test_get_settings_respects_operation_timeout():
+    session = Mock(spec=requests.Session)
+    response = _successful_response({})
+    session.request.return_value = response
+
+    client = SwitchboardClient(
+        "http://example.com",
+        "agent-007",
+        session=session,
+        auto_register=False,
+        operation_timeouts={"get_settings": 2.5},
+    )
+
+    client.get_settings()
+
+    session.request.assert_called_once_with(
+        "get",
+        "http://example.com/api/settings",
+        timeout=2.5,
+    )
+
+
 def test_auto_register_triggers_registration_by_default():
     session = Mock(spec=requests.Session)
     with patch.object(SwitchboardClient, "register", autospec=True) as register:

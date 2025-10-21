@@ -55,13 +55,16 @@ from .schema import (
     CompleteIn,
     CompleteResponse,
     FileUploadResponse,
+    LeaseSettingsOut,
     PlanOut,
+    RateLimitSettingsOut,
+    SettingsResponse,
     StatusResponse,
     TaskIn,
     TaskOut,
     TaskUpdate,
 )
-from .settings import get_rate_limit_settings
+from .settings import get_rate_limit_settings, get_settings_bundle
 from .task_logic import (
     abandon as abandon_task,
     checkout_task,
@@ -107,6 +110,17 @@ async def lifespan(_app: FastAPI):
         await conn.run_sync(ensure_completed_notes_column)
 
     ensure_root()
+    startup_logger = logging.getLogger(__name__)
+    settings_bundle = get_settings_bundle()
+    rate_settings = settings_bundle.rate_limit
+    lease_settings = settings_bundle.lease
+    startup_logger.info(
+        "Loaded configuration: rate_limit_enabled=%s requests=%s window=%s lease_seconds=%s",
+        rate_settings.enabled,
+        rate_settings.requests,
+        rate_settings.window_seconds,
+        lease_settings.duration_seconds,
+    )
     yield
 
 
@@ -127,6 +141,26 @@ app.add_middleware(
     RateLimitMiddleware,
     settings_provider=get_rate_limit_settings,
 )
+
+
+@app.get("/api/settings", response_model=SettingsResponse)
+async def read_settings() -> SettingsResponse:
+    """Return the current rate limit and lease configuration."""
+
+    settings_bundle = get_settings_bundle()
+    rate_settings = settings_bundle.rate_limit
+    lease_settings = settings_bundle.lease
+    return SettingsResponse(
+        rate_limit=RateLimitSettingsOut(
+            requests=rate_settings.requests,
+            window_seconds=rate_settings.window_seconds,
+            trusted_bypass=sorted(rate_settings.trusted_bypass),
+            trusted_proxies=sorted(rate_settings.trusted_proxies),
+            enabled=rate_settings.enabled,
+        ),
+        lease=LeaseSettingsOut(duration_seconds=lease_settings.duration_seconds),
+    )
+
 
 # Static UI
 WEB_ROOT = Path(__file__).resolve().parent.parent / "web"

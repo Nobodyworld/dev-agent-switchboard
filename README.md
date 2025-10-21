@@ -124,6 +124,9 @@ behavior:
 * `SWITCHBOARD_RATE_LIMIT_*` — request limiter configuration. Invalid values
   now raise a clear startup error instead of silently falling back to
   defaults.
+* `SWITCHBOARD_LEASE_SECONDS` — task lease duration in seconds (default `300`).
+  Must be a positive integer; API clients adjust heartbeat cadence based on this
+  value.
 * Optional observability controls such as `SWITCHBOARD_LOGGING_LEVEL`,
   `SWITCHBOARD_METRICS_PATH`, and `SWITCHBOARD_TRACING_EXPORTER`.
 
@@ -163,6 +166,17 @@ curl -X POST http://localhost:8000/api/tasks \
   -H "Content-Type: application/json" \
   -d '{"title":"Implement feature A","description":"Build A","depends_on":[1]}'
 ```
+
+#### Inspect server settings
+
+```bash
+curl http://localhost:8000/api/settings | jq
+```
+
+The response surfaces rate limit thresholds, trusted client lists, and the
+configured lease duration that agents should honor when sending heartbeats. When
+settings are misconfigured the CLI emits warnings but falls back to safe
+defaults so leases remain protected while operators investigate.
 
 #### Agent lifecycle
 

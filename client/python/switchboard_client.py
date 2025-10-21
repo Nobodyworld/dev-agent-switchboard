@@ -176,6 +176,14 @@ class SwitchboardClient:
         payload = cast(dict[str, Any], response.json())
         return payload
 
+    def get_settings(self) -> dict[str, Any]:
+        """Return the current server configuration settings."""
+
+        timeout = self._operation_timeouts.get("get_settings", self._timeout)
+        response = self._request("get", "/api/settings", timeout=timeout)
+        payload = cast(dict[str, Any], response.json())
+        return payload
+
     def checkout(self) -> dict[str, Any] | None:
         """Checkout the next task for this agent.
 

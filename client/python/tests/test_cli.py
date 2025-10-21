@@ -4,6 +4,7 @@ import sys
 import types
 from typing import Any, cast
 from unittest import TestCase, mock
+from unittest.mock import call
 
 
 class _DummyRequestError(Exception):
@@ -71,13 +72,16 @@ class RunCommandTests(TestCase):
 
     def test_checkout_failure_returns_error(self) -> None:
         client = mock.Mock()
+        client.get_settings.return_value = {"lease": {"duration_seconds": 300}}
         client.checkout.side_effect = requests.RequestException("checkout failed")
         with mock.patch("switchboard_cli.SwitchboardClient", return_value=client):
             self.assertEqual(1, switchboard_cli.run_command(self.args))
         client.close.assert_called_once()
+        client.get_settings.assert_called_once()
 
     def test_idle_interrupt_exits_cleanly(self) -> None:
         client = mock.Mock()
+        client.get_settings.return_value = {"lease": {"duration_seconds": 300}}
         client.checkout.return_value = None
 
         with mock.patch(
@@ -85,19 +89,27 @@ class RunCommandTests(TestCase):
         ), mock.patch("switchboard_cli.time.sleep", side_effect=KeyboardInterrupt):
             self.assertEqual(0, switchboard_cli.run_command(self.args))
         client.close.assert_called_once()
+        client.get_settings.assert_called_once()
 
     def test_process_task_failure_propagates(self) -> None:
         client = mock.Mock()
+        client.get_settings.return_value = {"lease": {"duration_seconds": 300}}
         client.checkout.side_effect = [{"id": 1}]
+        self.args.heartbeat_interval = 500.0
 
         with mock.patch(
             "switchboard_cli.SwitchboardClient", return_value=client
-        ), mock.patch("switchboard_cli.process_task", return_value=False):
+        ), mock.patch("switchboard_cli.process_task", return_value=False) as proc:
             self.assertEqual(1, switchboard_cli.run_command(self.args))
+        proc.assert_called_once()
+        called_args = proc.call_args[0]
+        self.assertEqual(called_args[2], 150.0)
         client.close.assert_called_once()
+        client.get_settings.assert_called_once()
 
     def test_process_task_success_loops_until_interrupt(self) -> None:
         client = mock.Mock()
+        client.get_settings.return_value = {"lease": {"duration_seconds": 300}}
         client.checkout.side_effect = [{"id": 1}, None]
 
         with mock.patch(
@@ -107,6 +119,43 @@ class RunCommandTests(TestCase):
         ):
             self.assertEqual(0, switchboard_cli.run_command(self.args))
         client.close.assert_called_once()
+        client.get_settings.assert_called_once()
+
+    def test_settings_fetch_failure_logs_warning(self) -> None:
+        client = mock.Mock()
+        client.get_settings.side_effect = requests.RequestException("boom")
+        client.checkout.side_effect = [None]
+
+        with mock.patch(
+            "switchboard_cli.SwitchboardClient", return_value=client
+        ), mock.patch("switchboard_cli.time.sleep", side_effect=KeyboardInterrupt), mock.patch(
+            "switchboard_cli.print"
+        ) as printer:
+            self.assertEqual(0, switchboard_cli.run_command(self.args))
+
+        client.close.assert_called_once()
+        client.get_settings.assert_called_once()
+        warning_calls = [
+            call for call in printer.call_args_list if "Warning: failed" in str(call)
+        ]
+        self.assertTrue(warning_calls)
+
+    def test_invalid_lease_payload_emits_warning(self) -> None:
+        client = mock.Mock()
+        client.get_settings.return_value = {"lease": {"duration_seconds": -1}}
+        client.checkout.side_effect = [None]
+
+        with mock.patch(
+            "switchboard_cli.SwitchboardClient", return_value=client
+        ), mock.patch("switchboard_cli.time.sleep", side_effect=KeyboardInterrupt), mock.patch(
+            "switchboard_cli.print"
+        ) as printer:
+            self.assertEqual(0, switchboard_cli.run_command(self.args))
+
+        warnings = [
+            call for call in printer.call_args_list if "non-positive" in str(call)
+        ]
+        self.assertTrue(warnings)
 
 
 class ProcessTaskTests(TestCase):
@@ -219,6 +268,70 @@ class ProcessTaskTests(TestCase):
             )
 
         printer.assert_any_call("Server rejected heartbeat", file=sys.stderr)
+
+
+class LeaseExtractionTests(TestCase):
+    def test_extracts_valid_duration(self) -> None:
+        lease_seconds, warnings = switchboard_cli.extract_lease_duration(
+            {"lease": {"duration_seconds": 120}}
+        )
+
+        self.assertEqual(lease_seconds, 120.0)
+        self.assertFalse(warnings)
+
+    def test_handles_missing_lease_block(self) -> None:
+        lease_seconds, warnings = switchboard_cli.extract_lease_duration({})
+
+        self.assertIsNone(lease_seconds)
+        self.assertTrue(any("did not include" in message for message in warnings))
+
+    def test_handles_non_mapping_payload(self) -> None:
+        lease_seconds, warnings = switchboard_cli.extract_lease_duration(None)
+
+        self.assertIsNone(lease_seconds)
+        self.assertTrue(any("not a mapping" in message for message in warnings))
+
+    def test_handles_non_numeric_duration(self) -> None:
+        lease_seconds, warnings = switchboard_cli.extract_lease_duration(
+            {"lease": {"duration_seconds": "soon"}}
+        )
+
+        self.assertIsNone(lease_seconds)
+        self.assertTrue(any("not numeric" in message for message in warnings))
+
+    def test_handles_missing_duration(self) -> None:
+        lease_seconds, warnings = switchboard_cli.extract_lease_duration(
+            {"lease": {}}
+        )
+
+        self.assertIsNone(lease_seconds)
+        self.assertTrue(any("missing" in message for message in warnings))
+
+
+class SanitizeHeartbeatIntervalTests(TestCase):
+    def test_defaults_when_request_is_none(self) -> None:
+        interval, reason = switchboard_cli.sanitize_heartbeat_interval(None, None)
+
+        self.assertEqual(interval, switchboard_cli.DEFAULT_HEARTBEAT_INTERVAL)
+        self.assertIsNone(reason)
+
+    def test_returns_interval_when_positive_without_lease(self) -> None:
+        interval, reason = switchboard_cli.sanitize_heartbeat_interval(15.0, None)
+
+        self.assertEqual(interval, 15.0)
+        self.assertIsNone(reason)
+
+    def test_halves_interval_when_exceeding_lease(self) -> None:
+        interval, reason = switchboard_cli.sanitize_heartbeat_interval(120.0, 60.0)
+
+        self.assertEqual(interval, 30.0)
+        self.assertIn("half the lease", reason or "")
+
+    def test_converts_negative_to_safe_default(self) -> None:
+        interval, reason = switchboard_cli.sanitize_heartbeat_interval(-5.0, 50.0)
+
+        self.assertEqual(interval, 25.0)
+        self.assertIn("non-positive", reason or "")
 
 
 class HelperFunctionTests(TestCase):
