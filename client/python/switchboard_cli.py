@@ -5,7 +5,7 @@ import json
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, Optional
 
 import requests
@@ -16,17 +16,21 @@ HEARTBEAT_SHUTDOWN_TIMEOUT = 5.0
 TaskPayload = dict[str, Any]
 
 DEFAULT_MAX_POLL_INTERVAL = 120.0
+DEFAULT_HEARTBEAT_INTERVAL = 30.0
 
 __all__ = [
     "DEFAULT_MAX_POLL_INTERVAL",
+    "DEFAULT_HEARTBEAT_INTERVAL",
     "HEARTBEAT_SHUTDOWN_TIMEOUT",
     "HeartbeatLoop",
     "build_parser",
     "compute_backoff_interval",
+    "extract_lease_duration",
     "format_task",
     "main",
     "process_task",
     "run_command",
+    "sanitize_heartbeat_interval",
 ]
 
 
@@ -79,6 +83,68 @@ def format_task(task: TaskPayload) -> str:
     if depends:
         lines.append("Depends on: " + ", ".join(str(d) for d in depends))
     return "\n".join(lines)
+
+
+def sanitize_heartbeat_interval(
+    requested_interval: Optional[float],
+    lease_seconds: Optional[float],
+) -> tuple[float, Optional[str]]:
+    """Return a safe heartbeat interval and optional adjustment reason."""
+
+    interval = DEFAULT_HEARTBEAT_INTERVAL if requested_interval is None else float(requested_interval)
+    interval = max(interval, 0.0)
+    if lease_seconds is None or lease_seconds <= 0:
+        if interval <= 0:
+            return DEFAULT_HEARTBEAT_INTERVAL, "using default heartbeat interval"
+        return interval, None
+
+    lease = float(lease_seconds)
+    if interval <= 0:
+        adjusted = max(lease / 2.0, 1.0)
+        return adjusted, (
+            "requested heartbeat interval was non-positive; using half the lease duration"
+        )
+    if interval >= lease:
+        adjusted = max(lease / 2.0, 1.0)
+        return adjusted, (
+            "requested heartbeat interval would exceed the lease duration; using half the lease instead"
+        )
+    return interval, None
+
+
+def extract_lease_duration(
+    settings_payload: Mapping[str, Any] | None,
+) -> tuple[Optional[float], list[str]]:
+    """Parse ``settings_payload`` and return (lease_seconds, warnings)."""
+
+    warnings: list[str] = []
+    if not isinstance(settings_payload, Mapping):
+        warnings.append("settings payload was not a mapping")
+        return None, warnings
+
+    lease_block = settings_payload.get("lease")
+    if lease_block is None:
+        warnings.append("settings payload did not include lease information")
+        return None, warnings
+
+    if not isinstance(lease_block, Mapping):
+        warnings.append("lease section was not a mapping")
+        return None, warnings
+
+    value = lease_block.get("duration_seconds")
+    if isinstance(value, (int, float)):
+        if value > 0:
+            return float(value), warnings
+        warnings.append(
+            "lease duration from server was non-positive; ignoring unsafe value"
+        )
+        return None, warnings
+
+    if value is not None:
+        warnings.append("lease duration was not numeric; ignoring value")
+    else:
+        warnings.append("lease duration missing from lease settings")
+    return None, warnings
 
 
 def process_task(
@@ -208,6 +274,31 @@ def run_command(args: argparse.Namespace) -> int:
         return 1
     try:
         print(f"Registered agent '{args.agent}' against {args.base}.")
+        lease_seconds: Optional[float] = None
+        warning_messages: list[str] = []
+        try:
+            settings_payload = client.get_settings()
+        except requests.RequestException as exc:
+            warning_messages.append(f"failed to fetch server settings ({exc}).")
+        else:
+            lease_seconds, parse_warnings = extract_lease_duration(settings_payload)
+            warning_messages.extend(parse_warnings)
+            if lease_seconds is not None:
+                print(
+                    f"Server lease duration is {lease_seconds:.0f}s.",
+                    file=sys.stderr,
+                )
+        for message in warning_messages:
+            print(f"Warning: {message}", file=sys.stderr)
+        heartbeat_interval, heartbeat_reason = sanitize_heartbeat_interval(
+            getattr(args, "heartbeat_interval", DEFAULT_HEARTBEAT_INTERVAL),
+            lease_seconds,
+        )
+        if heartbeat_reason:
+            print(
+                f"Heartbeat interval set to {heartbeat_interval:.1f}s ({heartbeat_reason}).",
+                file=sys.stderr,
+            )
         poll_interval = max(args.poll_interval, 0.0)
         max_poll_interval = max(
             getattr(args, "max_poll_interval", poll_interval), poll_interval
@@ -244,7 +335,7 @@ def run_command(args: argparse.Namespace) -> int:
                 continue
             misses = 0
             current_interval = poll_interval
-            if not process_task(client, task, args.heartbeat_interval):
+            if not process_task(client, task, heartbeat_interval):
                 return 1
     finally:
         client.close()
@@ -283,7 +374,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--heartbeat-interval",
         type=float,
-        default=30.0,
+        default=DEFAULT_HEARTBEAT_INTERVAL,
         help="Seconds between automatic heartbeats while a task is checked out",
     )
     run_parser.set_defaults(func=run_command)

@@ -10,11 +10,11 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import Lease, PlanVersion, Task, TaskDependency
+from .settings import get_lease_settings
 from .task_status import TaskStatus
 from .time_utils import utcnow_naive
 
 __all__ = [
-    "LEASE_SECONDS",
     "PLAN_VERSION_ROW_ID",
     "CheckoutResult",
     "CompleteResult",
@@ -29,6 +29,7 @@ __all__ = [
     "plan_version",
     "plan_version_snapshot",
     "update_dependencies",
+    "lease_duration_seconds",
 ]
 
 
@@ -45,17 +46,22 @@ class CompleteResult(NamedTuple):
     ok: bool
     notes: str | None
 
-# TODO - Make the lease duration configurable via settings for different
-# deployment needs.
-LEASE_SECONDS = 300
 PLAN_VERSION_ROW_ID = 1
 
 
+def lease_duration_seconds() -> int:
+    """Return the configured task lease duration in seconds."""
+
+    # The settings helper caches results, so repeated lookups are cheap while
+    # still allowing tests to override the value via ``reload_lease_settings``.
+    return get_lease_settings().duration_seconds
+
+
 def _lease_deadline(now: dt.datetime | None = None) -> dt.datetime:
-    """Return the lease expiration timestamp based on ``LEASE_SECONDS``."""
+    """Return the lease expiration timestamp using the configured window."""
 
     base = now or utcnow_naive()
-    return base + dt.timedelta(seconds=LEASE_SECONDS)
+    return base + dt.timedelta(seconds=lease_duration_seconds())
 
 
 async def get_dependencies(session: AsyncSession, task_id: int) -> list[int]:

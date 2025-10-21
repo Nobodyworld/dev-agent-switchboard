@@ -22,7 +22,10 @@ __all__ = [
     "ExecPlanRegistrySource",
     "FileUploadResponse",
     "OkResponse",
+    "LeaseSettingsOut",
     "PlanOut",
+    "RateLimitSettingsOut",
+    "SettingsResponse",
     "StatusResponse",
     "TaskIn",
     "TaskOut",
@@ -89,6 +92,18 @@ class CheckoutOut(BaseModel):
     reason: Optional[CheckoutFailureReason] = None
 
 
+class RateLimitSettingsOut(BaseModel):
+    requests: int
+    window_seconds: int
+    trusted_bypass: list[str] = Field(default_factory=list)
+    trusted_proxies: list[str] = Field(default_factory=list)
+    enabled: bool
+
+
+class LeaseSettingsOut(BaseModel):
+    duration_seconds: int
+
+
 class PlanOut(BaseModel):
     version: int
     updated_at: dt.datetime
@@ -119,6 +134,11 @@ class FileUploadResponse(StatusResponse):
     sha256: str
     size: int
     url: str
+
+
+class SettingsResponse(BaseModel):
+    rate_limit: RateLimitSettingsOut
+    lease: LeaseSettingsOut
 
 
 class ExecPlanOwner(BaseModel):

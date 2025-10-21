@@ -29,11 +29,19 @@ ntil you mark the task as complete or abandon it.
 switchboard-cli run --base http://localhost:8000 --agent demo-agent
 ```
 
-While idle the loop sleeps for 10 seconds between checkout attempts (configurable with `--poll-interval`). When a task is acquir
-ed the CLI prints a summary and starts a background heartbeat thread that renews the lease every 30 seconds by default (`--heart
-beat-interval`). The prompt (`Action [complete/abandon/heartbeat/status/notes/help]>`) accepts the listed commands so you can fin
-ish the task, abandon it, inspect status, or add completion notes. `Ctrl+C`/`Ctrl+D` map to **abandon** to avoid leaving the leas
-e hanging if the terminal exits unexpectedly.
+While idle the loop sleeps for 10 seconds between checkout attempts
+(configurable with `--poll-interval`). When a task is acquired the CLI prints a
+summary and starts a background heartbeat thread that renews the lease using the
+interval you request via `--heartbeat-interval` (default `30`). On startup the
+CLI queries `/api/settings` so it can clamp excessively long or non-positive
+intervals to a safe value based on the server’s configured lease duration. If
+the endpoint is unreachable or returns malformed lease data the CLI continues
+with conservative defaults while warning on stderr so operators know the
+configuration should be investigated. The
+prompt (`Action [complete/abandon/heartbeat/status/notes/help]>`) accepts the
+listed commands so you can finish the task, abandon it, inspect status, or add
+completion notes. `Ctrl+C`/`Ctrl+D` map to **abandon** to avoid leaving the lease
+hanging if the terminal exits unexpectedly.
 
 Run `switchboard-cli --help` to see the available global and subcommand options.
 
@@ -55,7 +63,8 @@ task = client.checkout()
 
 The constructor accepts an optional `requests.Session` so callers can reuse
 connection pools and authentication headers. The same timeout value is applied
-to every HTTP request issued by the client, and registration can be skipped by
-passing `auto_register=False` when you need to defer the initial API call. See
-`examples/agent_example.py` for a simple polling loop that completes tasks after
-a simulated workload.
+to every HTTP request issued by the client unless you provide
+`operation_timeouts` overrides such as `{"get_settings": 2.0}` for the settings
+call. Registration can be skipped by passing `auto_register=False` when you need
+to defer the initial API call. See `examples/agent_example.py` for a simple
+polling loop that completes tasks after a simulated workload.
