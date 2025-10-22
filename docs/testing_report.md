@@ -1,3 +1,19 @@
+---
+title: "Test & Reliability Report"
+summary: "Snapshot of Switchboard's automated test coverage, reliability improvements, and remaining limitations."
+nav:
+  section: "Quality & Operations"
+  order: 1
+search:
+  keywords:
+    - testing
+    - reliability
+    - quality
+tags:
+  - testing
+  - reliability
+---
+
 # Switchboard Test & Reliability Report
 
 _Generated: 2024-10-15_

@@ -1,3 +1,19 @@
+---
+title: "Rate Limiting Design Note"
+summary: "Document the rationale and implementation details for Switchboard's request throttling middleware."
+nav:
+  section: "Design Notes"
+  order: 1
+search:
+  keywords:
+    - rate limiting
+    - middleware
+    - design note
+tags:
+  - design
+  - middleware
+---
+
 # Rate Limiting Design Note
 
 ## Objective

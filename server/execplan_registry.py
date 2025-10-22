@@ -1,4 +1,4 @@
-"""Helpers for assembling the ExecPlan registry index."""
+"""Helpers for persisting and presenting ExecPlan registry metadata."""
 
 from __future__ import annotations
 
@@ -31,12 +31,16 @@ __all__ = ["build_registry_index", "ensure_registry", "load_plans"]
 
 
 def _as_utc(value: dt.datetime) -> dt.datetime:
+    """Return ``value`` as a timezone-aware UTC datetime."""
+
     if value.tzinfo is None:
         return value.replace(tzinfo=dt.timezone.utc)
     return value.astimezone(dt.timezone.utc)
 
 
 def _normalize_timestamp(value: dt.datetime) -> dt.datetime:
+    """Return a naive UTC datetime suitable for serialization."""
+
     if value.tzinfo is None:
         return value
     return value.astimezone(dt.timezone.utc).replace(tzinfo=None)
@@ -45,12 +49,16 @@ def _normalize_timestamp(value: dt.datetime) -> dt.datetime:
 def _optional_owners(
     raw: list[dict[str, Any]] | None,
 ) -> list[ExecPlanOwner] | None:
+    """Normalize optional owner payloads into ``ExecPlanOwner`` models."""
+
     if not raw:
         return None
     return [ExecPlanOwner(**owner) for owner in raw]
 
 
 def _optional_lifecycle(plan: ExecPlan) -> ExecPlanLifecycle | None:
+    """Return lifecycle metadata for ``plan`` when at least one field exists."""
+
     lifecycle_fields = (
         plan.lifecycle_created_at,
         plan.lifecycle_updated_at,
@@ -66,18 +74,24 @@ def _optional_lifecycle(plan: ExecPlan) -> ExecPlanLifecycle | None:
 
 
 def _optional_list(value: list[Any] | None) -> list[Any] | None:
+    """Return ``value`` when truthy, otherwise ``None`` for clean JSON output."""
+
     if not value:
         return None
     return value
 
 
 def _optional_dict(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return ``value`` when truthy, otherwise ``None`` for clean JSON output."""
+
     if not value:
         return None
     return value
 
 
 def _plan_timestamp(plan: ExecPlan) -> Iterable[dt.datetime]:
+    """Yield timestamp candidates that should influence ``generated_at``."""
+
     for candidate in (
         plan.updated_at,
         plan.lifecycle_updated_at,
@@ -109,6 +123,8 @@ async def ensure_registry(session: AsyncSession) -> ExecPlanRegistry:
 
 
 async def load_plans(session: AsyncSession) -> list[ExecPlan]:
+    """Return ExecPlan rows ordered for deterministic registry serialization."""
+
     rows = await session.execute(select(ExecPlan).order_by(ExecPlan.plan_id))
     return list(rows.scalars().all())
 
@@ -116,6 +132,8 @@ async def load_plans(session: AsyncSession) -> list[ExecPlan]:
 def _latest_generated_at(
     registry: ExecPlanRegistry, plans: Iterable[ExecPlan]
 ) -> dt.datetime:
+    """Return the most recent timestamp across the registry and provided plans."""
+
     candidates: list[dt.datetime] = []
     if registry.generated_at:
         candidates.append(_normalize_timestamp(registry.generated_at))
@@ -128,18 +146,24 @@ def _latest_generated_at(
 
 
 def _compute_etag(payload: dict[str, Any]) -> str:
+    """Return a weak ETag derived from a canonical JSON representation."""
+
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     return f'W/"{digest[:32]}"'
 
 
 def _http_date(timestamp: dt.datetime) -> str:
+    """Return an HTTP-date string suitable for ``Last-Modified`` headers."""
+
     return format_datetime(_as_utc(timestamp), usegmt=True)
 
 
 async def build_registry_index(
     session: AsyncSession, *, source_url: str
 ) -> tuple[dict[str, Any], str, dt.datetime, str]:
+    """Return the serialized ExecPlan index and related caching metadata."""
+
     registry = await ensure_registry(session)
     # TODO - Cache the serialized registry when inputs are unchanged to
     # reduce database load.

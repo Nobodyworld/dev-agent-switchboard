@@ -1,4 +1,4 @@
-"""FastAPI application entrypoint for Switchboard."""
+"""FastAPI application wiring for Switchboard's REST and WebSocket interfaces."""
 
 # ruff: noqa: B008  # FastAPI relies on Depends() defaults for dependency injection.
 

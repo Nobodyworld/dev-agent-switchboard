@@ -1,4 +1,4 @@
-"""Shared task status enumeration for server and client components."""
+"""Enumerations and helpers describing Switchboard task lifecycle states."""
 
 from __future__ import annotations
 

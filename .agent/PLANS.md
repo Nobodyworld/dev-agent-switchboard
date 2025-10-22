@@ -664,3 +664,83 @@ Ensure task lease configuration is production-ready by validating settings on st
 
 - FastAPI route addition depends on `server/schema.SettingsResponse` (new) and existing `get_rate_limit_settings`/`get_lease_settings` helpers.
 - Python CLI relies on the `SwitchboardClient.get_settings()` method and continues to depend on `requests` for HTTP interactions.
+
+# Unify documentation and docstrings across Switchboard
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Provide a cohesive documentation experience for Switchboard maintainers and integrators by auditing Python modules for missing docstrings and aligning Markdown guidance. The end state should highlight architecture, API usage, and CLI workflows so new contributors can onboard quickly.
+
+## Progress
+
+- [x] Initial state captured.
+- [x] Audit existing documentation and docstring coverage.
+- [x] Update server- and client-side Python modules with descriptive docstrings.
+- [x] Expand top-level and docs/ markdown with architecture, API, and usage sections.
+- [x] Final review, linting, and validation.
+
+## Surprises & Discoveries
+
+- Observation: Several modules already included terse docstrings, so new text needed to replace duplicates rather than simply appending.
+  Evidence: Adjustments to `server/app.py`, `server/time_utils.py`, and `client/python/switchboard_cli.py` removed overlapping strings after inserting refreshed descriptions.
+
+## Decision Log
+
+- Decision: Focus documentation expansion on primary onboarding surfaces (README, ARCHITECTURE.md, docs/architecture.md, docs/AI_INTERFACE.md) while tightening module docstrings on shared server/client utilities.
+  Rationale: These files anchor the developer experience for both operators and agent authors; improving them maximizes clarity without churning ancillary changelog/report documents.
+  Date/Author: 2025-02-15 / gpt-5-codex
+
+## Outcomes & Retrospective
+
+- Module docstrings now describe responsibilities for core server, CLI, and example modules without duplicating prior text.
+- README and architecture documents share a unified style with quick-start tables, architecture diagrams, and detailed agent integration guidance.
+- Python test suite remains green after documentation updates, confirming no behavioral regressions.
+
+## Context and Orientation
+
+- Python entry points for server live in `server/` (FastAPI app, schema, services, persistence helpers).
+- Client SDK and CLI usage reside in `switchboard_client.py`, `switchboard_cli.py`, and `client/python/`.
+- Documentation is spread across root Markdown files (`README.md`, `ARCHITECTURE.md`, `MIGRATION.md`, etc.) and `docs/` subdirectories.
+- Tests under `tests/` and `server/tests/` capture expected behavior and should remain untouched unless doc updates require references.
+
+## Plan of Work
+
+1. Inventory Python modules lacking module- and function-level docstrings, prioritizing `server/`, `switchboard_client.py`, and CLI helpers.
+2. Add informative docstrings that explain responsibilities, parameters, and return values without altering runtime behavior.
+3. Expand `README.md`, `ARCHITECTURE.md`, and `docs/` topics with architecture diagrams-in-text, API endpoint summaries, and CLI usage examples.
+4. Ensure conventions (tone, heading hierarchy, code fences) are consistent across Markdown files and cross-reference relevant guides.
+5. Run formatting/lint checks if available and review for clarity before committing.
+
+## Concrete Steps
+
+1. Use `rg`/`sed` to locate modules lacking docstrings; edit via `apply_patch` to insert docstrings.
+2. Update Markdown files with new sections (usage examples, API tables, architecture overview) ensuring consistent front matter.
+3. Re-read documentation to confirm references are accurate and links valid.
+4. Execute `pytest -q` to ensure documentation changes did not impact tests (smoke check for accidental edits).
+5. Stage, commit, and prepare PR summary.
+
+## Validation and Acceptance
+
+- All touched Python modules contain module docstrings and docstrings for public callables.
+- Markdown docs present a coherent onboarding narrative with architecture overview, API usage, and CLI examples.
+- `pytest -q` succeeds.
+- No style regressions or lint issues introduced.
+
+## Idempotence and Recovery
+
+- Docstring additions are additive and can be reverted without affecting behavior.
+- Markdown expansions can be adjusted via follow-up commits if reviewers request edits.
+- If lint/tests fail, re-run after correcting textual mistakes until passing.
+
+## Artifacts and Notes
+
+- `pytest -q` ⇒ 57 passed, 3 skipped.
+
+## Interfaces and Dependencies
+
+- Relies on FastAPI, SQLAlchemy modules for context while documenting server architecture.
+- CLI usage references `switchboard_cli.py` commands and options defined via `argparse`.

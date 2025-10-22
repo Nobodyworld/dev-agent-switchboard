@@ -1,0 +1,52 @@
+sections:
+  - title: "Getting Started"
+    description: "Orient new contributors and provide high-level entry points."
+    items:
+      - title: "Documentation Index"
+        path: "docs/INDEX.md"
+        summary: "Complete map of Switchboard documentation with module responsibilities and onboarding flow."
+        keywords: ["index", "map", "overview"]
+      - title: "Architecture Deep Dive"
+        path: "docs/architecture.md"
+        summary: "Expanded explanation of backend, client, and UI components."
+        keywords: ["architecture", "fastapi", "client"]
+  - title: "Agents & Automation"
+    description: "Teach human and autonomous agents how to interact with Switchboard."
+    items:
+      - title: "AI Interface Guide"
+        path: "docs/AI_INTERFACE.md"
+        summary: "REST, WebSocket, and Python SDK reference for agents."
+        keywords: ["api", "websocket", "python"]
+      - title: "ExecPlan Registry Schema"
+        path: "docs/execplan-registry-index.md"
+        summary: "Schema for publishing ExecPlan catalogs to agents."
+        keywords: ["execplan", "schema"]
+  - title: "Design Notes"
+    description: "Capture rationale behind infrastructure and middleware choices."
+    items:
+      - title: "Rate Limiting Design"
+        path: "docs/rate-limiting-design.md"
+        summary: "Decision record for the sliding window middleware."
+        keywords: ["rate limiting", "middleware"]
+  - title: "ExecPlans"
+    description: "Active and historical execution plans governing roadmap work."
+    items:
+      - title: "Bootstrap Observability"
+        path: "docs/execplans/instrumentation-observability.md"
+        summary: "Plan for introducing structured logging, metrics, and tracing."
+        keywords: ["observability", "execplan"]
+      - title: "Harden Core Runtime Helpers"
+        path: "docs/execplans/targeted-hardening.md"
+        summary: "Reliability-driven upgrades across runtime helpers."
+        keywords: ["reliability", "execplan"]
+  - title: "Quality & Operations"
+    description: "Testing posture, operational readiness, and deployment references."
+    items:
+      - title: "Test & Reliability Report"
+        path: "docs/testing_report.md"
+        summary: "Coverage status and ongoing reliability work."
+        keywords: ["testing", "reliability"]
+      - title: "Documentation Improvement Report"
+        path: "docs/PORTAL_STATUS.md"
+        summary: "Snapshot of portal upgrades and remaining documentation backlog."
+        keywords: ["documentation", "report"]

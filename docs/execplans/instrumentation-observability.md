@@ -1,3 +1,19 @@
+---
+title: "Bootstrap Observability Instrumentation"
+summary: "ExecPlan to introduce structured logging, Prometheus metrics, and OpenTelemetry tracing."
+nav:
+  section: "ExecPlans"
+  order: 1
+search:
+  keywords:
+    - execplan
+    - observability
+    - instrumentation
+tags:
+  - execplans
+  - observability
+---
+
 # Bootstrap observability instrumentation
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.

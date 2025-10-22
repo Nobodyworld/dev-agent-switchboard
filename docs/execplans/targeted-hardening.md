@@ -1,3 +1,19 @@
+---
+title: "Harden Core Runtime Helpers"
+summary: "ExecPlan focused on reliability upgrades for time utilities, instrumentation, storage, and clients."
+nav:
+  section: "ExecPlans"
+  order: 2
+search:
+  keywords:
+    - reliability
+    - execplan
+    - runtime helpers
+tags:
+  - execplans
+  - reliability
+---
+
 # Harden core runtime helpers for production reliability
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
