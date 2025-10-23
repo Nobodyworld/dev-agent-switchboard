@@ -14,11 +14,96 @@ Switchboard is a small, production‑leaning FastAPI service that:
 - Includes a **Python client** for agent integrations and **Docker** packaging.
 - Documents the full stack layout in [docs/architecture.md](docs/architecture.md).
 
-## Quickstart (local)
+## Documentation Map
+
+Start with the [`/docs` portal](docs/INDEX.md) for a navigation-ready index of every guide, design note, and ExecPlan. The table below highlights common entry points:
+
+| Topic | Start Here |
+| --- | --- |
+| Unified docs portal & metadata | [docs/INDEX.md](docs/INDEX.md) – navigation map & module reference (`docs/_meta/navigation.yaml` exposes machine-readable nav) |
+| System architecture & data flow | [ARCHITECTURE.md](ARCHITECTURE.md) – high-level narrative<br/>[docs/architecture.md](docs/architecture.md) – deeper component breakdown |
+| Operator & agent workflows | [README.md](README.md#quickstart-local) – quickstart and CLI guidance<br/>[docs/AI_INTERFACE.md](docs/AI_INTERFACE.md) – endpoint matrix |
+| ExecPlan registry | [docs/execplan-registry-index.md](docs/execplan-registry-index.md) |
+| Rate limiting design | [docs/rate-limiting-design.md](docs/rate-limiting-design.md) |
+| Testing & quality reports | [docs/testing_report.md](docs/testing_report.md) |
+| Documentation status & backlog | [docs/PORTAL_STATUS.md](docs/PORTAL_STATUS.md) |
+
+Each document now shares terminology and links back to this README so contributors can pivot between operational, architectural, and API-focused guidance without guessing where to look.
+
+## Architecture at a Glance
+
+Switchboard follows a service-plus-client architecture:
+
+```text
+┌────────────────┐      REST & WS       ┌──────────────────────────┐
+│  Agents / CLI  │ ───────────────────▶ │    FastAPI Application   │
+│  (humans & AI) │ ◀─────────────────── │  (server/app.py)         │
+└────────────────┘     plan updates     └────────────┬─────────────┘
+                                                      │
+                                                      ▼
+                                  ┌──────────────────────────────┐
+                                  │ Persistence & Domain Logic   │
+                                  │ (server/models.py,           │
+                                  │  server/task_logic.py, etc.) │
+                                  └──────────────────────────────┘
+                                                      │
+                                                      ▼
+                                  ┌──────────────────────────────┐
+                                  │ Live Files & ExecPlan Index  │
+                                  │ (server/file_store.py,       │
+                                  │  server/execplan_registry.py)│
+                                  └──────────────────────────────┘
+```
+
+- **FastAPI application (`server/app.py`)** exposes REST endpoints, WebSocket plan broadcasts, and the static operator UI. Middleware hooks add rate limiting and observability.
+- **Domain logic (`server/task_logic.py`, `server/file_store.py`)** coordinates task lifecycle state, dependency enforcement, and content mirroring while keeping database access localized.
+- **Client toolkit (`client/python/`)** wraps the HTTP API for both interactive humans (`switchboard_cli.py`) and automated agents.
+- **Live files & ExecPlan registry** give agents durable documentation by persisting uploads to disk and serving digestible plan indexes.
+
+Operators can trace how a request moves from CLI to FastAPI to persistence by reading the matching sections in [ARCHITECTURE.md](ARCHITECTURE.md) and the annotated source files referenced above.
+
+## API Quick Reference
+
+| Endpoint | Method | Notes |
+| --- | --- | --- |
+| `/api/agents` | `POST` | Register or idempotently confirm an agent identifier. |
+| `/api/tasks` | `GET` | List tasks with dependency metadata; filter via `status`. |
+| `/api/tasks` | `POST` | Create a task and optional dependency edges. |
+| `/api/tasks/checkout` | `POST` | Lease the next available task; failures include a `reason`. |
+| `/api/tasks/{id}/heartbeat` | `POST` | Extend the active lease for the agent that checked out the task. |
+| `/api/tasks/{id}/complete` | `POST` | Mark a task complete and store optional notes. |
+| `/api/tasks/{id}/abandon` | `POST` | Release the lease without completion. |
+| `/api/settings` | `GET` | Inspect rate limit and lease configuration (used by the CLI). |
+| `/api/files/{path}` | `PUT` | Upload live documentation available under `/live/<path>`. |
+| `/ws/plan` | `GET` (WebSocket) | Stream plan version updates and deltas for UI/agent sync. |
+
+See [docs/AI_INTERFACE.md](docs/AI_INTERFACE.md) for payload schemas, curl examples, and integration tips.
+
+## Python Client Example
+
+Use the packaged client to build agents or automation scripts without hand-crafting HTTP requests:
+
+```python
+from switchboard_client import SwitchboardClient
+
+with SwitchboardClient("http://localhost:8000", "codex-1") as client:
+    task = client.checkout()
+    if task:
+        print(f"Working on task {task['id']}: {task['title']}")
+        # maintain the lease while performing work
+        client.heartbeat(task["id"])
+        client.complete(task["id"], notes="Implemented feature end-to-end")
+    else:
+        print(f"Checkout skipped: {client.last_checkout_reason or 'no tasks available'}")
+```
+
+The client automatically registers the agent, reuses a `requests.Session`, and exposes convenience helpers such as `get_settings()` and `upload_file()`.
+
+## Quickstart (Local)
 
 Requirements: Python 3.11+, Node not required. (UI is static HTML+HTMX.)
 
-### 1. Create & activate a virtual environment
+### 1. Create & Activate a Virtual Environment
 
 <details>
 <summary><strong>macOS / Linux (bash, zsh)</strong></summary>
@@ -53,7 +138,7 @@ python -m pip install --upgrade pip
 
 </details>
 
-### 2. Install server dependencies
+### 2. Install Server Dependencies
 
 ```bash
 pip install -r server/requirements-dev.txt
@@ -63,7 +148,7 @@ Unix-like shells can run `make setup` to create the virtual environment and
 install the same dependencies in one step. On Windows, prefer the explicit
 commands above (or adapt them for `python -m pip`).
 
-### 3. Install developer tooling
+### 3. Install Developer Tooling
 
 ```bash
 pip install pre-commit
@@ -74,7 +159,7 @@ pre-commit install --hook-type commit-msg
 This keeps formatting, linting, and commit message policies aligned with CI. See
 [CONTRIBUTING](CONTRIBUTING.md) for more detail.
 
-### 4. Run the API + UI locally
+### 4. Run the API + UI Locally
 
 ```bash
 python scripts/run_uvicorn.py
@@ -92,7 +177,7 @@ instead.)
 
 Open the admin UI: <http://localhost:8000/>
 
-### 5. Run the test suite and quality gates
+### 5. Run the Test Suite and Quality Gates
 
 ```bash
 python scripts/run_pytest.py
@@ -133,7 +218,7 @@ behavior:
 Refer to the [Architecture overview](ARCHITECTURE.md) for additional context
 on where each setting is consumed.
 
-## Continuous integration
+## Continuous Integration
 
 Incoming pull requests are validated by the [`CI`](.github/workflows/ci.yml)
 workflow. Each stage runs in parallel for fast feedback and publishes artifacts
@@ -151,7 +236,7 @@ Secret scanning runs in parallel via
 commit messages are validated by [`commitlint`](commitlint.config.js) in a
 dedicated workflow to enforce Conventional Commits.
 
-### Sample API flows (curl)
+### Sample API Flows (curl)
 
 These are copy/paste friendly for macOS/Linux shells. On Windows PowerShell, replace the trailing backslashes (`\`) with backticks (`\``) and use double quotes for JSON payloads.
 
@@ -210,7 +295,7 @@ curl -X PUT http://localhost:8000/api/files/docs/AGENTS.md \
 curl http://localhost:8000/live/docs/AGENTS.md
 ```
 
-### Optional: Python CLI helper
+### Optional: Python CLI Helper
 
 The repository ships a minimal Python helper that behaves like a CLI. With the virtual environment activated:
 
@@ -229,7 +314,7 @@ python -m client.python.examples.agent_example
 - [REPORT](REPORT.md) – system overview and risk hotspots
 - [renovate.json](renovate.json) – automated dependency updates
 
-## Observability (logging, metrics, tracing)
+## Observability (Logging, Metrics, Tracing)
 
 Switchboard now ships optional instrumentation modules that can be toggled entirely through environment variables. Each helper lives under `server/instrumentation/` and runs during application startup.
 
@@ -247,7 +332,7 @@ Switchboard now ships optional instrumentation modules that can be toggled entir
   - Set `SWITCHBOARD_TRACING_EXPORTER=otlp` to use the OTLP HTTP exporter. Standard `OTEL_EXPORTER_OTLP_*` variables are honored.
   - The module can read an optional YAML file referenced by `SWITCHBOARD_OTEL_CONFIG`. The included `ops/otel.yaml` demonstrates how to define the necessary environment variables for Docker deployments.
 
-### Local usage
+### Local Usage
 
 For ad-hoc local runs, export the desired environment variables before invoking uvicorn:
 
@@ -312,7 +397,7 @@ to return `200 OK` before marking the container as healthy.
 By default the application stores its SQLite database and uploaded files inside the
 container's `/app` directory. Set `DATABASE_URL`, `STORAGE_ROOT`, or `FILES_ROOT`
 in `ops/.env` (or your shell) to persist data to alternative locations.
-## Rate limiting
+## Rate Limiting
 
 Switchboard ships with an in-process request rate limiter to protect the API from
 abusive clients while keeping trusted agents unthrottled. The middleware limits
@@ -329,7 +414,7 @@ environment variables (also surfaced in `ops/.env.example`):
 
 Adjust these variables locally or in container deployments to tune throughput.
 
-## Project structure
+## Project Structure
 
 - `AGENTS.md` — guidance for agents, including ExecPlan trigger.
 - `.agent/PLANS.md` — the ExecPlan spec template the agents can fill/obey.

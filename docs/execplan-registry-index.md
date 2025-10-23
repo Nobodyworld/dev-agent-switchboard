@@ -1,3 +1,20 @@
+---
+title: "ExecPlan Registry Index Format"
+summary: "Define the portable schema Switchboard uses to publish ExecPlan catalogs."
+nav:
+  section: "Reference"
+  order: 3
+search:
+  keywords:
+    - execplan
+    - registry
+    - schema
+    - api design
+tags:
+  - reference
+  - execplans
+---
+
 # ExecPlan Registry Index Format
 
 This document proposes a portable YAML/JSON index format for describing ExecPlan registries. The index is designed to be served by future Switchboard server endpoints so clients can enumerate available plans, understand their high-level state, and locate detail documents or APIs for deeper inspection.

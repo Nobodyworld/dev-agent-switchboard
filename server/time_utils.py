@@ -1,4 +1,4 @@
-"""Shared timezone-aware UTC helpers for the Switchboard server."""
+"""Utilities for working with time providers and UTC-aware timestamps."""
 
 from __future__ import annotations
 

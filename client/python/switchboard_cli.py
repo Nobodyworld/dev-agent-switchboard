@@ -1,4 +1,4 @@
-"""Interactive CLI for driving the Switchboard agent loop."""
+"""Interactive command-line tooling for running Switchboard agents."""
 
 import argparse
 import json

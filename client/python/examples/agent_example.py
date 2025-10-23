@@ -1,3 +1,5 @@
+"""Illustrative agent workflow demonstrating the Switchboard Python client."""
+
 import argparse
 import time
 from typing import Any, Optional
@@ -6,6 +8,8 @@ from switchboard_client import SwitchboardClient
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments controlling the demo agent loop."""
+
     parser = argparse.ArgumentParser(description="Example agent loop for Switchboard")
     parser.add_argument(
         "--base-url",
@@ -49,6 +53,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def dry_run(client: SwitchboardClient, args: argparse.Namespace) -> None:
+    """Log the HTTP requests the agent would issue without touching the server."""
+
     base = client.base
     agent = client.agent_id
     print(f"[dry-run] Would POST {base}/api/agents with {{'agent_name': '{agent}'}}")
@@ -85,6 +91,8 @@ def dry_run(client: SwitchboardClient, args: argparse.Namespace) -> None:
 
 
 def run(client: SwitchboardClient, args: argparse.Namespace) -> None:
+    """Execute a simple checkout/heartbeat/complete loop until interrupted."""
+
     while True:
         task = client.checkout()
         if not task:
