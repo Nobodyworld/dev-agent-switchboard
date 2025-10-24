@@ -9,7 +9,8 @@ import inspect
 import json
 import logging
 import os
-from collections.abc import Mapping, MutableMapping, Sequence
+import warnings
+from collections.abc import Mapping, Sequence
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any, Literal, TypedDict
@@ -33,11 +34,18 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
-from sqlalchemy import delete, inspect as sa_inspect, or_, select, text
+from sqlalchemy import inspect as sa_inspect, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from yaml import safe_dump
 
+from .application import TaskService, build_task_service
+from .application.exceptions import (
+    MissingDependenciesError,
+    SelfDependencyError,
+    TaskNotFoundError,
+)
 from .db import AsyncSessionLocal, Base, engine, get_session
+from .domain import Agent, TaskRecord
 from .execplan_registry import build_registry_index
 from .file_store import ensure_root, full_path, put_file
 from .instrumentation import (
@@ -47,21 +55,10 @@ from .instrumentation import (
     setup_tracing,
 )
 from .middleware import RateLimitMiddleware
-from .interfaces import AgentDescriptor, TaskEnvelope
-from .models import Lease, Task, TaskDependency
-from .orchestrator import (
-    CheckoutOutcome,
-    CompletionOutcome,
-    HeartbeatOutcome,
-    abandon as orchestrator_abandon,
-    checkout as orchestrator_checkout,
-    complete as orchestrator_complete,
-    ensure_agent,
-    heartbeat as orchestrator_heartbeat,
-)
 from .schema import (
     AgentIn,
     AgentRegistrationResponse,
+    CheckoutFailureReason,
     CheckoutOut,
     CompleteIn,
     CompleteResponse,
@@ -76,19 +73,27 @@ from .schema import (
     TaskOut,
     TaskUpdate,
 )
-from .settings import get_rate_limit_settings, get_settings_bundle
-from .task_logic import (
-    increment_plan_version,
-    plan_version,
-    plan_version_snapshot,
-    update_dependencies,
-)
+from .settings import get_lease_settings, get_rate_limit_settings, get_settings_bundle
 from .task_status import TaskStatus
+from .time_utils import utcnow_naive
 
-try:  # optional plan version helper
-    from .task_logic import plan_version_counter  # type: ignore[attr-defined]
-except ImportError:  # pragma: no cover - helper may be absent
-    plan_version_counter = None  # type: ignore[assignment]
+
+def _build_task_service(session: AsyncSession) -> TaskService:
+    """Compatibility wrapper returning :class:`TaskService` instances."""
+
+    warnings.warn(
+        "server.app._build_task_service is deprecated; import "
+        "server.application.build_task_service instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return build_task_service(session)
+
+
+def get_task_service(session: AsyncSession = Depends(get_session)) -> TaskService:
+    """Return a task service wired with SQLAlchemy-backed repositories."""
+
+    return build_task_service(session)
 
 try:  # optional live file ETag helper
     from .file_store import etag_for_path  # type: ignore[attr-defined]
@@ -268,106 +273,31 @@ def _serialize_model(model: Any) -> dict[str, Any]:
     return model.dict()  # type: ignore[no-any-return]
 
 
-async def _resolve_plan_version(session: AsyncSession) -> int:
-    """Resolve the plan version, using the counter helper when available."""
+def _task_record_to_out(task: TaskRecord) -> TaskOut:
+    """Convert a domain task record into the public schema."""
 
-    if plan_version_counter:
-        version_candidate = plan_version_counter(session)
-        if inspect.isawaitable(version_candidate):
-            return await version_candidate
-        return version_candidate
-    return await plan_version(session)
-
-
-async def _dependency_map(
-    session: AsyncSession, task_ids: Sequence[int]
-) -> Mapping[int, list[int]]:
-    """Return a mapping of task id to sorted dependency ids."""
-
-    if not task_ids:
-        return {}
-
-    rows = await session.execute(
-        select(TaskDependency.task_id, TaskDependency.depends_on_task_id)
-        .where(TaskDependency.task_id.in_(task_ids))
-        .order_by(TaskDependency.task_id, TaskDependency.depends_on_task_id)
-    )
-    dependencies: MutableMapping[int, list[int]] = {task_id: [] for task_id in task_ids}
-    for task_id, depends_on_id in rows:
-        dependencies.setdefault(task_id, []).append(depends_on_id)
-    return dependencies
-
-
-def _task_to_out(task: Task, dependencies: Mapping[int, Sequence[int]]) -> TaskOut:
-    """Convert a task model into a serializable API response."""
-
-    depends_on = list(dependencies.get(task.id, ()))
     return TaskOut(
         id=task.id,
         title=task.title,
         description=task.description,
         status=task.status,
         completed_notes=task.completed_notes,
-        depends_on=depends_on,
+        depends_on=list(task.depends_on),
     )
 
 
-def _envelope_to_task_out(envelope: TaskEnvelope) -> TaskOut:
-    """Convert a :class:`TaskEnvelope` into the public :class:`TaskOut` shape.
+def _records_to_out(tasks: Sequence[TaskRecord]) -> list[TaskOut]:
+    return [_task_record_to_out(task) for task in tasks]
 
-    Parameters
-    ----------
-    envelope:
-        Orchestrator response containing a normalized payload.
 
-    Returns
-    -------
-    TaskOut
-        Pydantic representation consumed by the HTTP API.
-    """
-
-    payload = envelope.task
-    metadata = payload.metadata or {}
-    completed_notes = metadata.get("completed_notes")
-    return TaskOut(
-        id=payload.id,
-        title=payload.title,
-        description=payload.description,
-        status=payload.status,
-        completed_notes=completed_notes if isinstance(completed_notes, str) else None,
-        depends_on=list(payload.depends_on),
+async def _serialize_plan(service: TaskService) -> dict[str, Any]:
+    tasks = await service.list_tasks()
+    snapshot = await service.plan_version_snapshot()
+    plan = PlanOut(
+        version=snapshot.value,
+        updated_at=snapshot.updated_at,
+        tasks=_records_to_out(tasks),
     )
-
-
-async def _tasks_to_out(session: AsyncSession, tasks: Sequence[Task]) -> list[TaskOut]:
-    """Serialize multiple tasks with a single dependency query."""
-
-    if not tasks:
-        return []
-    mapping = await _dependency_map(session, [task.id for task in tasks])
-    return [_task_to_out(task, mapping) for task in tasks]
-
-
-async def _task_out(session: AsyncSession, task: Task) -> TaskOut:
-    return (await _tasks_to_out(session, [task]))[0]
-
-
-async def _load_tasks(
-    session: AsyncSession, *, status: TaskStatus | Literal["all"] | None = None
-) -> list[Task]:
-    """Return tasks ordered by identifier, optionally filtered by status."""
-
-    stmt = select(Task).order_by(Task.id)
-    if status and status != "all":
-        stmt = stmt.where(Task.status == status)
-    return list((await session.execute(stmt)).scalars().all())
-
-
-async def _serialize_plan(session: AsyncSession) -> dict[str, Any]:
-    tasks = await _load_tasks(session)
-    outs = await _tasks_to_out(session, tasks)
-    version, updated_at = await plan_version_snapshot(session)
-    plan = PlanOut(version=version, updated_at=updated_at, tasks=outs)
     return _serialize_model(plan)
 
 
@@ -386,6 +316,25 @@ async def _send_ws_payload(
         logger.warning("Failed to broadcast plan payload", exc_info=exc)
         return False
 
+
+async def _prepare_plan_payload(
+    service: TaskService,
+    *,
+    version: int | None,
+    include_plan: bool,
+    plan: dict[str, Any] | None,
+) -> tuple[int | None, dict[str, Any] | None]:
+    """Resolve the plan version and optional payload for broadcasting."""
+
+    resolved_version = version or await service.plan_version()
+    plan_payload = plan
+    if include_plan and plan_payload is None:
+        plan_payload = await _serialize_plan(service)
+    if plan_payload is not None and version is None:
+        resolved_version = plan_payload.get("version", resolved_version)
+    return resolved_version, plan_payload
+
+
 async def broadcast_plan(
     version: int | None = None,
     session: AsyncSession | None = None,
@@ -393,30 +342,40 @@ async def broadcast_plan(
     include_plan: bool = False,
     plan: dict[str, Any] | None = None,
     delta: dict[str, Any] | None = None,
+    service: TaskService | None = None,
 ) -> None:
     """Broadcast the latest plan version to connected WebSocket listeners."""
 
-    if version is None:
-        if session is None:
-            async with AsyncSessionLocal() as temp_session:
-                version = await _resolve_plan_version(temp_session)
-        else:
-            version = await _resolve_plan_version(session)
+    if service is None and session is None:
+        async with AsyncSessionLocal() as temp_session:
+            temp_service = build_task_service(temp_session)
+            resolved_version, plan_payload = await _prepare_plan_payload(
+                temp_service,
+                version=version,
+                include_plan=include_plan,
+                plan=plan,
+            )
+            payload: PlanBroadcastPayload = {"type": "plan_version"}
+            if resolved_version is not None:
+                payload["version"] = resolved_version
+            if plan_payload is not None:
+                payload["plan"] = plan_payload
+            if delta is not None:
+                payload["delta"] = delta
+            await PLAN_BROADCASTER.broadcast(payload)
+        return
 
-    plan_payload: dict[str, Any] | None = plan
-    if include_plan and plan_payload is None:
-        if session is None:
-            async with AsyncSessionLocal() as temp_session:
-                plan_payload = await _serialize_plan(temp_session)
-        else:
-            plan_payload = await _serialize_plan(session)
-
-    if plan_payload is not None and version is None:
-        version = plan_payload.get("version")
+    local_service = service or build_task_service(session)
+    resolved_version, plan_payload = await _prepare_plan_payload(
+        local_service,
+        version=version,
+        include_plan=include_plan,
+        plan=plan,
+    )
 
     payload: PlanBroadcastPayload = {"type": "plan_version"}
-    if version is not None:
-        payload["version"] = version
+    if resolved_version is not None:
+        payload["version"] = resolved_version
     if plan_payload is not None:
         payload["plan"] = plan_payload
     if delta is not None:
@@ -426,37 +385,25 @@ async def broadcast_plan(
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index(_request: Request, session: AsyncSession = Depends(get_session)):
-    """Render the operator dashboard populated with current task data."""
+async def index(_request: Request) -> str:
+    """Render the operator dashboard."""
 
     tmpl = templates.get_template("index.html")
-    tasks = await _load_tasks(session)
-    deps = (await session.execute(select(TaskDependency))).all()
-    return tmpl.render(tasks=tasks, deps=deps)
+    return tmpl.render()
 
 
 # -------- Agents --------
 @app.post("/api/agents", response_model=AgentRegistrationResponse)
-async def register_agent(agent: AgentIn, session: AsyncSession = Depends(get_session)):
-    """Upsert the provided agent and echo the canonical registration payload.
+async def register_agent(
+    agent: AgentIn,
+    service: TaskService = Depends(get_task_service),
+    session: AsyncSession = Depends(get_session),
+):
+    """Upsert the provided agent and echo the canonical registration payload."""
 
-    Parameters
-    ----------
-    agent:
-        Incoming registration request containing the agent identifier.
-    session:
-        Database session injected by FastAPI for persistence.
-
-    Returns
-    -------
-    AgentRegistrationResponse
-        Response confirming successful registration.
-    """
-
-    descriptor = AgentDescriptor(agent_id=agent.agent_name)
-    await ensure_agent(session, descriptor)
+    await service.ensure_agent(Agent(agent_id=agent.agent_name))
     await session.commit()
-    return {"ok": True, "agent_id": descriptor.agent_id}
+    return {"ok": True, "agent_id": agent.agent_name}
 
 
 # -------- Tasks & Plan --------
@@ -465,124 +412,91 @@ async def list_tasks(
     status: TaskStatus | Literal["all"] | None = Query(
         None, description="Filter by status (use 'all' to disable filtering)."
     ),
-    session: AsyncSession = Depends(get_session),
+    service: TaskService = Depends(get_task_service),
 ):
     """Return tasks matching the requested status filter."""
 
-    tasks = await _load_tasks(session, status=status)
-    return await _tasks_to_out(session, tasks)
+    records = await service.list_tasks(status=status)
+    return _records_to_out(records)
 
 
 @app.post("/api/tasks", response_model=TaskOut)
-async def create_task(task: TaskIn, session: AsyncSession = Depends(get_session)):
+async def create_task(
+    task: TaskIn,
+    service: TaskService = Depends(get_task_service),
+    session: AsyncSession = Depends(get_session),
+):
     """Persist a new task and broadcast the resulting plan snapshot."""
 
-    new_task = Task(
-        title=task.title,
-        description=task.description or "",
-        status=TaskStatus.PENDING,
-    )
-    session.add(new_task)
-    await session.flush()
-
-    unique_dependencies = {
-        dep_id for dep_id in task.depends_on if dep_id != new_task.id
-    }
-    if unique_dependencies:
-        rows = (
-            await session.execute(
-                select(Task.id).where(Task.id.in_(unique_dependencies))
-            )
-        ).all()
-        found_ids = {row[0] for row in rows}
-        missing = unique_dependencies - found_ids
-        if missing:
-            raise HTTPException(
-                status_code=400, detail={"missing_dependencies": sorted(missing)}
-            )
-        for dep_id in unique_dependencies:
-            session.add(TaskDependency(task_id=new_task.id, depends_on_task_id=dep_id))
+    try:
+        record = await service.create_task(
+            title=task.title,
+            description=task.description,
+            depends_on=task.depends_on,
+        )
+    except MissingDependenciesError as exc:
+        raise HTTPException(
+            status_code=400, detail={"missing_dependencies": list(exc.missing_ids)}
+        ) from exc
 
     await session.flush()
-    version = await increment_plan_version(session)
-    await broadcast_plan(version=version, session=session, include_plan=True)
+    version = await service.increment_plan_version()
+    await broadcast_plan(version=version, service=service, include_plan=True)
     await session.commit()
-    return await _task_out(session, new_task)
+    return _task_record_to_out(record)
 
 
 @app.put("/api/tasks/{task_id}", response_model=TaskOut)
 @app.patch("/api/tasks/{task_id}", response_model=TaskOut)
 async def update_task(
-    task_id: int, update: TaskUpdate, session: AsyncSession = Depends(get_session)
+    task_id: int,
+    update: TaskUpdate,
+    service: TaskService = Depends(get_task_service),
+    session: AsyncSession = Depends(get_session),
 ):
     """Apply field updates to an existing task and propagate plan changes."""
-
-    task = await session.get(Task, task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail="task_not_found")
 
     update_payload = update.model_dump(exclude_unset=True)
     if not update_payload:
         raise HTTPException(status_code=400, detail="no_updates_provided")
 
-    if update.depends_on is not None:
-        if task_id in update.depends_on:
-            raise HTTPException(status_code=400, detail="task_cannot_depend_on_itself")
-        if update.depends_on:
-            rows = (
-                await session.execute(
-                    select(Task.id).where(Task.id.in_(set(update.depends_on)))
-                )
-            ).all()
-            found_ids = {r[0] for r in rows}
-            missing = set(update.depends_on) - found_ids
-            if missing:
-                raise HTTPException(
-                    status_code=400,
-                    detail={"missing_dependencies": sorted(missing)},
-                )
+    try:
+        record = await service.update_task(
+            task_id,
+            title=update.title,
+            description=update.description,
+            status=update.status,
+            depends_on=update.depends_on,
+        )
+    except SelfDependencyError as exc:
+        raise HTTPException(status_code=400, detail="task_cannot_depend_on_itself") from exc
+    except MissingDependenciesError as exc:
+        raise HTTPException(
+            status_code=400, detail={"missing_dependencies": list(exc.missing_ids)}
+        ) from exc
+    except TaskNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="task_not_found") from exc
 
-    if update.title is not None:
-        task.title = update.title
-    if update.description is not None:
-        task.description = update.description
-    if update.status is not None:
-        task.status = update.status
-        if update.status in {TaskStatus.PENDING, TaskStatus.COMPLETED}:
-            await session.execute(delete(Lease).where(Lease.task_id == task.id))
-    if update.depends_on is not None:
-        await update_dependencies(session, task.id, update.depends_on)
-
-    await session.merge(task)
     await session.flush()
-    version = await increment_plan_version(session)
-    await broadcast_plan(version=version, session=session)
+    version = await service.increment_plan_version()
+    await broadcast_plan(version=version, service=service)
     await session.commit()
-    return await _task_out(session, task)
+    return _task_record_to_out(record)
 
 
 @app.delete("/api/tasks/{task_id}", response_model=StatusResponse)
-async def delete_task(task_id: int, session: AsyncSession = Depends(get_session)):
+async def delete_task(
+    task_id: int,
+    service: TaskService = Depends(get_task_service),
+    session: AsyncSession = Depends(get_session),
+):
     """Remove a task and its related edges, broadcasting plan updates."""
 
-    task = await session.get(Task, task_id)
-
-    await session.execute(
-        delete(TaskDependency).where(
-            or_(
-                TaskDependency.task_id == task_id,
-                TaskDependency.depends_on_task_id == task_id,
-            )
-        )
-    )
-    await session.execute(delete(Lease).where(Lease.task_id == task_id))
-
-    if task is not None:
-        await session.delete(task)
-        await session.flush()
-        version = await increment_plan_version(session)
-        await broadcast_plan(version=version, session=session, include_plan=True)
-
+    deleted = await service.delete_task(task_id)
+    await session.flush()
+    if deleted:
+        version = await service.increment_plan_version()
+        await broadcast_plan(version=version, service=service, include_plan=True)
     await session.commit()
     return {"ok": True}
 
@@ -591,67 +505,37 @@ async def delete_task(task_id: int, session: AsyncSession = Depends(get_session)
 async def checkout(
     agent_id: str,
     task_id: int | None = None,
+    service: TaskService = Depends(get_task_service),
     session: AsyncSession = Depends(get_session),
 ):
-    """Checkout a task for the agent, returning the task or failure reason.
+    """Checkout a task for the agent, returning the task or failure reason."""
 
-    Parameters
-    ----------
-    agent_id:
-        Identifier of the agent requesting work.
-    task_id:
-        Optional explicit task identifier to request.
-    session:
-        Database session supplied by FastAPI.
-
-    Returns
-    -------
-    CheckoutOut
-        Response payload describing the leased task or failure reason.
-    """
-
-    descriptor = AgentDescriptor(agent_id=agent_id)
-    outcome: CheckoutOutcome = await orchestrator_checkout(
-        session, descriptor, task_id=task_id
-    )
+    result = await service.checkout(Agent(agent_id=agent_id), task_id=task_id)
     await session.flush()
-    if outcome.envelope is not None:
-        version = await increment_plan_version(session)
-        await broadcast_plan(version=version, session=session, include_plan=True)
+    if result.task is not None:
+        version = await service.increment_plan_version()
+        await broadcast_plan(version=version, service=service, include_plan=True)
+        await session.commit()
+        return CheckoutOut(task=_task_record_to_out(result.task))
     await session.commit()
-    if outcome.envelope is not None:
-        return CheckoutOut(task=_envelope_to_task_out(outcome.envelope))
-    return CheckoutOut(task=None, reason=outcome.reason)
+    reason = result.reason
+    reason_enum = CheckoutFailureReason(reason) if reason else None
+    return CheckoutOut(task=None, reason=reason_enum)
 
 
 @app.post("/api/tasks/{task_id}/heartbeat", response_model=StatusResponse)
 async def heartbeat(
-    task_id: int, agent_id: str, session: AsyncSession = Depends(get_session)
+    task_id: int,
+    agent_id: str,
+    service: TaskService = Depends(get_task_service),
+    session: AsyncSession = Depends(get_session),
 ):
-    """Extend the lease for ``task_id`` if the agent currently holds it.
+    """Extend the lease for ``task_id`` if the agent currently holds it."""
 
-    Parameters
-    ----------
-    task_id:
-        Identifier of the task targeted by the heartbeat.
-    agent_id:
-        Agent attempting to renew the lease.
-    session:
-        Database session used to persist the updated lease deadline.
-
-    Returns
-    -------
-    StatusResponse
-        Response indicating whether the heartbeat succeeded.
-    """
-
-    descriptor = AgentDescriptor(agent_id=agent_id)
-    outcome: HeartbeatOutcome = await orchestrator_heartbeat(
-        session, descriptor, task_id
-    )
+    result = await service.heartbeat(agent_id, task_id)
     await session.flush()
     await session.commit()
-    return {"ok": outcome.ok}
+    return {"ok": result.ok}
 
 
 @app.post("/api/tasks/{task_id}/complete", response_model=CompleteResponse)
@@ -659,68 +543,36 @@ async def complete(
     task_id: int,
     agent_id: str,
     body: CompleteIn,
+    service: TaskService = Depends(get_task_service),
     session: AsyncSession = Depends(get_session),
 ):
-    """Mark the task as completed if the lease permits it.
+    """Mark the task as completed if the lease permits it."""
 
-    Parameters
-    ----------
-    task_id:
-        Identifier of the task targeted for completion.
-    agent_id:
-        Agent attempting to complete the task.
-    body:
-        Request payload containing optional notes.
-    session:
-        Database session supplied by FastAPI.
-
-    Returns
-    -------
-    CompleteResponse
-        Response summarizing completion status and stored notes.
-    """
-
-    descriptor = AgentDescriptor(agent_id=agent_id)
-    outcome: CompletionOutcome = await orchestrator_complete(
-        session, descriptor, task_id, notes=body.notes
-    )
+    result = await service.complete(agent_id, task_id, notes=body.notes)
     await session.flush()
-    if outcome.ok:
-        version = await increment_plan_version(session)
-        await broadcast_plan(version=version, session=session, include_plan=True)
+    if result.ok:
+        version = await service.increment_plan_version()
+        await broadcast_plan(version=version, service=service, include_plan=True)
     await session.commit()
-    return {"ok": outcome.ok, "notes": outcome.notes}
+    return {"ok": result.ok, "notes": result.notes}
 
 
 @app.post("/api/tasks/{task_id}/abandon", response_model=StatusResponse)
 async def abandon(
-    task_id: int, agent_id: str, session: AsyncSession = Depends(get_session)
+    task_id: int,
+    agent_id: str,
+    service: TaskService = Depends(get_task_service),
+    session: AsyncSession = Depends(get_session),
 ):
-    """Release a task lease and revert the task to ``pending`` if possible.
+    """Release a task lease and revert the task to ``pending`` if possible."""
 
-    Parameters
-    ----------
-    task_id:
-        Identifier of the task being released.
-    agent_id:
-        Agent relinquishing the lease.
-    session:
-        Database session used to persist the state transition.
-
-    Returns
-    -------
-    StatusResponse
-        Response indicating whether the abandonment succeeded.
-    """
-
-    descriptor = AgentDescriptor(agent_id=agent_id)
-    outcome: HeartbeatOutcome = await orchestrator_abandon(session, descriptor, task_id)
+    result = await service.abandon(agent_id, task_id)
     await session.flush()
-    if outcome.ok:
-        version = await increment_plan_version(session)
-        await broadcast_plan(version=version, session=session, include_plan=True)
+    if result.ok:
+        version = await service.increment_plan_version()
+        await broadcast_plan(version=version, service=service, include_plan=True)
     await session.commit()
-    return {"ok": outcome.ok}
+    return {"ok": result.ok}
 
 
 def _negotiate_execplan_format(request: Request) -> str:
@@ -825,15 +677,18 @@ async def ws_plan(ws: WebSocket):
 # -------- Files --------
 @app.put("/api/files/{path:path}", response_model=FileUploadResponse)
 async def put_live_file(
-    path: str, request: Request, session: AsyncSession = Depends(get_session)
+    path: str,
+    request: Request,
+    service: TaskService = Depends(get_task_service),
+    session: AsyncSession = Depends(get_session),
 ):
     """Persist a live file upload and broadcast the resulting plan delta."""
 
     data = await request.body()
     write_result = await put_file(session, path, data)
     await session.flush()
-    version = await increment_plan_version(session)
-    await broadcast_plan(version=version, session=session, include_plan=True)
+    version = await service.increment_plan_version()
+    await broadcast_plan(version=version, service=service, include_plan=True)
     await session.commit()
     return {
         "ok": True,

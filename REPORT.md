@@ -12,8 +12,8 @@ _Last updated: 2025-02-15_
 ### Domain & Responsibilities
 | Domain | Responsibilities | Primary Modules |
 | --- | --- | --- |
-| **Task Orchestration** | Manage agent registration, task checkout, heartbeats, completion/abandon, dependency unlocking. | `server/app.py`, `server/task_logic.py`, `server/models.py`, `server/schema.py` |
-| **Plan Registry & Broadcasting** | Persist DAG versions, stream WebSocket updates, expose historical ExecPlans. | `server/task_logic.py`, `server/execplan_registry.py`, `server/app.PlanBroadcaster` |
+| **Task Orchestration** | Manage agent registration, task checkout, heartbeats, completion/abandon, dependency unlocking. | `server/app.py`, `server/application/task_service.py`, `server/models.py`, `server/schema.py` |
+| **Plan Registry & Broadcasting** | Persist DAG versions, stream WebSocket updates, expose historical ExecPlans. | `server/application/task_service.py`, `server/execplan_registry.py`, `server/app.PlanBroadcaster` |
 | **File Mirroring** | Accept live file uploads, write to disk, serve via `/live/*` with optional ETag helpers. | `server/file_store.py`, storage directories under `FILES_ROOT` |
 | **Operator UI** | Render HTMX/Tailwind dashboard for plan/task inspection with live updates. | `web/index.html`, `web/static/` |
 | **Client Integrations** | Python SDK + CLI for autonomous/human agents, heartbeat threads, retries. | `client/python/switchboard_client.py`, `client/python/switchboard_cli.py`, root shims |
@@ -73,7 +73,7 @@ flowchart TD
     end
     subgraph API
         FastAPI[server/app.py]
-        TaskLogic[server/task_logic.py]
+        TaskService[server/application/task_service.py]
         FileStore[server/file_store.py]
         Middleware[server/middleware]
     end
@@ -84,12 +84,12 @@ flowchart TD
     end
     CLI -->|REST/WebSocket| FastAPI
     AgentBots -->|REST/WebSocket| FastAPI
-    FastAPI --> TaskLogic
+    FastAPI --> TaskService
     FastAPI --> FileStore
-    TaskLogic --> DB
+    TaskService --> DB
     FastAPI --> Middleware
     FileStore --> Files
-    TaskLogic --> ExecPlans
+    TaskService --> ExecPlans
     FastAPI -->|Telemetry| Instrumentation[server/instrumentation]
     subgraph Ops
         Makefile

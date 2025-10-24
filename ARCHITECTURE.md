@@ -9,12 +9,12 @@ can run in constrained environments while remaining observable.
 | Layer | Source Files | Responsibilities |
 | --- | --- | --- |
 | API Gateway | `server/app.py`, `web/` | Hosts REST + WebSocket endpoints, serves the operator UI, and coordinates broadcasting plan updates. |
-| Domain Logic | `server/task_logic.py`, `server/file_store.py`, `server/execplan_registry.py` | Enforces task lifecycle rules, manages leases, normalizes ExecPlan metadata, and keeps live-file metadata in sync with storage. |
-| Persistence | `server/models.py`, `server/db.py` | Defines SQLAlchemy models (tasks, dependencies, leases, ExecPlan tables) and configures the async engine/session factory. |
+| Domain & Application | `server/domain/`, `server/application/task_service.py`, `server/file_store.py`, `server/execplan_registry.py` | Encapsulates task lifecycle rules, lease policies, ExecPlan metadata normalization, and live-file orchestration. |
+| Persistence | `server/models.py`, `server/db.py`, `server/infrastructure/repositories.py` | Defines SQLAlchemy models (tasks, dependencies, leases, ExecPlan tables), batches dependency lookups through repository adapters, and configures the async engine/session factory. |
 | Middleware & Instrumentation | `server/middleware/`, `server/instrumentation/`, `server/settings.py` | Adds request throttling, logging, metrics, and tracing driven entirely by environment variables. |
 | Client Tooling | `client/python/`, `switchboard_cli.py` | Provides an opinionated HTTP client and CLI, sharing the `TaskStatus` enum with the server for consistent status handling. |
 
-Every module surfaces a descriptive docstring outlining its role; the table above maps those descriptions to concrete files so new contributors can jump straight to the relevant code path.
+Every module surfaces a descriptive docstring outlining its role; the table above maps those descriptions to concrete files so new contributors can jump straight to the relevant code path. Repository adapters now prefetch dependency edges in a single query so the `TaskService` checkout flow no longer issues N+1 lookups when scanning the task backlog.
 
 ## Core Request Sequences
 
@@ -24,26 +24,26 @@ Every module surfaces a descriptive docstring outlining its role; the table abov
 sequenceDiagram
     participant Agent
     participant API as FastAPI (server/app.py)
-    participant Logic as task_logic.py
+    participant Logic as task_service.py
     participant DB as AsyncSession
 
     Agent->>API: POST /api/tasks/checkout
-    API->>Logic: checkout_task(session, agent_id)
-    Logic->>DB: SELECT pending task & dependencies
-    Logic->>DB: INSERT lease row
+    API->>Logic: checkout(agent)
+    Logic->>DB: load tasks & dependencies via repositories
+    Logic->>DB: persist lease via repository implementation
     Logic-->>API: CheckoutResult(task)
     API-->>Agent: Task payload + lease deadline
 
     Agent->>API: POST /api/tasks/{id}/heartbeat
     API->>Logic: heartbeat(session, agent_id, task_id)
-    Logic->>DB: UPDATE lease expiry
+    Logic->>DB: update lease expiry via repository
     Logic-->>API: bool
     API-->>Agent: {"ok": true}
 
     Agent->>API: POST /api/tasks/{id}/complete
     API->>Logic: complete(session, agent_id, task_id, notes)
-    Logic->>DB: UPDATE task status & notes
-    Logic->>DB: DELETE lease
+    Logic->>DB: persist task status & notes via repositories
+    Logic->>DB: delete lease via repository implementation
     Logic-->>API: CompleteResult(ok=True)
     API->>API: increment_plan_version() & broadcast
     API-->>Agent: TaskOut response

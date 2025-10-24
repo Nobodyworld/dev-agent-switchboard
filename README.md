@@ -24,8 +24,9 @@ Switchboard is a small, production‑leaning FastAPI service that:
 
 ## How
 
-- **Router & Interfaces** – `server/app.py`, `server/orchestrator.py`, and `server/interfaces.py` translate database models into immutable `TaskEnvelope` structures returned by the API.
-- **Domain Logic** – `server/task_logic.py` enforces leases and dependencies with NumPy-style docstrings that document every parameter and return value.
+- **Router & Interfaces** – `server/app.py` and `server/interfaces.py` translate domain records from `TaskService` into immutable payloads returned by the API.
+- **Domain & Application Layers** – `server/domain/` defines immutable task and lease records, while `server/application/task_service.py` orchestrates lifecycle rules through repository interfaces.
+- **Infrastructure Adapters** – `server/infrastructure/repositories.py` implements the repository interfaces against SQLAlchemy models, batching dependency lookups so task checkout avoids N+1 queries.
 - **Health & Operations** – `/health/live` and `/health/ready` surface liveness and dependency status via the new `HealthStatus` schema; `docs/failure-modes.md` enumerates remediation steps.
 - **Agent Toolkit** – `client/python/switchboard_client.py` exposes a resilient HTTP client while `scripts/local_runner.py` offers an executable agent loop for local testing.
 
@@ -62,7 +63,8 @@ Switchboard follows a service-plus-client architecture:
                                   ┌──────────────────────────────┐
                                   │ Persistence & Domain Logic   │
                                   │ (server/models.py,           │
-                                  │  server/task_logic.py, etc.) │
+                                  │  server/application/task_service.py, │
+                                  │  server/domain/, etc.) │
                                   └──────────────────────────────┘
                                                       │
                                                       ▼
@@ -74,7 +76,7 @@ Switchboard follows a service-plus-client architecture:
 ```
 
 - **FastAPI application (`server/app.py`)** exposes REST endpoints, WebSocket plan broadcasts, and the static operator UI. Middleware hooks add rate limiting and observability.
-- **Domain logic (`server/task_logic.py`, `server/file_store.py`)** coordinates task lifecycle state, dependency enforcement, and content mirroring while keeping database access localized.
+- **Domain logic (`server/domain/`, `server/application/`, `server/file_store.py`)** coordinates task lifecycle state, dependency enforcement, and content mirroring while keeping database access localized.
 - **Client toolkit (`client/python/`)** wraps the HTTP API for both interactive humans (`switchboard_cli.py`) and automated agents.
 - **Live files & ExecPlan registry** give agents durable documentation by persisting uploads to disk and serving digestible plan indexes.
 

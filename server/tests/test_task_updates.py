@@ -6,11 +6,11 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 
+from server.application.factory import build_task_service
 from server.app import create_task, update_task
 from server.db import AsyncSessionLocal
 from server.models import Lease, Task, TaskDependency
 from server.schema import TaskIn, TaskUpdate
-from server.task_logic import plan_version
 from server.task_status import TaskStatus
 from server.time_utils import utcnow_naive
 
@@ -18,21 +18,25 @@ from server.time_utils import utcnow_naive
 def test_update_task_successful_edit_and_dependency_replacement():
     async def scenario():
         async with AsyncSessionLocal() as session:
+            service = build_task_service(session)
             first_dep = await create_task(
                 TaskIn(title="prep", description="", depends_on=[]),
+                service=service,
                 session=session,
             )
             original = await create_task(
                 TaskIn(title="initial", description="", depends_on=[first_dep.id]),
+                service=service,
                 session=session,
             )
             second_dep = await create_task(
                 TaskIn(title="follow", description="", depends_on=[]),
+                service=service,
                 session=session,
             )
             await session.commit()
 
-            before_version = await plan_version(session)
+            before_version = await service.plan_version()
 
             result = await update_task(
                 original.id,
@@ -41,6 +45,7 @@ def test_update_task_successful_edit_and_dependency_replacement():
                     description="new description",
                     depends_on=[second_dep.id],
                 ),
+                service=service,
                 session=session,
             )
 
@@ -48,7 +53,7 @@ def test_update_task_successful_edit_and_dependency_replacement():
             assert result.description == "new description"
             assert result.depends_on == [second_dep.id]
 
-            after_version = await plan_version(session)
+            after_version = await service.plan_version()
             assert after_version == before_version + 1
 
             deps = (
@@ -70,8 +75,10 @@ def test_update_task_successful_edit_and_dependency_replacement():
 def test_update_task_missing_dependency_validation():
     async def scenario():
         async with AsyncSessionLocal() as session:
+            service = build_task_service(session)
             task = await create_task(
                 TaskIn(title="needs", description="", depends_on=[]),
+                service=service,
                 session=session,
             )
             await session.commit()
@@ -80,6 +87,7 @@ def test_update_task_missing_dependency_validation():
                 await update_task(
                     task.id,
                     TaskUpdate(depends_on=[9999]),
+                    service=service,
                     session=session,
                 )
             assert exc.value.status_code == HTTPStatus.BAD_REQUEST
@@ -92,8 +100,10 @@ def test_update_task_missing_dependency_validation():
 def test_update_task_self_dependency_validation():
     async def scenario():
         async with AsyncSessionLocal() as session:
+            service = build_task_service(session)
             task = await create_task(
                 TaskIn(title="solo", description="", depends_on=[]),
+                service=service,
                 session=session,
             )
             await session.commit()
@@ -102,6 +112,7 @@ def test_update_task_self_dependency_validation():
                 await update_task(
                     task.id,
                     TaskUpdate(depends_on=[task.id]),
+                    service=service,
                     session=session,
                 )
             assert exc.value.status_code == HTTPStatus.BAD_REQUEST
@@ -114,8 +125,10 @@ def test_update_task_self_dependency_validation():
 def test_update_task_status_resetting_leases_to_pending():
     async def scenario():
         async with AsyncSessionLocal() as session:
+            service = build_task_service(session)
             created = await create_task(
                 TaskIn(title="leased", description="", depends_on=[]),
+                service=service,
                 session=session,
             )
             await session.commit()
@@ -137,6 +150,7 @@ def test_update_task_status_resetting_leases_to_pending():
             result = await update_task(
                 task.id,
                 TaskUpdate(status=TaskStatus.PENDING),
+                service=service,
                 session=session,
             )
 
@@ -154,8 +168,10 @@ def test_update_task_status_resetting_leases_to_pending():
 def test_update_task_status_resetting_leases_to_completed():
     async def scenario():
         async with AsyncSessionLocal() as session:
+            service = build_task_service(session)
             created = await create_task(
                 TaskIn(title="finishing", description="", depends_on=[]),
+                service=service,
                 session=session,
             )
             await session.commit()
