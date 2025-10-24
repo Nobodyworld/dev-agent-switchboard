@@ -121,6 +121,17 @@ with SwitchboardClient("http://localhost:8000", "codex-1") as client:
 
 The client automatically registers the agent, reuses a `requests.Session`, and exposes convenience helpers such as `get_settings()` and `upload_file()`.
 
+## CLI Runtime Summary
+
+The `switchboard-cli run` command now prints a formatted runtime summary before
+entering the task loop. It combines server-provided lease data with user
+arguments using the helpers in `client/python/runtime_config.py`, then displays
+the effective heartbeat cadence, polling intervals, and backoff multiplier in a
+readable table. Any sanitisation warnings (for example, negative poll
+intervals or missing lease information) are surfaced on **stderr** so scripts
+can react without parsing the summary. Consult [docs/cli-runtime.md](docs/cli-runtime.md)
+for a walkthrough of the start-up flow and warning catalogue.
+
 ## End-to-End Example (Local Runner)
 
 Use the packaged local runner to exercise the orchestration router without writing a custom agent:

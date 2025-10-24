@@ -11,20 +11,30 @@ from typing import Any, Optional
 import requests
 from switchboard_client import SwitchboardClient
 
+from .runtime_config import (
+    DEFAULT_HEARTBEAT_INTERVAL,
+    DEFAULT_MAX_POLL_INTERVAL,
+    RuntimeConfiguration,
+    compute_backoff_interval,
+    derive_runtime_configuration,
+    extract_lease_duration,
+    sanitize_heartbeat_interval,
+)
+
 HEARTBEAT_SHUTDOWN_TIMEOUT = 5.0
 
 TaskPayload = dict[str, Any]
-
-DEFAULT_MAX_POLL_INTERVAL = 120.0
-DEFAULT_HEARTBEAT_INTERVAL = 30.0
 
 __all__ = [
     "DEFAULT_MAX_POLL_INTERVAL",
     "DEFAULT_HEARTBEAT_INTERVAL",
     "HEARTBEAT_SHUTDOWN_TIMEOUT",
     "HeartbeatLoop",
+    "RuntimeConfiguration",
     "build_parser",
+    "display_runtime_configuration",
     "compute_backoff_interval",
+    "derive_runtime_configuration",
     "extract_lease_duration",
     "format_task",
     "main",
@@ -40,6 +50,8 @@ class HeartbeatLoop(threading.Thread):
     def __init__(
         self, client: SwitchboardClient, task_id: int, interval: float
     ) -> None:
+        """Initialise the heartbeat loop thread with its dependencies."""
+
         super().__init__(daemon=True)
         self._client = client
         self._task_id = task_id
@@ -48,6 +60,8 @@ class HeartbeatLoop(threading.Thread):
         self._error: Optional[str] = None
 
     def run(self) -> None:
+        """Send heartbeats until the loop is stopped or an error occurs."""
+
         while not self._stop.is_set():
             try:
                 ok = self._client.heartbeat(self._task_id)
@@ -83,68 +97,6 @@ def format_task(task: TaskPayload) -> str:
     if depends:
         lines.append("Depends on: " + ", ".join(str(d) for d in depends))
     return "\n".join(lines)
-
-
-def sanitize_heartbeat_interval(
-    requested_interval: Optional[float],
-    lease_seconds: Optional[float],
-) -> tuple[float, Optional[str]]:
-    """Return a safe heartbeat interval and optional adjustment reason."""
-
-    interval = DEFAULT_HEARTBEAT_INTERVAL if requested_interval is None else float(requested_interval)
-    interval = max(interval, 0.0)
-    if lease_seconds is None or lease_seconds <= 0:
-        if interval <= 0:
-            return DEFAULT_HEARTBEAT_INTERVAL, "using default heartbeat interval"
-        return interval, None
-
-    lease = float(lease_seconds)
-    if interval <= 0:
-        adjusted = max(lease / 2.0, 1.0)
-        return adjusted, (
-            "requested heartbeat interval was non-positive; using half the lease duration"
-        )
-    if interval >= lease:
-        adjusted = max(lease / 2.0, 1.0)
-        return adjusted, (
-            "requested heartbeat interval would exceed the lease duration; using half the lease instead"
-        )
-    return interval, None
-
-
-def extract_lease_duration(
-    settings_payload: Mapping[str, Any] | None,
-) -> tuple[Optional[float], list[str]]:
-    """Parse ``settings_payload`` and return (lease_seconds, warnings)."""
-
-    warnings: list[str] = []
-    if not isinstance(settings_payload, Mapping):
-        warnings.append("settings payload was not a mapping")
-        return None, warnings
-
-    lease_block = settings_payload.get("lease")
-    if lease_block is None:
-        warnings.append("settings payload did not include lease information")
-        return None, warnings
-
-    if not isinstance(lease_block, Mapping):
-        warnings.append("lease section was not a mapping")
-        return None, warnings
-
-    value = lease_block.get("duration_seconds")
-    if isinstance(value, (int, float)):
-        if value > 0:
-            return float(value), warnings
-        warnings.append(
-            "lease duration from server was non-positive; ignoring unsafe value"
-        )
-        return None, warnings
-
-    if value is not None:
-        warnings.append("lease duration was not numeric; ignoring value")
-    else:
-        warnings.append("lease duration missing from lease settings")
-    return None, warnings
 
 
 def process_task(
@@ -237,19 +189,26 @@ def process_task(
         loop.join(HEARTBEAT_SHUTDOWN_TIMEOUT)
 
 
-def compute_backoff_interval(
-    base_interval: float,
-    misses: int,
-    *,
-    max_interval: float,
-    multiplier: float,
-) -> float:
-    """Return the next poll interval using exponential backoff."""
+def display_runtime_configuration(config: RuntimeConfiguration) -> None:
+    """Print a formatted configuration summary for the active session."""
 
-    if misses <= 1 or multiplier <= 1.0:
-        return max(base_interval, 0.0)
-    candidate = base_interval * (multiplier ** (misses - 1))
-    return min(max_interval, max(candidate, base_interval, 0.0))
+    rows: list[tuple[str, str]] = [
+        ("Heartbeat interval", f"{config.heartbeat_interval:.1f}s"),
+        ("Poll interval", f"{config.poll_interval:.1f}s"),
+        ("Max poll interval", f"{config.max_poll_interval:.1f}s"),
+        ("Backoff multiplier", f"{config.backoff_multiplier:.2f}"),
+    ]
+    if config.lease_duration is not None:
+        rows.append(("Server lease", f"{config.lease_duration:.0f}s"))
+    if config.heartbeat_reason:
+        rows.append(("Heartbeat note", config.heartbeat_reason))
+
+    width = max((len(label) for label, _ in rows), default=0)
+    print()
+    print("Runtime configuration")
+    print("-" * (width + 25))
+    for label, value in rows:
+        print(f"{label:<{width}} : {value}")
 
 
 def confirm_completion(
@@ -268,83 +227,85 @@ def run_command(args: argparse.Namespace) -> int:
     """Execute the interactive agent loop using parsed arguments."""
 
     try:
-        client = SwitchboardClient(args.base, args.agent)
+        with SwitchboardClient(args.base, args.agent) as client:
+            print(f"Registered agent '{args.agent}' against {args.base}.")
+            settings_payload: Mapping[str, Any] | None = None
+            warning_messages: list[str] = []
+            try:
+                settings_payload = client.get_settings()
+            except requests.RequestException as exc:
+                warning_messages.append(f"failed to fetch server settings ({exc}).")
+
+            config: RuntimeConfiguration = derive_runtime_configuration(
+                requested_heartbeat_interval=getattr(
+                    args, "heartbeat_interval", DEFAULT_HEARTBEAT_INTERVAL
+                ),
+                poll_interval=getattr(args, "poll_interval", 0.0),
+                max_poll_interval=getattr(args, "max_poll_interval", None),
+                backoff_multiplier=getattr(args, "backoff_multiplier", 1.0),
+                lease_settings=settings_payload,
+                warnings=warning_messages,
+            )
+
+            display_runtime_configuration(config)
+
+            for message in config.warnings:
+                print(f"Warning: {message}", file=sys.stderr)
+            if config.heartbeat_reason:
+                print(
+                    "Heartbeat interval adjusted to "
+                    f"{config.heartbeat_interval:.1f}s "
+                    f"({config.heartbeat_reason}).",
+                    file=sys.stderr,
+                )
+
+            heartbeat_interval = config.heartbeat_interval
+            poll_interval = config.poll_interval
+            max_poll_interval = config.max_poll_interval
+            backoff_multiplier = config.backoff_multiplier
+            misses = 0
+            current_interval = poll_interval
+            while True:
+                try:
+                    task = client.checkout()
+                except requests.RequestException as exc:
+                    print(f"Checkout failed: {exc}", file=sys.stderr)
+                    return 1
+                if not task:
+                    reason = getattr(client, "last_checkout_reason", None)
+                    if reason:
+                        print(f"No task available ({reason}).")
+                    else:
+                        print("No task available.")
+                    misses += 1
+                    current_interval = compute_backoff_interval(
+                        poll_interval,
+                        misses,
+                        max_interval=max_poll_interval,
+                        multiplier=backoff_multiplier,
+                    )
+                    try:
+                        time.sleep(current_interval)
+                    except KeyboardInterrupt:
+                        print()
+                        return 0
+                    continue
+                misses = 0
+                current_interval = poll_interval
+                if not process_task(client, task, heartbeat_interval):
+                    return 1
     except requests.RequestException as exc:
         print(f"Failed to register agent: {exc}", file=sys.stderr)
         return 1
-    try:
-        print(f"Registered agent '{args.agent}' against {args.base}.")
-        lease_seconds: Optional[float] = None
-        warning_messages: list[str] = []
-        try:
-            settings_payload = client.get_settings()
-        except requests.RequestException as exc:
-            warning_messages.append(f"failed to fetch server settings ({exc}).")
-        else:
-            lease_seconds, parse_warnings = extract_lease_duration(settings_payload)
-            warning_messages.extend(parse_warnings)
-            if lease_seconds is not None:
-                print(
-                    f"Server lease duration is {lease_seconds:.0f}s.",
-                    file=sys.stderr,
-                )
-        for message in warning_messages:
-            print(f"Warning: {message}", file=sys.stderr)
-        heartbeat_interval, heartbeat_reason = sanitize_heartbeat_interval(
-            getattr(args, "heartbeat_interval", DEFAULT_HEARTBEAT_INTERVAL),
-            lease_seconds,
-        )
-        if heartbeat_reason:
-            print(
-                f"Heartbeat interval set to {heartbeat_interval:.1f}s ({heartbeat_reason}).",
-                file=sys.stderr,
-            )
-        poll_interval = max(args.poll_interval, 0.0)
-        max_poll_interval = max(
-            getattr(args, "max_poll_interval", poll_interval), poll_interval
-        )
-        backoff_multiplier = max(
-            getattr(args, "backoff_multiplier", 1.0), 1.0
-        )
-        misses = 0
-        current_interval = poll_interval
-        while True:
-            try:
-                task = client.checkout()
-            except requests.RequestException as exc:
-                print(f"Checkout failed: {exc}", file=sys.stderr)
-                return 1
-            if not task:
-                reason = getattr(client, "last_checkout_reason", None)
-                if reason:
-                    print(f"No task available ({reason}).")
-                else:
-                    print("No task available.")
-                misses += 1
-                current_interval = compute_backoff_interval(
-                    poll_interval,
-                    misses,
-                    max_interval=max_poll_interval,
-                    multiplier=backoff_multiplier,
-                )
-                try:
-                    time.sleep(current_interval)
-                except KeyboardInterrupt:
-                    print()
-                    return 0
-                continue
-            misses = 0
-            current_interval = poll_interval
-            if not process_task(client, task, heartbeat_interval):
-                return 1
-    finally:
-        client.close()
 
 
 def build_parser() -> argparse.ArgumentParser:
     """Return the top-level argument parser for the CLI."""
 
-    parser = argparse.ArgumentParser(prog="switchboard-cli")
+    parser = argparse.ArgumentParser(
+        prog="switchboard-cli",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     subparsers = parser.add_subparsers(dest="command")
     run_parser = subparsers.add_parser("run", help="Run the interactive agent loop")
     run_parser.add_argument(

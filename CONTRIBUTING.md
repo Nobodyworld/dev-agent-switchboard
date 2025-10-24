@@ -29,6 +29,16 @@ Participation in this project is governed by our [Code of Conduct](CODE_OF_CONDU
 - Ensure all CI jobs pass before requesting review.
 - Update documentation and changelogs when behavior changes.
 
+## Documentation & Dependency Expectations
+
+- Update [docs/cli-runtime.md](docs/cli-runtime.md) when CLI behaviour or
+  runtime summaries change so operators have accurate guidance.
+- Record dependency upgrades, removals, or new packages in
+  [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) and ensure licenses remain
+  compatible with the proprietary Switchboard distribution.
+- Mention documentation updates in your pull request description to keep
+  reviewers aware of parallel doc changes.
+
 ## Commit Messages
 
 We use the [Conventional Commits](https://www.conventionalcommits.org/) specification. A valid commit message follows the pattern `type(scope?): description`. Common types include `feat`, `fix`, `docs`, `refactor`, `test`, `build`, `ci`, and `chore`.

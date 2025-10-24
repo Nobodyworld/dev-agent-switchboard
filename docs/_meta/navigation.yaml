@@ -17,6 +17,10 @@ sections:
         path: "docs/AI_INTERFACE.md"
         summary: "REST, WebSocket, and Python SDK reference for agents."
         keywords: ["api", "websocket", "python"]
+      - title: "CLI Runtime Guide"
+        path: "docs/cli-runtime.md"
+        summary: "Explains CLI runtime configuration, warnings, and defaults."
+        keywords: ["cli", "runtime", "configuration"]
       - title: "ExecPlan Registry Schema"
         path: "docs/execplan-registry-index.md"
         summary: "Schema for publishing ExecPlan catalogs to agents."
@@ -50,3 +54,7 @@ sections:
         path: "docs/PORTAL_STATUS.md"
         summary: "Snapshot of portal upgrades and remaining documentation backlog."
         keywords: ["documentation", "report"]
+      - title: "Dependency & License Audit"
+        path: "docs/DEPENDENCIES.md"
+        summary: "Catalog of runtime and tooling dependencies with license notes."
+        keywords: ["dependencies", "licenses", "security"]

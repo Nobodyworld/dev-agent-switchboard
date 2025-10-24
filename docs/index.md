@@ -93,6 +93,8 @@ Follow these steps to process a task locally:
 - [Architecture](architecture.md)
 - [Message Schema](message-schema.md)
 - [Failure Modes](failure-modes.md)
+- [CLI Runtime Guide](cli-runtime.md)
+- [Dependency & License Audit](DEPENDENCIES.md)
 - [README](../README.md)
 - [CHANGELOG](../CHANGELOG.md)
 - [TODO Issues](TODO-ISSUES.md)
