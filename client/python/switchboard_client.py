@@ -37,25 +37,37 @@ class SwitchboardClient:
         max_retries: int = DEFAULT_MAX_RETRIES,
         retry_backoff: float = DEFAULT_RETRY_BACKOFF,
     ) -> None:
-        """Create a client.
+        """Initialize a :class:`SwitchboardClient`.
 
-        Args:
-            base_url: Root URL of the Switchboard deployment.
-            agent_id: Identifier used when interacting with the API.
-            session: Optional ``requests.Session`` to reuse connections.
-            timeout: Timeout applied to every request made by the client.
-            operation_timeouts: Optional mapping of operation names to timeout
-                overrides. The supported keys are the public method names such
-                as ``"put_file"``.
-            auto_register: When ``True`` the client registers immediately.
-            max_retries: Maximum number of retries for transient failures. Set
-                to ``0`` to disable retry behaviour.
-            retry_backoff: Base seconds used for exponential backoff between
-                retry attempts.
+        Parameters
+        ----------
+        base_url:
+            Root URL of the Switchboard deployment.
+        agent_id:
+            Identifier used when interacting with the API.
+        session:
+            Optional :class:`requests.Session` instance reused for requests.
+        timeout:
+            Default timeout, in seconds, applied to every request made by the
+            client.
+        operation_timeouts:
+            Optional mapping of operation names to timeout overrides. Supported
+            keys are public method names such as ``"put_file"``.
+        auto_register:
+            When ``True`` the client registers immediately upon creation.
+        max_retries:
+            Maximum number of retries for transient failures. Set to ``0`` to
+            disable retry behaviour.
+        retry_backoff:
+            Base number of seconds used for exponential backoff between retry
+            attempts.
 
+        Notes
+        -----
         The provided session is reused for all requests. When no session is
-        supplied a fresh ``requests.Session`` is created. The timeout is stored
-        as shared state so each API method uses consistent request settings.
+        supplied a fresh :class:`requests.Session` is created. The timeout is
+        stored as shared state so each API method uses consistent request
+        settings.
         """
 
         self.base = base_url.rstrip("/")
@@ -77,23 +89,47 @@ class SwitchboardClient:
 
     @property
     def session(self) -> Session:
-        """Return the underlying :class:`requests.Session`."""
+        """Return the underlying :class:`requests.Session`.
+
+        Returns
+        -------
+        Session
+            Persistent HTTP session leveraged for API calls.
+        """
 
         return self._session
 
     @property
     def timeout(self) -> float:
-        """Return the request timeout applied to outbound calls."""
+        """Return the request timeout applied to outbound calls.
+
+        Returns
+        -------
+        float
+            Timeout in seconds applied when no per-operation override exists.
+        """
 
         return self._timeout
 
     def close(self) -> None:
-        """Close the underlying :class:`requests.Session`."""
+        """Close the underlying :class:`requests.Session`.
+
+        Returns
+        -------
+        None
+            This method performs side effects only.
+        """
 
         self._session.close()
 
     def __enter__(self) -> SwitchboardClient:
-        """Support ``with`` statements for deterministic cleanup."""
+        """Support ``with`` statements for deterministic cleanup.
+
+        Returns
+        -------
+        SwitchboardClient
+            The instance itself to enable context-manager usage.
+        """
 
         return self
 
@@ -103,12 +139,37 @@ class SwitchboardClient:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        """Ensure the underlying session is closed when leaving a context."""
+        """Ensure the underlying session is closed when leaving a context.
+
+        Parameters
+        ----------
+        exc_type:
+            Exception type raised inside the context, if any.
+        exc:
+            Exception instance raised inside the context, if any.
+        tb:
+            Traceback associated with ``exc`` when present.
+        """
 
         self.close()
 
     def _request(self, method: str, path: str, **kwargs: Any) -> Response:
-        """Helper that performs a request with shared timeout/session settings."""
+        """Perform an HTTP request using shared session and timeout settings.
+
+        Parameters
+        ----------
+        method:
+            HTTP method to invoke (``"GET"``, ``"POST"``, etc.).
+        path:
+            API path relative to :attr:`base`.
+        **kwargs:
+            Additional arguments forwarded to :meth:`requests.Session.request`.
+
+        Returns
+        -------
+        Response
+            HTTP response object with status validation already applied.
+        """
 
         url = f"{self.base}{path}"
         timeout = kwargs.pop("timeout", None)
@@ -140,7 +201,18 @@ class SwitchboardClient:
             attempt += 1
 
     def _sleep_for_retry(self, attempt: int) -> bool:
-        """Sleep based on the configured retry backoff."""
+        """Sleep based on the configured retry backoff.
+
+        Parameters
+        ----------
+        attempt:
+            Zero-based retry attempt counter.
+
+        Returns
+        -------
+        bool
+            ``True`` when another retry should proceed, ``False`` otherwise.
+        """
 
         if attempt >= self._max_retries:
             return False
@@ -153,7 +225,22 @@ class SwitchboardClient:
     def _should_retry(
         self, method: str, *, status: int | None = None, attempt: int
     ) -> bool:
-        """Return ``True`` when another retry attempt should be attempted."""
+        """Return ``True`` when another retry attempt should be attempted.
+
+        Parameters
+        ----------
+        method:
+            HTTP method submitted for the request.
+        status:
+            HTTP status code received from the server, when available.
+        attempt:
+            Zero-based retry attempt counter.
+
+        Returns
+        -------
+        bool
+            ``True`` if another retry should be attempted; ``False`` otherwise.
+        """
 
         if attempt >= self._max_retries:
             return False
@@ -168,7 +255,13 @@ class SwitchboardClient:
         return True
 
     def register(self) -> dict[str, Any]:
-        """Register this agent with Switchboard using the configured session."""
+        """Register this agent with Switchboard using the configured session.
+
+        Returns
+        -------
+        dict[str, Any]
+            JSON payload returned by the registration endpoint.
+        """
 
         response = self._request(
             "post", "/api/agents", json={"agent_name": self.agent_id}
@@ -177,7 +270,13 @@ class SwitchboardClient:
         return payload
 
     def get_settings(self) -> dict[str, Any]:
-        """Return the current server configuration settings."""
+        """Return the current server configuration settings.
+
+        Returns
+        -------
+        dict[str, Any]
+            JSON payload describing rate limit and lease settings.
+        """
 
         timeout = self._operation_timeouts.get("get_settings", self._timeout)
         response = self._request("get", "/api/settings", timeout=timeout)
@@ -187,9 +286,15 @@ class SwitchboardClient:
     def checkout(self) -> dict[str, Any] | None:
         """Checkout the next task for this agent.
 
-        Returns the task dictionary if one is available, otherwise ``None``.
-        The server may include a ``reason`` when no task is returned; this is
-        exposed via :attr:`last_checkout_reason` to help with diagnostics.
+        Returns
+        -------
+        dict[str, Any] | None
+            Task dictionary when a checkout succeeds, otherwise ``None``.
+
+        Notes
+        -----
+        The server may include a ``reason`` when no task is returned. The value
+        is mirrored to :attr:`last_checkout_reason` for diagnostics.
         """
 
         response = self._request(
@@ -203,7 +308,18 @@ class SwitchboardClient:
         return cast(dict[str, Any] | None, task_data)
 
     def heartbeat(self, task_id: int) -> bool:
-        """Send a heartbeat for the given task and return the server status."""
+        """Send a heartbeat for the given task and return the server status.
+
+        Parameters
+        ----------
+        task_id:
+            Identifier of the task whose lease should be extended.
+
+        Returns
+        -------
+        bool
+            ``True`` when the heartbeat succeeds, ``False`` otherwise.
+        """
 
         response = self._request(
             "post",
@@ -214,7 +330,20 @@ class SwitchboardClient:
         return bool(payload.get("ok", False))
 
     def complete(self, task_id: int, notes: str = "") -> bool:
-        """Mark the task as complete and return the server acknowledgement."""
+        """Mark the task as complete and return the server acknowledgement.
+
+        Parameters
+        ----------
+        task_id:
+            Identifier of the task being completed.
+        notes:
+            Optional completion notes to persist.
+
+        Returns
+        -------
+        bool
+            ``True`` when the completion succeeds, ``False`` otherwise.
+        """
 
         response = self._request(
             "post",
@@ -226,7 +355,18 @@ class SwitchboardClient:
         return bool(payload.get("ok", False))
 
     def abandon(self, task_id: int) -> bool:
-        """Abandon the task and return the server acknowledgement."""
+        """Abandon the task and return the server acknowledgement.
+
+        Parameters
+        ----------
+        task_id:
+            Identifier of the task being abandoned.
+
+        Returns
+        -------
+        bool
+            ``True`` when the abandon succeeds, ``False`` otherwise.
+        """
 
         response = self._request(
             "post",
@@ -237,7 +377,25 @@ class SwitchboardClient:
         return bool(payload.get("ok", False))
 
     def put_file(self, path: str, content: bytes) -> str:
-        """Upload ``content`` to ``path`` and return the published file URL."""
+        """Upload ``content`` to ``path`` and return the published file URL.
+
+        Parameters
+        ----------
+        path:
+            Repository-relative path to publish.
+        content:
+            Raw bytes that should be written to storage.
+
+        Returns
+        -------
+        str
+            Absolute URL where the uploaded file can be retrieved.
+
+        Raises
+        ------
+        ValueError
+            Raised when the upload response omits a URL.
+        """
 
         timeout = self._operation_timeouts.get("put_file", self._timeout)
         response = self._request(
@@ -250,7 +408,18 @@ class SwitchboardClient:
         return url
 
     def list_tasks(self, status: str | None = None) -> list[dict[str, Any]]:
-        """Return a list of tasks, optionally filtered by ``status``."""
+        """Return a list of tasks, optionally filtered by ``status``.
+
+        Parameters
+        ----------
+        status:
+            Optional status filter (``"pending"``, ``"in_progress"``, etc.).
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            Serialized task dictionaries.
+        """
 
         params = {"status": status} if status else None
         response = self._request("get", "/api/tasks", params=params)

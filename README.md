@@ -4,6 +4,8 @@
 [![CI](https://github.com/openai/switchboard/actions/workflows/ci.yml/badge.svg)](https://github.com/openai/switchboard/actions/workflows/ci.yml)
 [![Commitlint](https://github.com/openai/switchboard/actions/workflows/commitlint.yml/badge.svg)](https://github.com/openai/switchboard/actions/workflows/commitlint.yml)
 
+## What
+
 Switchboard is a small, production‑leaning FastAPI service that:
 
 - Hosts a **live, editable plan** (DAG of tasks with dependencies) that agents can **discover, check out, heartbeat, complete, or abandon**.
@@ -11,24 +13,40 @@ Switchboard is a small, production‑leaning FastAPI service that:
 - Serves a **live file mirror** under predictable URLs so any LLM/agent can retrieve the latest docs **without re‑uploading**.
 - Ships a lightweight admin UI with color-coded status badges and a friendly empty state so task filters always communicate what you're seeing.
 - Ships with **AGENTS.md** and a **.agent/PLANS.md** template aligned with the ExecPlan pattern.
-- Includes a **Python client** for agent integrations and **Docker** packaging.
-- Documents the full stack layout in [docs/architecture.md](docs/architecture.md).
+- Includes a **Python client** and a **local runner** for agent integrations alongside container packaging.
+- Documents the full stack layout in [docs/architecture.md](docs/architecture.md) and the new [documentation hub](docs/index.md).
+
+## Why
+
+- Provide a **single orchestration router** that stabilises the contract between queues, agents, and operator tooling.
+- Make it easy to verify deployments via **health checks** and a **local runner** without authoring bespoke agents.
+- Keep humans and automation in sync by mirroring live plans, live files, and failure diagnostics in one place.
+
+## How
+
+- **Router & Interfaces** – `server/app.py`, `server/orchestrator.py`, and `server/interfaces.py` translate database models into immutable `TaskEnvelope` structures returned by the API.
+- **Domain Logic** – `server/task_logic.py` enforces leases and dependencies with NumPy-style docstrings that document every parameter and return value.
+- **Health & Operations** – `/health/live` and `/health/ready` surface liveness and dependency status via the new `HealthStatus` schema; `docs/failure-modes.md` enumerates remediation steps.
+- **Agent Toolkit** – `client/python/switchboard_client.py` exposes a resilient HTTP client while `scripts/local_runner.py` offers an executable agent loop for local testing.
 
 ## Documentation Map
 
-Start with the [`/docs` portal](docs/INDEX.md) for a navigation-ready index of every guide, design note, and ExecPlan. The table below highlights common entry points:
+Start with the [documentation hub](docs/index.md) for a curated quick start, message schema reference, and failure modes. The table below highlights common entry points:
 
 | Topic | Start Here |
 | --- | --- |
-| Unified docs portal & metadata | [docs/INDEX.md](docs/INDEX.md) – navigation map & module reference (`docs/_meta/navigation.yaml` exposes machine-readable nav) |
+| Quick start, architecture, message schema | [docs/index.md](docs/index.md) – consolidated hub introduced in this release |
+| Legacy navigation index | [docs/INDEX.md](docs/INDEX.md) – navigation map & module reference (`docs/_meta/navigation.yaml` exposes machine-readable nav) |
 | System architecture & data flow | [ARCHITECTURE.md](ARCHITECTURE.md) – high-level narrative<br/>[docs/architecture.md](docs/architecture.md) – deeper component breakdown |
-| Operator & agent workflows | [README.md](README.md#quickstart-local) – quickstart and CLI guidance<br/>[docs/AI_INTERFACE.md](docs/AI_INTERFACE.md) – endpoint matrix |
+| Operator & agent workflows | [README.md](README.md#quickstart-local) – quickstart, local runner, and CLI guidance<br/>[docs/AI_INTERFACE.md](docs/AI_INTERFACE.md) – endpoint matrix |
+| Message schema details | [docs/message-schema.md](docs/message-schema.md) – serialized payloads and field definitions |
+| Failure diagnostics | [docs/failure-modes.md](docs/failure-modes.md) – detection and mitigation guide |
 | ExecPlan registry | [docs/execplan-registry-index.md](docs/execplan-registry-index.md) |
 | Rate limiting design | [docs/rate-limiting-design.md](docs/rate-limiting-design.md) |
 | Testing & quality reports | [docs/testing_report.md](docs/testing_report.md) |
 | Documentation status & backlog | [docs/PORTAL_STATUS.md](docs/PORTAL_STATUS.md) |
 
-Each document now shares terminology and links back to this README so contributors can pivot between operational, architectural, and API-focused guidance without guessing where to look.
+Each document now shares terminology and links back to this README so contributors can pivot between operational, architectural, and API-focused guidance without guessing where to look. The new [TODO backlog](docs/TODO-ISSUES.md) captures follow-up work discovered during the orchestration router stabilization.
 
 ## Architecture at a Glance
 
@@ -73,6 +91,8 @@ Operators can trace how a request moves from CLI to FastAPI to persistence by re
 | `/api/tasks/{id}/heartbeat` | `POST` | Extend the active lease for the agent that checked out the task. |
 | `/api/tasks/{id}/complete` | `POST` | Mark a task complete and store optional notes. |
 | `/api/tasks/{id}/abandon` | `POST` | Release the lease without completion. |
+| `/health/live` | `GET` | Liveness probe returning the `HealthStatus` payload with `process` checks. |
+| `/health/ready` | `GET` | Readiness probe that validates database and storage access; returns HTTP 503 when dependencies fail. |
 | `/api/settings` | `GET` | Inspect rate limit and lease configuration (used by the CLI). |
 | `/api/files/{path}` | `PUT` | Upload live documentation available under `/live/<path>`. |
 | `/ws/plan` | `GET` (WebSocket) | Stream plan version updates and deltas for UI/agent sync. |
@@ -98,6 +118,21 @@ with SwitchboardClient("http://localhost:8000", "codex-1") as client:
 ```
 
 The client automatically registers the agent, reuses a `requests.Session`, and exposes convenience helpers such as `get_settings()` and `upload_file()`.
+
+## End-to-End Example (Local Runner)
+
+Use the packaged local runner to exercise the orchestration router without writing a custom agent:
+
+```bash
+make serve  # in a separate shell
+
+http POST http://localhost:8000/api/tasks \
+  title="Demo" description="Run the local runner"
+
+python scripts/local_runner.py --base-url http://localhost:8000 --auto-complete --completion-notes "Verified locally"
+```
+
+The runner will register itself, lease the next task, maintain heartbeats while it works, and complete the task with the supplied notes. Re-run without `--auto-complete` to observe heartbeat-only behaviour (press `Ctrl+C` to stop the loop).
 
 ## Quickstart (Local)
 

@@ -18,6 +18,10 @@ tags:
 
 Welcome to the Switchboard documentation portal. This index is designed so a brand-new contributor can:
 
+> Looking for the modern quick-start experience? Head to the lightweight
+> [documentation hub](index.md) which summarises architecture, message schema,
+> failure modes, and the local runner walkthrough introduced in this update.
+
 1. Understand what Switchboard is and how it is structured.
 2. Discover the right guide for their task (building agents, operating the server, extending the UI, or shipping roadmap work).
 3. Traverse directly to deep technical references without trawling the repository tree.
