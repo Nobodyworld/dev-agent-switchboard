@@ -1,0 +1,25 @@
+--- a/server/app.py
++++ b/server/app.py
+@@ -784,11 +784,11 @@ async def execplan_index(
+ 
+ 
+ @app.get("/api/plan", response_model=PlanOut)
+-async def get_plan(session: AsyncSession = Depends(get_session)):
++async def get_plan(service: TaskService = Depends(get_task_service)):
+     """Return the full task plan, including version metadata."""
+ 
+-    plan_dict = await _serialize_plan(session)
++    plan_dict = await _serialize_plan(service)
+     if hasattr(PlanOut, "model_validate"):
+         return PlanOut.model_validate(plan_dict)  # type: ignore[attr-defined]
+     return PlanOut(**plan_dict)
+@@ -802,7 +802,8 @@ async def ws_plan(ws: WebSocket):
+     await PLAN_BROADCASTER.add(ws)
+     try:
+         async with AsyncSessionLocal() as session:
+-            plan_payload = await _serialize_plan(session)
++            service = build_task_service(session)
++            plan_payload = await _serialize_plan(service)
+         initial_payload: PlanBroadcastPayload = {
+             "type": "plan_snapshot",
+             "version": plan_payload.get("version", 0),
