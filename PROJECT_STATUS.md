@@ -10,7 +10,7 @@ Switchboard is a robust FastAPI-based service for real-time agent task coordinat
   - `README.md`: Comprehensive quickstart with venv setup (includes Windows PowerShell instructions).
   - `server/app.py`: Main FastAPI app with endpoints, CORS, static files, and WebSocket support. Updated with lifespan handler and session commits.
   - `server/models.py`: SQLAlchemy models for Agent, Task, TaskDependency, Lease, FileEntry, and PlanVersion.
-  - `server/task_logic.py`: Business logic for task checkout, heartbeat, completion, and dependency checking. Fixed datetime usage and function signatures.
+  - `server/application/task_service.py`: Business logic for task checkout, heartbeat, completion, and dependency checking. Fixed datetime usage and function signatures.
   - `server/requirements.txt`: Core deps (FastAPI, SQLAlchemy, etc.), updated with `greenlet` and `httpx`.
   - `Makefile`: Build targets (setup, run, test, etc.), updated for Windows PowerShell.
 

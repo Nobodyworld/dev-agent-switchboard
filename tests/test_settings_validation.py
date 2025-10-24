@@ -97,13 +97,10 @@ def test_settings_bundle_tracks_current_configuration(monkeypatch):
 
 
 def test_lease_duration_helper_reflects_configuration(monkeypatch):
-    pytest.importorskip("sqlalchemy")
-    from server.task_logic import lease_duration_seconds  # local import to avoid optional deps
-
     monkeypatch.setenv(LEASE_SECONDS_ENV, "120")
     reload_lease_settings()
     try:
-        assert lease_duration_seconds() == 120
+        assert get_lease_settings().duration_seconds == 120
     finally:
         monkeypatch.delenv(LEASE_SECONDS_ENV, raising=False)
         reload_lease_settings()

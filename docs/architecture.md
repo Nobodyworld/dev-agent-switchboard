@@ -25,13 +25,15 @@ Switchboard is composed of a FastAPI backend, a lightweight web UI, and Python t
 ### Entry Points
 
 - **`app.py`** – Wires the FastAPI application, HTTP routes, WebSocket broadcaster, and the `/health/live` plus `/health/ready` probes. The module-level docstring calls out its role as the single integration point for middleware, settings, and templates. The `PlanBroadcaster` helper tracks connected WebSocket clients, pruning defunct sockets whenever send failures occur.
-- **`orchestrator.py`** – Bridges the REST handlers with `task_logic` by emitting immutable interface objects (`TaskEnvelope`, `CheckoutOutcome`, and friends). This keeps HTTP payload shapes stable even as domain concerns evolve.
-- **`interfaces.py`** – Defines the dataclasses used by both the orchestrator and client SDK. `AgentDescriptor`, `QueueDescriptor`, and `TaskEnvelope` document the canonical queue/agent contract in one place.
+- **`server/application/task_service.py`** – Coordinates task lifecycle rules (`checkout`, `heartbeat`, `complete`, `abandon`) through repository interfaces and domain policies.
+- **`server/domain/`** – Hosts immutable dataclasses and policies shared across application and infrastructure layers.
 - **`schema.py`** – Collects the Pydantic models that guarantee consistent API payloads. Response models mirror the JSON returned to agents and the UI, which keeps serialization logic centralized.
 
 ### Domain Logic
 
-- **`task_logic.py`** – Owns task lifecycle operations (checkout, heartbeat, completion, abandon). NamedTuple return types (`CheckoutResult`, `CompleteResult`) expose both success state and failure reasons, making API handlers predictable and easy to test. Docstrings now follow the NumPy style adopted across the project, making parameter and return semantics explicit.
+- **`server/domain/`** – Provides immutable dataclasses (`TaskRecord`, `LeaseRecord`, `PlanVersionSnapshot`) and policy helpers (`TaskAvailabilityPolicy`, `LeasePolicy`). These objects remain persistence-agnostic so they can back both HTTP handlers and background workers.
+- **`server/application/task_service.py`** – Implements task lifecycle operations using repository protocols, ensuring dependency direction flows from FastAPI into the application layer before touching infrastructure.
+- **`server/infrastructure/repositories.py`** – Bridges SQLAlchemy models to the repository protocols, batching dependency lookups and lease persistence so application services avoid N+1 database round-trips.
 - **`file_store.py`** – Handles live documentation writes. The helper enforces that uploads stay under the configured storage root, computes cache-friendly ETags when available, and records metadata for retrieval.
 - **`execplan_registry.py`** – Produces the aggregated ExecPlan index. Docstrings document how timestamps are normalized, how weak ETags are computed, and why helper functions return `None` for empty collections (avoids noisy JSON output).
 
@@ -61,7 +63,7 @@ The `web/` directory contains the static admin dashboard built with HTMX and Tai
 ## Testing Strategy
 
 - **`client/python/tests/`** – Exercises the Python client and CLI using mocks around the underlying `requests.Session`. Tests assert retry behavior, heartbeat adjustments based on lease durations, and command-line argument parsing.
-- **`server/tests/`** – Covers API behavior, instrumentation toggles, and persistence logic. Integration tests use FastAPI's `TestClient` with async fixtures from `pytest-asyncio` to verify database interactions end-to-end.
+- **`server/tests/`** – Covers API behavior, instrumentation toggles, application services, and persistence logic. Integration tests use FastAPI's `TestClient` with async fixtures from `pytest-asyncio` to verify database interactions end-to-end, while targeted `TaskService` suites exercise lease lifecycles directly against the repository adapters.
 - **`tests/test_shims.py`** – Ensures root-level shims (`switchboard_client.py`, `switchboard_cli.py`) stay synchronized with the packaged modules so external imports remain stable.
 
 Refer back to [README.md](../README.md) for environment setup, operational workflows, and sample API calls. The README now links into each deeper document so you can navigate between conceptual overviews, design notes, and hands-on instructions with minimal friction.

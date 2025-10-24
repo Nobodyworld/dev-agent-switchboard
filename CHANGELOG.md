@@ -3,7 +3,7 @@
 ## Unreleased
 
 ### Added
-- `server/interfaces.py` and `server/orchestrator.py` define immutable queue, task, and agent interfaces powering the checkout workflow.
+- `server/interfaces.py` and `server/application/task_service.py` define immutable queue, task, and agent interfaces powering the checkout workflow.
 - `/health/live` and `/health/ready` endpoints expose liveness and readiness probes via the new `HealthStatus` schema.
 - `scripts/local_runner.py` provides a reference agent loop that registers, heartbeats, and optionally completes tasks.
 - Documentation hub at `docs/index.md`, message schema reference, failure modes guide, and TODO backlog enumerating follow-up work.
@@ -13,11 +13,15 @@
 ### Changed
 - README now introduces Switchboard via What/Why/How framing, highlights the local runner, and documents new health probes.
 - Module docstrings across `server/` and the Python client follow NumPy style for consistent parameter/return documentation.
-- Existing `docs/architecture.md` expanded with orchestrator context, while `docs/INDEX.md` links to the new documentation hub.
+- Existing `docs/architecture.md` expanded with application/service context, while `docs/INDEX.md` links to the new documentation hub.
 - License replaced with the Switchboard Proprietary notice reflecting the project's closed-source status.
 - Lease duration parsing raises clearer "positive integer" errors and is validated during FastAPI startup, logging the active configuration.
 - Settings caching now exposes an aggregated bundle so `/api/settings` and startup logging read a single coherent snapshot while cache reloads keep the views in sync.
 - Python CLI surfaces warnings when server settings are missing or invalid and honours per-operation timeouts for `/api/settings` requests.
+- Task repository adapters batch dependency lookups and power new `TaskService`-focused tests that cover checkout, completion, and abandon flows without API indirection.
+
+### Fixed
+- Restored missing imports in `server/tests/conftest.py` so database reset fixtures execute reliably during test runs.
 
 ## 2024-10-19 — Adaptive Perfection Update
 

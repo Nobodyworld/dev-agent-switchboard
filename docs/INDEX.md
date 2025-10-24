@@ -62,7 +62,7 @@ This reference aligns code modules with the documentation that describes them. U
 
 | Area | Module(s) | Documentation | What You Learn |
 | --- | --- | --- | --- |
-| API Surface | `server/app.py`, `server/schema.py`, `server/task_logic.py` | [Architecture Deep Dive](./architecture.md), [AI Interface Guide](./AI_INTERFACE.md) | Request routing, task lifecycle orchestration, and payload contracts. |
+| API Surface | `server/app.py`, `server/schema.py`, `server/application/task_service.py` | [Architecture Deep Dive](./architecture.md), [AI Interface Guide](./AI_INTERFACE.md) | Request routing, task lifecycle orchestration, and payload contracts. |
 | Persistence & Registry | `server/execplan_registry.py`, `docs/execplan-registry-index.md`, `docs/execplans/` | [Architecture Deep Dive](./architecture.md), [ExecPlan Registry Index Format](./execplan-registry-index.md) | How ExecPlans are persisted, indexed, and consumed by agents. |
 | Time & Status Utilities | `server/time_utils.py`, `server/task_status.py` | [Architecture Deep Dive](./architecture.md) | Why timestamp helpers and enums exist and how the server/clients share them. |
 | Rate Limiting | `server/middleware/rate_limit.py` | [Rate Limiting Design Note](./rate-limiting-design.md) | Sliding-window algorithm, configuration knobs, and operational trade-offs. |

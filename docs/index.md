@@ -40,9 +40,9 @@ how to integrate agents safely.
 Switchboard is intentionally modular:
 
 - **Router & API** – `server/app.py` exposes REST, WebSocket, and health
-  endpoints. Queue orchestration occurs in `server/orchestrator.py` backed by
-  shared interfaces in `server/interfaces.py`.
-- **Domain Logic** – `server/task_logic.py` encapsulates task lifecycle rules,
+  endpoints. Queue orchestration occurs in `server/application/task_service.py`
+  backed by shared dataclasses in `server/domain/` and `server/interfaces.py`.
+- **Domain Logic** – `server/domain/` and `server/application/task_service.py` encapsulate task lifecycle rules,
   leases, and dependency evaluation.
 - **Client Toolkit** – `client/python/switchboard_client.py` and
   `scripts/local_runner.py` provide a Python API and executable runner that
