@@ -1,0 +1,62 @@
+{
+  "name": "codex_repo_perfection_chain",
+  "description": "Sequential chain of Codex agent prompts to refine, document, test, and perfect any repository.",
+  "version": "1.0.0",
+  "step": [ 
+    {
+      "id": 1,
+      "name": "Comprehend & Map",
+      "prompt": "Analyze this repository in full. Summarize its purpose, domain, and core modules. Identify architectural intent, dependencies, and current pain points. Output a high-level map (features, data flow, dependencies, docs status, and TODOs). Goal: establish complete understanding before editing anything."
+    },
+    {
+      "id": 2,
+      "name": "Clean & Organize",
+      "prompt": "Refactor for clarity and modularity. Reorganize files into logical domains, remove dead code, and ensure imports, configs, and dependencies are minimal and correct. Maintain functionality. Goal: establish a clean, predictable structure that’s easy to extend."
+    },
+    {
+      "id": 3,
+      "name": "Add Typing, Comments, & Docstrings",
+      "prompt": "Apply static typing, precise inline comments, and comprehensive docstrings for every function, class, and module. Use consistent style (Google or NumPy). Goal: make every piece of code self-descriptive and transparent."
+    },
+    {
+      "id": 4,
+      "name": "Expand Tests & Validation",
+      "prompt": "Generate or expand tests for every major function, class, and endpoint. Include positive, negative, and edge cases. Add input validation and robust error handling throughout the codebase. Goal: ensure functional correctness and resilience."
+    },
+    {
+      "id": 5,
+      "name": "Document & Explain",
+      "prompt": "Create or update all Markdown documentation: README.md (clear overview, setup, usage, and examples), /docs/ (architecture diagrams, API reference, and workflows), CHANGELOG.md, CONTRIBUTING.md, and SECURITY.md. Goal: a fully self-documenting repo that any developer can onboard to."
+    },
+    {
+      "id": 6,
+      "name": "Optimize & Modernize",
+      "prompt": "Profile and optimize key code paths. Update syntax and libraries to modern, efficient equivalents. Ensure compatibility with the latest language version (Python 3.14, TypeScript 5+, etc.). Goal: performance and maintainability with no regressions."
+    },
+    {
+      "id": 7,
+      "name": "Audit Dependencies & Security",
+      "prompt": "Review all dependencies for necessity, version safety, and license compliance. Replace vulnerable or outdated packages. Document reasoning in /docs/DEPENDENCIES.md. Goal: secure and transparent dependency graph."
+    },
+    {
+      "id": 8,
+      "name": "Verify Build, Run, and Test",
+      "prompt": "Perform a clean build/test cycle. Fix CI/CD issues, linting, and formatting inconsistencies. Confirm that docs, builds, and tests all complete without warnings or errors. Goal: reproducible, zero-warning baseline."
+    },
+    {
+      "id": 9,
+      "name": "UX / DX Improvement",
+      "prompt": "If the repo includes a UI or CLI, refine user experience and developer ergonomics. Simplify commands, improve prompts or menus, and ensure outputs are informative and styled. Goal: a polished interface that feels professional."
+    },
+    {
+      "id": 10,
+      "name": "Final Documentation & Summary",
+      "prompt": "Generate a final report summarizing all improvements: structure changes, added docs/tests, optimizations, and remaining TODOs. Produce a concise, professional changelog commit message and ensure all files reflect Proprietary license."
+    },
+    {
+      "id": 11,
+      "name": "Meta Loop Verification",
+      "prompt": "Re-analyze the finished repo as if it were new. Verify it meets the original purpose and design principles. Suggest next-phase goals (new features, scaling, or automation integration)."
+    }
+  ]
+}

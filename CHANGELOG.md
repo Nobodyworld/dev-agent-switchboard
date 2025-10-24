@@ -9,6 +9,7 @@
 - Documentation hub at `docs/index.md`, message schema reference, failure modes guide, and TODO backlog enumerating follow-up work.
 - `/api/settings` endpoint exposing rate limit and lease configuration for operators and clients.
 - Python CLI now fetches server settings and adjusts heartbeat intervals that would outlive the lease duration.
+- CLI runtime summary output with accompanying [docs/cli-runtime.md](docs/cli-runtime.md) walkthrough plus the dependency audit in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
 
 ### Changed
 - README now introduces Switchboard via What/Why/How framing, highlights the local runner, and documents new health probes.
@@ -18,6 +19,7 @@
 - Lease duration parsing raises clearer "positive integer" errors and is validated during FastAPI startup, logging the active configuration.
 - Settings caching now exposes an aggregated bundle so `/api/settings` and startup logging read a single coherent snapshot while cache reloads keep the views in sync.
 - Python CLI surfaces warnings when server settings are missing or invalid and honours per-operation timeouts for `/api/settings` requests.
+- `switchboard-cli run` now relies on the `SwitchboardClient` context manager and prints a tabular runtime configuration before starting the interactive loop.
 - Task repository adapters batch dependency lookups and power new `TaskService`-focused tests that cover checkout, completion, and abandon flows without API indirection.
 
 ### Fixed
