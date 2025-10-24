@@ -21,6 +21,7 @@ __all__ = [
     "ExecPlanRegistryIndex",
     "ExecPlanRegistrySource",
     "FileUploadResponse",
+    "HealthStatus",
     "OkResponse",
     "LeaseSettingsOut",
     "PlanOut",
@@ -134,6 +135,13 @@ class FileUploadResponse(StatusResponse):
     sha256: str
     size: int
     url: str
+
+
+class HealthStatus(StatusResponse):
+    """Payload describing aggregated health-check information."""
+
+    checks: dict[str, bool] = Field(default_factory=dict)
+    version: Optional[str] = None
 
 
 class SettingsResponse(BaseModel):

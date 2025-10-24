@@ -50,7 +50,13 @@ PLAN_VERSION_ROW_ID = 1
 
 
 def lease_duration_seconds() -> int:
-    """Return the configured task lease duration in seconds."""
+    """Return the configured task lease duration in seconds.
+
+    Returns
+    -------
+    int
+        Number of seconds a lease remains valid without a heartbeat.
+    """
 
     # The settings helper caches results, so repeated lookups are cheap while
     # still allowing tests to override the value via ``reload_lease_settings``.
@@ -58,14 +64,38 @@ def lease_duration_seconds() -> int:
 
 
 def _lease_deadline(now: dt.datetime | None = None) -> dt.datetime:
-    """Return the lease expiration timestamp using the configured window."""
+    """Return the lease expiration timestamp using the configured window.
+
+    Parameters
+    ----------
+    now:
+        Optional base timestamp; defaults to :func:`utcnow_naive`.
+
+    Returns
+    -------
+    datetime.datetime
+        Calculated expiration time when the lease should lapse.
+    """
 
     base = now or utcnow_naive()
     return base + dt.timedelta(seconds=lease_duration_seconds())
 
 
 async def get_dependencies(session: AsyncSession, task_id: int) -> list[int]:
-    """Return task identifiers that ``task_id`` depends on."""
+    """Return task identifiers that ``task_id`` depends on.
+
+    Parameters
+    ----------
+    session:
+        Database session used to query dependency edges.
+    task_id:
+        Identifier of the task whose dependencies should be returned.
+
+    Returns
+    -------
+    list[int]
+        Sorted list of dependency task identifiers.
+    """
 
     rows = (
         await session.execute(
@@ -80,7 +110,17 @@ async def get_dependencies(session: AsyncSession, task_id: int) -> list[int]:
 async def update_dependencies(
     session: AsyncSession, task_id: int, depends_on: Iterable[int]
 ) -> None:
-    """Replace the dependency edges for ``task_id`` with ``depends_on`` safely."""
+    """Replace the dependency edges for ``task_id`` with ``depends_on`` safely.
+
+    Parameters
+    ----------
+    session:
+        Database session used to mutate dependency edges.
+    task_id:
+        Identifier of the task being updated.
+    depends_on:
+        Iterable of dependency identifiers that should replace existing edges.
+    """
 
     await session.execute(
         delete(TaskDependency).where(TaskDependency.task_id == task_id)
@@ -95,7 +135,20 @@ async def update_dependencies(
 
 
 async def is_available(session: AsyncSession, task: Task) -> bool:
-    """Return ``True`` when ``task`` can be checked out for work."""
+    """Return ``True`` when ``task`` can be checked out for work.
+
+    Parameters
+    ----------
+    session:
+        Database session used to inspect leases and dependencies.
+    task:
+        Task candidate whose availability should be determined.
+
+    Returns
+    -------
+    bool
+        ``True`` when the task may be leased, ``False`` otherwise.
+    """
 
     if task.status == TaskStatus.COMPLETED:
         return False
@@ -123,7 +176,22 @@ async def checkout_task(
     agent_id: str,
     task_id: int | None = None,
 ) -> CheckoutResult:
-    """Return the next available task for ``agent_id`` or a failure reason."""
+    """Return the next available task for ``agent_id`` or a failure reason.
+
+    Parameters
+    ----------
+    session:
+        Database session used to query and mutate leases.
+    agent_id:
+        Identifier of the agent requesting work.
+    task_id:
+        Optional explicit task identifier to request.
+
+    Returns
+    -------
+    CheckoutResult
+        Named tuple containing the leased task or the failure reason.
+    """
 
     # expire old leases
     now = utcnow_naive()
@@ -155,7 +223,22 @@ async def checkout_task(
 
 
 async def heartbeat(session: AsyncSession, agent_id: str, task_id: int) -> bool:
-    """Extend the lease for ``task_id`` if it belongs to ``agent_id``."""
+    """Extend the lease for ``task_id`` if it belongs to ``agent_id``.
+
+    Parameters
+    ----------
+    session:
+        Database session used to update the lease deadline.
+    agent_id:
+        Identifier of the agent attempting the heartbeat.
+    task_id:
+        Identifier of the leased task.
+
+    Returns
+    -------
+    bool
+        ``True`` when the lease was renewed, ``False`` otherwise.
+    """
 
     lease = (
         await session.execute(select(Lease).where(Lease.task_id == task_id))
@@ -173,7 +256,24 @@ async def complete(
     task_id: int,
     notes: str | None = None,
 ) -> CompleteResult:
-    """Mark ``task_id`` complete if ``agent_id`` holds the lease."""
+    """Mark ``task_id`` complete if ``agent_id`` holds the lease.
+
+    Parameters
+    ----------
+    session:
+        Database session used to persist the lifecycle transition.
+    agent_id:
+        Identifier of the agent attempting completion.
+    task_id:
+        Identifier of the task being completed.
+    notes:
+        Optional completion notes supplied by the agent.
+
+    Returns
+    -------
+    CompleteResult
+        Named tuple describing success and normalized completion notes.
+    """
     lease = (
         await session.execute(select(Lease).where(Lease.task_id == task_id))
     ).scalar_one_or_none()
@@ -196,7 +296,22 @@ async def complete(
 
 
 async def abandon(session: AsyncSession, agent_id: str, task_id: int) -> bool:
-    """Release an active lease and reset the task to ``pending`` if allowed."""
+    """Release an active lease and reset the task to ``pending`` if allowed.
+
+    Parameters
+    ----------
+    session:
+        Database session used to clear the lease and reset the task.
+    agent_id:
+        Identifier of the agent releasing the task.
+    task_id:
+        Identifier of the task to reset.
+
+    Returns
+    -------
+    bool
+        ``True`` when the task was reset successfully, ``False`` otherwise.
+    """
 
     lease = (
         await session.execute(select(Lease).where(Lease.task_id == task_id))
