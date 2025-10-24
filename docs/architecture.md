@@ -24,12 +24,14 @@ Switchboard is composed of a FastAPI backend, a lightweight web UI, and Python t
 
 ### Entry Points
 
-- **`app.py`** – Wires the FastAPI application, HTTP routes, and WebSocket broadcaster. The module-level docstring calls out its role as the single integration point for middleware, settings, and templates. The `PlanBroadcaster` helper tracks connected WebSocket clients, pruning defunct sockets whenever send failures occur.
+- **`app.py`** – Wires the FastAPI application, HTTP routes, WebSocket broadcaster, and the `/health/live` plus `/health/ready` probes. The module-level docstring calls out its role as the single integration point for middleware, settings, and templates. The `PlanBroadcaster` helper tracks connected WebSocket clients, pruning defunct sockets whenever send failures occur.
+- **`orchestrator.py`** – Bridges the REST handlers with `task_logic` by emitting immutable interface objects (`TaskEnvelope`, `CheckoutOutcome`, and friends). This keeps HTTP payload shapes stable even as domain concerns evolve.
+- **`interfaces.py`** – Defines the dataclasses used by both the orchestrator and client SDK. `AgentDescriptor`, `QueueDescriptor`, and `TaskEnvelope` document the canonical queue/agent contract in one place.
 - **`schema.py`** – Collects the Pydantic models that guarantee consistent API payloads. Response models mirror the JSON returned to agents and the UI, which keeps serialization logic centralized.
 
 ### Domain Logic
 
-- **`task_logic.py`** – Owns task lifecycle operations (checkout, heartbeat, completion, abandon). NamedTuple return types (`CheckoutResult`, `CompleteResult`) expose both success state and failure reasons, making API handlers predictable and easy to test.
+- **`task_logic.py`** – Owns task lifecycle operations (checkout, heartbeat, completion, abandon). NamedTuple return types (`CheckoutResult`, `CompleteResult`) expose both success state and failure reasons, making API handlers predictable and easy to test. Docstrings now follow the NumPy style adopted across the project, making parameter and return semantics explicit.
 - **`file_store.py`** – Handles live documentation writes. The helper enforces that uploads stay under the configured storage root, computes cache-friendly ETags when available, and records metadata for retrieval.
 - **`execplan_registry.py`** – Produces the aggregated ExecPlan index. Docstrings document how timestamps are normalized, how weak ETags are computed, and why helper functions return `None` for empty collections (avoids noisy JSON output).
 
@@ -38,6 +40,11 @@ Switchboard is composed of a FastAPI backend, a lightweight web UI, and Python t
 - **`db.py`** – Configures the async SQLAlchemy engine and exposes `get_session()` as a FastAPI dependency. Environment parsing is centralized here and reused by tests and runtime alike.
 - **`settings.py`** – Parses environment variables into typed dataclasses. A shared `SettingsBundle` returns rate limit and lease settings together so API routes fetch configuration once per request.
 - **`middleware/`** – Houses reusable ASGI middleware such as the sliding-window rate limiter. Each class is designed for explicit registration inside `app.py`.
+
+### Health Probes & Local Runner
+
+- **HealthStatus schema** – Implemented in `server/schema.py`, the new `HealthStatus` response captures probe results for liveness and readiness checks. `/health/live` asserts process liveness while `/health/ready` verifies database connectivity and storage access, returning HTTP 503 when dependencies are unavailable.
+- **Local Runner (`scripts/local_runner.py`)** – A reference agent built atop `SwitchboardClient`. It registers automatically, polls for tasks, and optionally completes them with annotated notes. Operators can use it to validate queue flows end-to-end without writing bespoke automation.
 - **`instrumentation/`** – Provides optional logging, metrics, and tracing hooks. The modules read environment flags during startup; disabling a feature results in a no-op configuration.
 - **`time_utils.py`** – Supplies UTC-aware timestamp helpers that both server and client code reuse for consistent lease calculations.
 

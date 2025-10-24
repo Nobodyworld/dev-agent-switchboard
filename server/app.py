@@ -47,7 +47,18 @@ from .instrumentation import (
     setup_tracing,
 )
 from .middleware import RateLimitMiddleware
-from .models import Agent, Lease, Task, TaskDependency
+from .interfaces import AgentDescriptor, TaskEnvelope
+from .models import Lease, Task, TaskDependency
+from .orchestrator import (
+    CheckoutOutcome,
+    CompletionOutcome,
+    HeartbeatOutcome,
+    abandon as orchestrator_abandon,
+    checkout as orchestrator_checkout,
+    complete as orchestrator_complete,
+    ensure_agent,
+    heartbeat as orchestrator_heartbeat,
+)
 from .schema import (
     AgentIn,
     AgentRegistrationResponse,
@@ -55,6 +66,7 @@ from .schema import (
     CompleteIn,
     CompleteResponse,
     FileUploadResponse,
+    HealthStatus,
     LeaseSettingsOut,
     PlanOut,
     RateLimitSettingsOut,
@@ -66,10 +78,6 @@ from .schema import (
 )
 from .settings import get_rate_limit_settings, get_settings_bundle
 from .task_logic import (
-    abandon as abandon_task,
-    checkout_task,
-    complete as complete_task,
-    heartbeat as lease_heartbeat,
     increment_plan_version,
     plan_version,
     plan_version_snapshot,
@@ -304,6 +312,33 @@ def _task_to_out(task: Task, dependencies: Mapping[int, Sequence[int]]) -> TaskO
     )
 
 
+def _envelope_to_task_out(envelope: TaskEnvelope) -> TaskOut:
+    """Convert a :class:`TaskEnvelope` into the public :class:`TaskOut` shape.
+
+    Parameters
+    ----------
+    envelope:
+        Orchestrator response containing a normalized payload.
+
+    Returns
+    -------
+    TaskOut
+        Pydantic representation consumed by the HTTP API.
+    """
+
+    payload = envelope.task
+    metadata = payload.metadata or {}
+    completed_notes = metadata.get("completed_notes")
+    return TaskOut(
+        id=payload.id,
+        title=payload.title,
+        description=payload.description,
+        status=payload.status,
+        completed_notes=completed_notes if isinstance(completed_notes, str) else None,
+        depends_on=list(payload.depends_on),
+    )
+
+
 async def _tasks_to_out(session: AsyncSession, tasks: Sequence[Task]) -> list[TaskOut]:
     """Serialize multiple tasks with a single dependency query."""
 
@@ -403,15 +438,25 @@ async def index(_request: Request, session: AsyncSession = Depends(get_session))
 # -------- Agents --------
 @app.post("/api/agents", response_model=AgentRegistrationResponse)
 async def register_agent(agent: AgentIn, session: AsyncSession = Depends(get_session)):
-    """Ensure the provided agent exists and return the registration payload."""
+    """Upsert the provided agent and echo the canonical registration payload.
 
-    exists = (
-        await session.execute(select(Agent).where(Agent.agent_id == agent.agent_name))
-    ).scalar_one_or_none()
-    if exists is None:
-        session.add(Agent(agent_id=agent.agent_name))
+    Parameters
+    ----------
+    agent:
+        Incoming registration request containing the agent identifier.
+    session:
+        Database session injected by FastAPI for persistence.
+
+    Returns
+    -------
+    AgentRegistrationResponse
+        Response confirming successful registration.
+    """
+
+    descriptor = AgentDescriptor(agent_id=agent.agent_name)
+    await ensure_agent(session, descriptor)
     await session.commit()
-    return {"ok": True, "agent_id": agent.agent_name}
+    return {"ok": True, "agent_id": descriptor.agent_id}
 
 
 # -------- Tasks & Plan --------
@@ -548,29 +593,65 @@ async def checkout(
     task_id: int | None = None,
     session: AsyncSession = Depends(get_session),
 ):
-    """Checkout a task for the agent, returning the task or failure reason."""
+    """Checkout a task for the agent, returning the task or failure reason.
 
-    result = await checkout_task(session, agent_id=agent_id, task_id=task_id)
+    Parameters
+    ----------
+    agent_id:
+        Identifier of the agent requesting work.
+    task_id:
+        Optional explicit task identifier to request.
+    session:
+        Database session supplied by FastAPI.
+
+    Returns
+    -------
+    CheckoutOut
+        Response payload describing the leased task or failure reason.
+    """
+
+    descriptor = AgentDescriptor(agent_id=agent_id)
+    outcome: CheckoutOutcome = await orchestrator_checkout(
+        session, descriptor, task_id=task_id
+    )
     await session.flush()
-    if result.task:
+    if outcome.envelope is not None:
         version = await increment_plan_version(session)
         await broadcast_plan(version=version, session=session, include_plan=True)
     await session.commit()
-    if result.task:
-        return CheckoutOut(task=await _task_out(session, result.task))
-    return CheckoutOut(task=None, reason=result.reason)
+    if outcome.envelope is not None:
+        return CheckoutOut(task=_envelope_to_task_out(outcome.envelope))
+    return CheckoutOut(task=None, reason=outcome.reason)
 
 
 @app.post("/api/tasks/{task_id}/heartbeat", response_model=StatusResponse)
 async def heartbeat(
     task_id: int, agent_id: str, session: AsyncSession = Depends(get_session)
 ):
-    """Extend the lease for ``task_id`` if the agent currently holds it."""
+    """Extend the lease for ``task_id`` if the agent currently holds it.
 
-    ok = await lease_heartbeat(session, agent_id=agent_id, task_id=task_id)
+    Parameters
+    ----------
+    task_id:
+        Identifier of the task targeted by the heartbeat.
+    agent_id:
+        Agent attempting to renew the lease.
+    session:
+        Database session used to persist the updated lease deadline.
+
+    Returns
+    -------
+    StatusResponse
+        Response indicating whether the heartbeat succeeded.
+    """
+
+    descriptor = AgentDescriptor(agent_id=agent_id)
+    outcome: HeartbeatOutcome = await orchestrator_heartbeat(
+        session, descriptor, task_id
+    )
     await session.flush()
     await session.commit()
-    return {"ok": ok}
+    return {"ok": outcome.ok}
 
 
 @app.post("/api/tasks/{task_id}/complete", response_model=CompleteResponse)
@@ -580,35 +661,66 @@ async def complete(
     body: CompleteIn,
     session: AsyncSession = Depends(get_session),
 ):
-    """Mark the task as completed if the lease permits it."""
+    """Mark the task as completed if the lease permits it.
 
-    result = await complete_task(
-        session,
-        agent_id=agent_id,
-        task_id=task_id,
-        notes=body.notes,
+    Parameters
+    ----------
+    task_id:
+        Identifier of the task targeted for completion.
+    agent_id:
+        Agent attempting to complete the task.
+    body:
+        Request payload containing optional notes.
+    session:
+        Database session supplied by FastAPI.
+
+    Returns
+    -------
+    CompleteResponse
+        Response summarizing completion status and stored notes.
+    """
+
+    descriptor = AgentDescriptor(agent_id=agent_id)
+    outcome: CompletionOutcome = await orchestrator_complete(
+        session, descriptor, task_id, notes=body.notes
     )
     await session.flush()
-    if result.ok:
+    if outcome.ok:
         version = await increment_plan_version(session)
         await broadcast_plan(version=version, session=session, include_plan=True)
     await session.commit()
-    return {"ok": result.ok, "notes": result.notes}
+    return {"ok": outcome.ok, "notes": outcome.notes}
 
 
 @app.post("/api/tasks/{task_id}/abandon", response_model=StatusResponse)
 async def abandon(
     task_id: int, agent_id: str, session: AsyncSession = Depends(get_session)
 ):
-    """Release a task lease and revert the task to ``pending`` if possible."""
+    """Release a task lease and revert the task to ``pending`` if possible.
 
-    ok = await abandon_task(session, agent_id=agent_id, task_id=task_id)
+    Parameters
+    ----------
+    task_id:
+        Identifier of the task being released.
+    agent_id:
+        Agent relinquishing the lease.
+    session:
+        Database session used to persist the state transition.
+
+    Returns
+    -------
+    StatusResponse
+        Response indicating whether the abandonment succeeded.
+    """
+
+    descriptor = AgentDescriptor(agent_id=agent_id)
+    outcome: HeartbeatOutcome = await orchestrator_abandon(session, descriptor, task_id)
     await session.flush()
-    if ok:
+    if outcome.ok:
         version = await increment_plan_version(session)
         await broadcast_plan(version=version, session=session, include_plan=True)
     await session.commit()
-    return {"ok": ok}
+    return {"ok": outcome.ok}
 
 
 def _negotiate_execplan_format(request: Request) -> str:
@@ -783,9 +895,60 @@ async def get_live_file(path: str, request: Request):
 
 
 # -------- UI Helpers --------
+@app.get("/health/live", response_model=HealthStatus)
+async def health_live() -> dict[str, object]:
+    """Report basic process liveness for infrastructure probes.
+
+    Returns
+    -------
+    dict[str, object]
+        Serialized :class:`HealthStatus` payload indicating process health.
+    """
+
+    return {"ok": True, "checks": {"process": True}, "version": app.version}
+
+
+@app.get("/health/ready", response_model=HealthStatus)
+async def health_ready(session: AsyncSession = Depends(get_session)):
+    """Probe dependencies to determine whether the service is ready.
+
+    Parameters
+    ----------
+    session:
+        Database session used to confirm connectivity.
+
+    Returns
+    -------
+    Union[dict[str, object], JSONResponse]
+        Aggregated readiness payload; returns HTTP 503 when dependencies fail.
+    """
+
+    checks: dict[str, bool] = {}
+    overall_ok = True
+
+    try:
+        await session.execute(select(1))
+        checks["database"] = True
+    except Exception:  # pragma: no cover - surfaced via readiness response
+        checks["database"] = False
+        overall_ok = False
+
+    try:
+        ensure_root()
+        checks["storage"] = True
+    except HTTPException:
+        checks["storage"] = False
+        overall_ok = False
+
+    payload = {"ok": overall_ok, "checks": checks, "version": app.version}
+    if not overall_ok:
+        return JSONResponse(status_code=503, content=payload)
+    return payload
+
+
 @app.get("/health", response_class=PlainTextResponse)
 async def health():
-    """Return a simple OK response for health checks."""
+    """Return a simple OK response for legacy health checks."""
 
     return "OK"
 

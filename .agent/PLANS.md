@@ -744,3 +744,87 @@ Provide a cohesive documentation experience for Switchboard maintainers and inte
 
 - Relies on FastAPI, SQLAlchemy modules for context while documenting server architecture.
 - CLI usage references `switchboard_cli.py` commands and options defined via `argparse`.
+
+# Establish queue orchestration router with health checks and docs overhaul
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Transform Switchboard into the canonical queue and agent orchestration router. Deliver stabilized HTTP and Python interfaces for tasks, queues, and agents; ship health checks and a local runner for developers; update licensing to Proprietary; and overhaul documentation with architecture, message schema, failure modes, quick start, and end-to-end walkthroughs. Align docstrings to NumPy style and seed TODO issue stubs for remaining gaps.
+
+## Progress
+
+- [x] Initial state captured.
+- [x] Domain interfaces defined and stabilized.
+- [x] Health checks and local runner implemented.
+- [x] Documentation, README, and CHANGELOG refreshed.
+- [x] TODO issue stubs recorded and final validation complete.
+
+## Surprises & Discoveries
+
+- Observation: Updating the README and docs to highlight the new hub surfaced duplicate navigation links that needed consolidation.
+  Evidence: Initial README table only linked to `docs/INDEX.md`; we added `docs/index.md` and refreshed the table plus `docs/INDEX.md` pointer.
+
+## Decision Log
+
+- Decision: Model queue, task, and agent contracts with dataclasses in `server/interfaces.py`, keeping FastAPI responses thin wrappers around these immutable objects.
+  Rationale: Stabilises the orchestration router API while allowing internal restructuring without breaking clients; also simplified conversion to Pydantic models.
+  Date/Author: 2025-02-20 / gpt-5-codex
+
+## Outcomes & Retrospective
+
+- Queue orchestration router exposes stable endpoints and Python interfaces.
+- Health checks and local runner simplify operational verification.
+- Documentation and licensing clearly communicate Proprietary usage and architecture.
+- Documentation hub, message schema reference, and failure mode catalogue provide onboarding shortcuts for new operators.
+
+## Context and Orientation
+
+- Core FastAPI service lives in `server/app.py` with task logic under `server/task_logic.py`, models in `server/models.py`, and schema definitions in `server/schema.py`.
+- Client SDK is anchored in `switchboard_client.py` and `switchboard_cli.py`; tests reside under `tests/` and `server/tests/`.
+- Documentation spans root Markdown (`README.md`, `ARCHITECTURE.md`, `CHANGELOG.md`) and the `docs/` tree.
+- Licensing is defined by `LICENSE`; TODO trackers live under `REPORTS/` and may need augmentation.
+
+## Plan of Work
+
+1. Introduce explicit queue, task, and agent interface modules (`server/interfaces.py`, `switchboard_client.py`, etc.) and update FastAPI routes plus CLI to consume them.
+2. Implement `/health/live` and `/health/ready` endpoints backed by database/storage probes and expose a `scripts/local_runner.py` (plus CLI command) to run orchestrator loops locally.
+3. Standardize Python docstrings touched during refactors to NumPy style and ensure new interfaces follow suit.
+4. Replace `LICENSE` text with Proprietary notice and add documentation updates: architecture overview, message schema appendix, failure modes matrix, quick start, and end-to-end example across `README.md`, `docs/index.md`, and supporting files.
+5. Update `CHANGELOG.md` with a new release entry and create `docs/TODO-ISSUES.md` (or similar) enumerating uncovered follow-up work; run tests and formatters, then prepare PR summary.
+
+## Concrete Steps
+
+1. Sketch interface objects in `server/interfaces.py` (Pydantic models or dataclasses) and ensure API responses reference them; adapt `task_logic.py` to leverage typed queue operations.
+2. Add health-check endpoints in `server/app.py`, verifying DB connectivity; create local runner script hooking into queue operations and document usage in README.
+3. Update docstrings in modified modules to NumPy format; run `ruff --fix` or `pytest -q` as smoke checks.
+4. Overhaul docs: restructure `docs/` with `docs/index.md`, architecture diagram narrative, message schema tables, failure modes; update `README.md` with what/why/how, quick start, end-to-end example; refresh `CHANGELOG.md` and replace `LICENSE` content.
+5. Draft TODO issue stubs in new Markdown file listing gaps; rerun tests, finalize documentation, and ensure ExecPlan sections updated with findings.
+
+## Validation and Acceptance
+
+- `/health/live` and `/health/ready` endpoints return 200s in local dev; failure cases simulated via DB disconnects.
+- Local runner successfully fetches tasks, assigns to agents, and logs lifecycle using stabilized interfaces.
+- README quick start enables bootstrap from empty database to completing a sample task; docs index cross-links architecture, schemas, failure modes.
+- Tests (at minimum `pytest -q`) pass; docstrings conform to NumPy style guidelines on touched modules.
+- CHANGELOG reflects updates and TODO issue list captures remaining work.
+
+## Idempotence and Recovery
+
+- Interface refactors are additive; retain backward-compatible aliases where necessary and document deprecations.
+- Health-check and local runner additions can be toggled via environment variables if needed; documentation updates are reversible.
+- If tests fail post-refactor, revert to prior API signatures and iterate before merging.
+
+## Artifacts and Notes
+
+- `pytest -q` ⇒ 57 passed, 3 skipped (see execution log `4e399a`).
+
+## Interfaces and Dependencies
+
+- FastAPI for HTTP routing, SQLAlchemy for persistence, and CLI uses Python standard library plus `requests` or `httpx`.
+- Local runner may leverage asyncio for agent simulation.
+- Documentation references should remain relative within repository to avoid broken links.
+
