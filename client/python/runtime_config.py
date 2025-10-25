@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Iterable, Mapping
 
 DEFAULT_MAX_POLL_INTERVAL = 120.0
 DEFAULT_HEARTBEAT_INTERVAL = 30.0
@@ -32,6 +32,10 @@ class RuntimeConfiguration:
         Lease duration reported by the server when available.
     warnings:
         Normalised warnings surfaced during configuration derivation.
+    maintenance_mode:
+        ``True`` when server-side maintenance mode is enabled.
+    maintenance_message:
+        Optional human-readable message supplied by the operator.
     """
 
     heartbeat_interval: float
@@ -41,6 +45,8 @@ class RuntimeConfiguration:
     backoff_multiplier: float
     lease_duration: float | None
     warnings: tuple[str, ...]
+    maintenance_mode: bool
+    maintenance_message: str | None
 
 
 WarningSequence = Iterable[str]
@@ -70,7 +76,9 @@ def sanitize_heartbeat_interval(
         the input required adjustment.
     """
 
-    interval = default_interval if requested_interval is None else float(requested_interval)
+    interval = (
+        default_interval if requested_interval is None else float(requested_interval)
+    )
     interval = max(interval, 0.0)
     if lease_seconds is None or lease_seconds <= 0:
         if interval <= 0:
@@ -82,13 +90,19 @@ def sanitize_heartbeat_interval(
         adjusted = max(lease / 2.0, 1.0)
         return (
             adjusted,
-            "requested heartbeat interval was non-positive; using half the lease duration",
+            (
+                "requested heartbeat interval was non-positive; "
+                "using half the lease duration"
+            ),
         )
     if interval >= lease:
         adjusted = max(lease / 2.0, 1.0)
         return (
             adjusted,
-            "requested heartbeat interval would exceed the lease duration; using half the lease instead",
+            (
+                "requested heartbeat interval would exceed the lease duration; "
+                "using half the lease instead"
+            ),
         )
     return interval, None
 
@@ -116,7 +130,9 @@ def extract_lease_duration(
     if isinstance(value, (int, float)):
         if value > 0:
             return float(value), warnings
-        warnings.append("lease duration from server was non-positive; ignoring unsafe value")
+        warnings.append(
+            "lease duration from server was non-positive; ignoring unsafe value"
+        )
         return None, warnings
 
     if value is not None:
@@ -141,13 +157,14 @@ def compute_backoff_interval(
     return min(max_interval, max(candidate, base_interval, 0.0))
 
 
-def derive_runtime_configuration(
+def derive_runtime_configuration(  # noqa: PLR0913 - CLI config derivation requires explicit knobs
     *,
     requested_heartbeat_interval: float | None,
     poll_interval: float,
     max_poll_interval: float | None,
     backoff_multiplier: float,
     lease_settings: Mapping[str, object] | None,
+    system_state: Mapping[str, object] | None = None,
     warnings: WarningSequence = (),
 ) -> RuntimeConfiguration:
     """Derive sanitized runtime values for the interactive CLI loop."""
@@ -174,7 +191,8 @@ def derive_runtime_configuration(
         sanitized_max_poll = max(float(max_poll_interval), sanitized_poll)
         if sanitized_max_poll != max_poll_interval:
             all_warnings += (
-                "max poll interval was lower than the base interval; using the base interval",
+                "max poll interval was lower than the base interval; "
+                "using the base interval",
             )
 
     sanitized_backoff = max(float(backoff_multiplier), 1.0)
@@ -182,6 +200,14 @@ def derive_runtime_configuration(
         all_warnings += (
             "backoff multiplier was less than one; using a multiplier of 1.0",
         )
+
+    maintenance_enabled = False
+    maintenance_message: str | None = None
+    if isinstance(system_state, Mapping):
+        maintenance_enabled = bool(system_state.get("maintenance_mode"))
+        raw_message = system_state.get("message")
+        if isinstance(raw_message, str):
+            maintenance_message = raw_message.strip() or None
 
     return RuntimeConfiguration(
         heartbeat_interval=heartbeat_interval,
@@ -191,6 +217,8 @@ def derive_runtime_configuration(
         backoff_multiplier=sanitized_backoff,
         lease_duration=lease_seconds,
         warnings=all_warnings,
+        maintenance_mode=maintenance_enabled,
+        maintenance_message=maintenance_message,
     )
 
 

@@ -11,7 +11,10 @@ import uvicorn
 try:
     import websockets
 except ImportError:  # pragma: no cover - handled by skip
-    pytest.skip("websockets is required for websocket integration tests", allow_module_level=True)  # type: ignore[arg-type]
+    pytest.skip(
+        "websockets is required for websocket integration tests",
+        allow_module_level=True,
+    )  # type: ignore[arg-type]
 
 from server.app import app
 from server.middleware import get_current_rate_limit_middleware
@@ -28,7 +31,8 @@ async def run_app():
         lifespan="on",
         log_level="error",
     )
-    # TODO - Add coverage for TLS endpoints so we ensure secure websocket upgrades continue to function.
+    # TODO(P3, 3d) - Add coverage for TLS endpoints so we ensure secure websocket
+    # upgrades continue to function.
     reload_rate_limit_settings()
     middleware = get_current_rate_limit_middleware()
     if middleware is not None:
@@ -64,13 +68,16 @@ async def test_websocket_plan_broadcasts_version_increments():
         base_url = f"http://{host}:{port}"
         ws_url = f"ws://{host}:{port}/ws/plan"
 
-        async with httpx.AsyncClient(base_url=base_url) as client:
-            async with websockets.connect(ws_url) as websocket:
+        async with httpx.AsyncClient(base_url=base_url) as client, websockets.connect(
+            ws_url
+        ) as websocket:
                 hello_raw = await asyncio.wait_for(websocket.recv(), timeout=2)
                 hello = json.loads(hello_raw)
                 assert hello["type"] == "plan_snapshot"
                 assert "plan" in hello
                 assert hello.get("version") == hello["plan"].get("version")
+                assert "state" in hello
+                assert "maintenance_mode" in hello["state"]
 
                 create_resp = await client.post(
                     "/api/tasks",

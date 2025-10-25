@@ -4,7 +4,6 @@ import sys
 import types
 from typing import Any, cast
 from unittest import TestCase, mock
-from unittest.mock import call
 
 
 class _DummyRequestError(Exception):
@@ -54,6 +53,19 @@ import switchboard_cli  # noqa: E402
 importlib.reload(switchboard_cli)
 
 
+def _make_context_client() -> mock.MagicMock:
+    client = mock.MagicMock()
+    client.close = mock.Mock()
+    client.__enter__.return_value = client
+
+    def _exit(_exc_type, _exc, _tb):
+        client.close()
+        return False
+
+    client.__exit__.side_effect = _exit
+    return client
+
+
 class RunCommandTests(TestCase):
     def setUp(self) -> None:
         self.args = argparse.Namespace(
@@ -63,6 +75,11 @@ class RunCommandTests(TestCase):
             heartbeat_interval=30.0,
         )
 
+    def _make_client(self) -> mock.MagicMock:
+        client = _make_context_client()
+        client.get_system_state.return_value = {"maintenance_mode": False}
+        return client
+
     def test_registration_failure_returns_error(self) -> None:
         with mock.patch(
             "switchboard_cli.SwitchboardClient",
@@ -71,16 +88,17 @@ class RunCommandTests(TestCase):
             self.assertEqual(1, switchboard_cli.run_command(self.args))
 
     def test_checkout_failure_returns_error(self) -> None:
-        client = mock.Mock()
+        client = self._make_client()
         client.get_settings.return_value = {"lease": {"duration_seconds": 300}}
         client.checkout.side_effect = requests.RequestException("checkout failed")
         with mock.patch("switchboard_cli.SwitchboardClient", return_value=client):
             self.assertEqual(1, switchboard_cli.run_command(self.args))
         client.close.assert_called_once()
         client.get_settings.assert_called_once()
+        client.get_system_state.assert_called_once()
 
     def test_idle_interrupt_exits_cleanly(self) -> None:
-        client = mock.Mock()
+        client = self._make_client()
         client.get_settings.return_value = {"lease": {"duration_seconds": 300}}
         client.checkout.return_value = None
 
@@ -90,9 +108,10 @@ class RunCommandTests(TestCase):
             self.assertEqual(0, switchboard_cli.run_command(self.args))
         client.close.assert_called_once()
         client.get_settings.assert_called_once()
+        client.get_system_state.assert_called_once()
 
     def test_process_task_failure_propagates(self) -> None:
-        client = mock.Mock()
+        client = self._make_client()
         client.get_settings.return_value = {"lease": {"duration_seconds": 300}}
         client.checkout.side_effect = [{"id": 1}]
         self.args.heartbeat_interval = 500.0
@@ -106,9 +125,10 @@ class RunCommandTests(TestCase):
         self.assertEqual(called_args[2], 150.0)
         client.close.assert_called_once()
         client.get_settings.assert_called_once()
+        client.get_system_state.assert_called_once()
 
     def test_process_task_success_loops_until_interrupt(self) -> None:
-        client = mock.Mock()
+        client = self._make_client()
         client.get_settings.return_value = {"lease": {"duration_seconds": 300}}
         client.checkout.side_effect = [{"id": 1}, None]
 
@@ -120,42 +140,80 @@ class RunCommandTests(TestCase):
             self.assertEqual(0, switchboard_cli.run_command(self.args))
         client.close.assert_called_once()
         client.get_settings.assert_called_once()
+        client.get_system_state.assert_called_once()
 
     def test_settings_fetch_failure_logs_warning(self) -> None:
-        client = mock.Mock()
+        client = self._make_client()
         client.get_settings.side_effect = requests.RequestException("boom")
         client.checkout.side_effect = [None]
 
-        with mock.patch(
-            "switchboard_cli.SwitchboardClient", return_value=client
-        ), mock.patch("switchboard_cli.time.sleep", side_effect=KeyboardInterrupt), mock.patch(
-            "switchboard_cli.print"
-        ) as printer:
+        with (
+            mock.patch("switchboard_cli.SwitchboardClient", return_value=client),
+            mock.patch("switchboard_cli.time.sleep", side_effect=KeyboardInterrupt),
+            mock.patch("switchboard_cli.print") as printer,
+        ):
             self.assertEqual(0, switchboard_cli.run_command(self.args))
 
         client.close.assert_called_once()
         client.get_settings.assert_called_once()
+        client.get_system_state.assert_called_once()
         warning_calls = [
-            call for call in printer.call_args_list if "Warning: failed" in str(call)
+            call
+            for call in printer.call_args_list
+            if "Warning: failed" in str(call)
         ]
         self.assertTrue(warning_calls)
 
     def test_invalid_lease_payload_emits_warning(self) -> None:
-        client = mock.Mock()
+        client = self._make_client()
         client.get_settings.return_value = {"lease": {"duration_seconds": -1}}
         client.checkout.side_effect = [None]
 
-        with mock.patch(
-            "switchboard_cli.SwitchboardClient", return_value=client
-        ), mock.patch("switchboard_cli.time.sleep", side_effect=KeyboardInterrupt), mock.patch(
-            "switchboard_cli.print"
-        ) as printer:
+        with (
+            mock.patch("switchboard_cli.SwitchboardClient", return_value=client),
+            mock.patch("switchboard_cli.time.sleep", side_effect=KeyboardInterrupt),
+            mock.patch("switchboard_cli.print") as printer,
+        ):
             self.assertEqual(0, switchboard_cli.run_command(self.args))
 
         warnings = [
-            call for call in printer.call_args_list if "non-positive" in str(call)
+            call
+            for call in printer.call_args_list
+            if "non-positive" in str(call)
         ]
         self.assertTrue(warnings)
+        client.get_system_state.assert_called_once()
+
+    def test_run_command_exits_when_maintenance_active(self) -> None:
+        client = self._make_client()
+        client.get_settings.return_value = {"lease": {"duration_seconds": 300}}
+        client.get_system_state.return_value = {
+            "maintenance_mode": True,
+            "message": "Upgrading",
+        }
+
+        with mock.patch("switchboard_cli.SwitchboardClient", return_value=client):
+            self.assertEqual(2, switchboard_cli.run_command(self.args))
+
+        client.checkout.assert_not_called()
+        client.close.assert_called_once()
+        client.get_settings.assert_called_once()
+        client.get_system_state.assert_called_once()
+
+    def test_run_command_exits_when_checkout_reports_maintenance(self) -> None:
+        client = self._make_client()
+        client.get_settings.return_value = {"lease": {"duration_seconds": 300}}
+        client.checkout.return_value = None
+        client.last_checkout_reason = "maintenance_mode"
+        client.last_checkout_message = "Paused"
+
+        with mock.patch("switchboard_cli.SwitchboardClient", return_value=client):
+            self.assertEqual(2, switchboard_cli.run_command(self.args))
+
+        client.checkout.assert_called_once()
+        client.close.assert_called_once()
+        client.get_settings.assert_called_once()
+        client.get_system_state.assert_called_once()
 
 
 class ProcessTaskTests(TestCase):
@@ -268,6 +326,79 @@ class ProcessTaskTests(TestCase):
             )
 
         printer.assert_any_call("Server rejected heartbeat", file=sys.stderr)
+
+
+class MaintenanceCommandTests(TestCase):
+    def test_inspect_maintenance_state(self) -> None:
+        args = argparse.Namespace(
+            base="http://example.test",
+            agent="cli",
+            admin_token=None,
+            enable=False,
+            disable=False,
+            message=None,
+            expected_version=None,
+        )
+        client = _make_context_client()
+        client.get_system_state.return_value = {
+            "maintenance_mode": False,
+            "version": 2,
+        }
+
+        with (
+            mock.patch("switchboard_cli.SwitchboardClient", return_value=client),
+            mock.patch("switchboard_cli.print") as printer,
+        ):
+            self.assertEqual(0, switchboard_cli.maintenance_command(args))
+
+        client.get_system_state.assert_called_once()
+        client.set_system_state.assert_not_called()
+        printer.assert_any_call("Maintenance mode disabled.")
+
+    def test_toggle_maintenance_state_uses_admin_token(self) -> None:
+        args = argparse.Namespace(
+            base="http://example.test",
+            agent="cli",
+            admin_token="token-123",  # noqa: S106 - test fixture token
+            enable=True,
+            disable=False,
+            message="Upgrading",
+            expected_version=4,
+        )
+        client = _make_context_client()
+        client.set_system_state.return_value = {"maintenance_mode": True}
+
+        with (
+            mock.patch("switchboard_cli.SwitchboardClient", return_value=client),
+            mock.patch("switchboard_cli.print") as printer,
+        ):
+            self.assertEqual(0, switchboard_cli.maintenance_command(args))
+
+        client.set_admin_token.assert_called_with("token-123")
+        client.set_system_state.assert_called_once_with(
+            True,
+            message="Upgrading",
+            expected_version=4,
+            admin_token="token-123",  # noqa: S106 - test fixture token
+        )
+        client.get_system_state.assert_not_called()
+        printer.assert_any_call("Maintenance mode enabled.")
+
+    def test_toggle_failure_returns_error(self) -> None:
+        args = argparse.Namespace(
+            base="http://example.test",
+            agent="cli",
+            admin_token="token-123",  # noqa: S106 - test fixture token
+            enable=True,
+            disable=False,
+            message=None,
+            expected_version=None,
+        )
+        client = _make_context_client()
+        client.set_system_state.side_effect = requests.RequestException("boom")
+
+        with mock.patch("switchboard_cli.SwitchboardClient", return_value=client):
+            self.assertEqual(1, switchboard_cli.maintenance_command(args))
 
 
 class LeaseExtractionTests(TestCase):

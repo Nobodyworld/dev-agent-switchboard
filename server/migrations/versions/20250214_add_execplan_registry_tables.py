@@ -5,8 +5,8 @@ Revises: 20240524_add_completed_notes
 Create Date: 2025-02-14
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20250214_add_execplan_registry"

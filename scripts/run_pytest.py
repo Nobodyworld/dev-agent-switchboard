@@ -4,9 +4,8 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
-import sys
-from typing import List
+
+import pytest
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -29,26 +28,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def build_command(args: argparse.Namespace) -> List[str]:
+def build_args(args: argparse.Namespace) -> list[str]:
     extra_args = args.pytest_args or []
     if extra_args and extra_args[0] == "--":
         extra_args = extra_args[1:]
 
-    command: List[str] = [
-        sys.executable,
-        "-m",
-        "pytest",
-        args.path,
-    ]
+    command: list[str] = [args.path]
     command.extend(extra_args)
     return command
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    command = build_command(args)
-    completed = subprocess.run(command, check=False)
-    return completed.returncode
+    pytest_args = build_args(args)
+    return pytest.main(pytest_args)
 
 
 if __name__ == "__main__":

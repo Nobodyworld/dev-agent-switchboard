@@ -15,6 +15,47 @@
     <h1 class="text-3xl font-bold mb-4">Switchboard</h1>
     <p class="mb-6">Real-time task switchboard & live file host for agents.</p>
 
+    <section id="maintenanceBanner" class="mb-4 hidden rounded-xl border border-amber-200 bg-amber-50 p-4" role="status" aria-live="polite">
+      <div class="flex gap-3">
+        <span class="text-2xl" aria-hidden="true">⚠️</span>
+        <div>
+          <p id="maintenanceBannerText" class="font-semibold text-amber-800">Maintenance mode is active.</p>
+          <p id="maintenanceBannerMessage" class="text-sm text-amber-700"></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="mb-8 p-4 bg-white rounded-xl shadow" aria-labelledby="system-status-heading">
+      <div class="flex flex-col gap-2">
+        <div>
+          <h2 id="system-status-heading" class="text-xl font-semibold">System Status</h2>
+          <p id="maintenanceSummary" class="text-sm text-gray-700" aria-live="polite">Maintenance status unknown.</p>
+          <p id="maintenanceDetails" class="text-sm text-gray-500 hidden"></p>
+          <p class="text-xs text-gray-400 mt-1 hidden" id="maintenanceUpdatedWrapper">Last updated <time id="maintenanceUpdated" datetime=""></time></p>
+        </div>
+        <form id="maintenanceForm" class="mt-2 space-y-3" aria-describedby="maintenanceHelp">
+          <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
+            <input type="checkbox" id="maintenanceToggle" class="h-4 w-4 rounded border-gray-300" aria-describedby="maintenanceHelp" />
+            Enable maintenance mode
+          </label>
+          <div>
+            <label for="maintenanceMessageInput" class="block text-sm font-medium text-gray-700 mb-1">Maintenance message (optional)</label>
+            <textarea id="maintenanceMessageInput" class="border rounded p-2 w-full text-sm" rows="2" placeholder="Explain why maintenance is enabled"></textarea>
+          </div>
+          <div>
+            <label for="adminTokenInput" class="block text-sm font-medium text-gray-700 mb-1">Admin token</label>
+            <input type="password" id="adminTokenInput" class="border rounded p-2 w-full text-sm" placeholder="Enter admin token" autocomplete="off" />
+            <p class="text-xs text-gray-500 mt-1" id="maintenanceHelp">Stored locally in this browser; required to change maintenance mode.</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-3">
+            <button type="submit" class="px-3 py-2 rounded bg-indigo-600 text-white">Save</button>
+            <button type="button" id="clearAdminToken" class="px-3 py-2 rounded bg-gray-200 text-gray-800">Clear token</button>
+          </div>
+          <p class="text-xs text-gray-400">Changes use optimistic locking. Refresh if another operator toggles maintenance mode.</p>
+        </form>
+      </div>
+    </section>
+
     <section class="mb-8 p-4 bg-white rounded-xl shadow">
       <h2 class="text-xl font-semibold mb-2">Create Task</h2>
       <form id="createTask" class="space-y-2">

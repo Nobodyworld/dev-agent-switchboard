@@ -6,7 +6,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Mapping
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import requests
 from switchboard_client import SwitchboardClient
@@ -26,18 +26,19 @@ HEARTBEAT_SHUTDOWN_TIMEOUT = 5.0
 TaskPayload = dict[str, Any]
 
 __all__ = [
-    "DEFAULT_MAX_POLL_INTERVAL",
     "DEFAULT_HEARTBEAT_INTERVAL",
+    "DEFAULT_MAX_POLL_INTERVAL",
     "HEARTBEAT_SHUTDOWN_TIMEOUT",
     "HeartbeatLoop",
     "RuntimeConfiguration",
     "build_parser",
-    "display_runtime_configuration",
     "compute_backoff_interval",
     "derive_runtime_configuration",
+    "display_runtime_configuration",
     "extract_lease_duration",
     "format_task",
     "main",
+    "maintenance_command",
     "process_task",
     "run_command",
     "sanitize_heartbeat_interval",
@@ -192,7 +193,14 @@ def process_task(
 def display_runtime_configuration(config: RuntimeConfiguration) -> None:
     """Print a formatted configuration summary for the active session."""
 
+    maintenance_summary = 'Enabled' if config.maintenance_mode else 'Disabled'
+    if config.maintenance_mode and config.maintenance_message:
+        maintenance_summary = f"Enabled — {config.maintenance_message}"
+    elif config.maintenance_mode:
+        maintenance_summary = 'Enabled — checkouts are paused'
+
     rows: list[tuple[str, str]] = [
+        ("Maintenance mode", maintenance_summary),
         ("Heartbeat interval", f"{config.heartbeat_interval:.1f}s"),
         ("Poll interval", f"{config.poll_interval:.1f}s"),
         ("Max poll interval", f"{config.max_poll_interval:.1f}s"),
@@ -223,18 +231,77 @@ def confirm_completion(
     return False
 
 
-def run_command(args: argparse.Namespace) -> int:
+def _print_system_state(payload: Mapping[str, Any]) -> None:
+    status = 'enabled' if payload.get('maintenance_mode') else 'disabled'
+    print(f"Maintenance mode {status}.")
+    message = payload.get('message')
+    if isinstance(message, str) and message.strip():
+        print(f"Message: {message.strip()}")
+    updated_at = payload.get('updated_at')
+    if updated_at:
+        print(f"Updated at: {updated_at}")
+    version = payload.get('version')
+    if version is not None:
+        print(f"Version: {version}")
+
+
+def maintenance_command(args: argparse.Namespace) -> int:
+    """Inspect or toggle maintenance mode via the HTTP API."""
+
+    try:
+        with SwitchboardClient(
+            args.base,
+            args.agent,
+            auto_register=False,
+            admin_token=getattr(args, "admin_token", None),
+        ) as client:
+            token = getattr(args, "admin_token", None)
+            if token:
+                client.set_admin_token(token)
+            if getattr(args, "enable", False) or getattr(args, "disable", False):
+                desired = bool(getattr(args, "enable", False))
+                try:
+                    payload = client.set_system_state(
+                        desired,
+                        message=getattr(args, "message", None),
+                        expected_version=getattr(args, "expected_version", None),
+                        admin_token=token,
+                    )
+                except requests.RequestException as exc:
+                    print(f"Failed to update maintenance mode: {exc}", file=sys.stderr)
+                    return 1
+                _print_system_state(payload)
+                return 0
+
+            try:
+                payload = client.get_system_state()
+            except requests.RequestException as exc:
+                print(f"Failed to fetch maintenance state: {exc}", file=sys.stderr)
+                return 1
+            _print_system_state(payload)
+            return 0
+    except requests.RequestException as exc:
+        print(f"Failed to initialise client: {exc}", file=sys.stderr)
+        return 1
+
+
+def run_command(args: argparse.Namespace) -> int:  # noqa: PLR0912 - CLI loop handles multiple failure modes
     """Execute the interactive agent loop using parsed arguments."""
 
     try:
         with SwitchboardClient(args.base, args.agent) as client:
             print(f"Registered agent '{args.agent}' against {args.base}.")
             settings_payload: Mapping[str, Any] | None = None
+            system_state_payload: Mapping[str, Any] | None = None
             warning_messages: list[str] = []
             try:
                 settings_payload = client.get_settings()
             except requests.RequestException as exc:
                 warning_messages.append(f"failed to fetch server settings ({exc}).")
+            try:
+                system_state_payload = client.get_system_state()
+            except requests.RequestException as exc:
+                warning_messages.append(f"failed to fetch system state ({exc}).")
 
             config: RuntimeConfiguration = derive_runtime_configuration(
                 requested_heartbeat_interval=getattr(
@@ -244,6 +311,7 @@ def run_command(args: argparse.Namespace) -> int:
                 max_poll_interval=getattr(args, "max_poll_interval", None),
                 backoff_multiplier=getattr(args, "backoff_multiplier", 1.0),
                 lease_settings=settings_payload,
+                system_state=system_state_payload,
                 warnings=warning_messages,
             )
 
@@ -259,6 +327,14 @@ def run_command(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
 
+            if config.maintenance_mode:
+                default_reason = (
+                    "maintenance mode is active; checkouts are disabled."
+                )
+                reason = config.maintenance_message or default_reason
+                print(f"Checkout blocked: {reason}", file=sys.stderr)
+                return 2
+
             heartbeat_interval = config.heartbeat_interval
             poll_interval = config.poll_interval
             max_poll_interval = config.max_poll_interval
@@ -272,9 +348,22 @@ def run_command(args: argparse.Namespace) -> int:
                     print(f"Checkout failed: {exc}", file=sys.stderr)
                     return 1
                 if not task:
-                    reason = getattr(client, "last_checkout_reason", None)
-                    if reason:
-                        print(f"No task available ({reason}).")
+                    reason_code = cast(
+                        str | None,
+                        getattr(client, "last_checkout_reason", None),
+                    )
+                    detail = cast(
+                        str | None,
+                        getattr(client, "last_checkout_message", None),
+                    )
+                    if reason_code:
+                        if reason_code == 'maintenance_mode':
+                            message = detail or 'Maintenance mode is active; exiting.'
+                            print(f"Checkout blocked: {message}", file=sys.stderr)
+                            return 2
+                        print(f"No task available ({reason_code}).")
+                        if detail:
+                            print(f"Details: {detail}")
                     else:
                         print("No task available.")
                     misses += 1
@@ -339,6 +428,39 @@ def build_parser() -> argparse.ArgumentParser:
         help="Seconds between automatic heartbeats while a task is checked out",
     )
     run_parser.set_defaults(func=run_command)
+
+    maintenance_parser = subparsers.add_parser(
+        "maintenance", help="Inspect or toggle maintenance mode"
+    )
+    maintenance_parser.add_argument(
+        "--base", required=True, help="Base URL of the Switchboard server"
+    )
+    maintenance_parser.add_argument(
+        "--agent",
+        default="admin-cli",
+        help="Agent identifier used for client initialisation",
+    )
+    maintenance_parser.add_argument(
+        "--admin-token",
+        help="Admin token required to enable or disable maintenance mode",
+    )
+    maintenance_parser.add_argument(
+        "--message",
+        help="Optional message to display when maintenance mode is enabled",
+    )
+    maintenance_parser.add_argument(
+        "--expected-version",
+        type=int,
+        help="Optimistic concurrency token obtained from a prior state read",
+    )
+    toggle_group = maintenance_parser.add_mutually_exclusive_group()
+    toggle_group.add_argument(
+        "--enable", action="store_true", help="Enable maintenance mode"
+    )
+    toggle_group.add_argument(
+        "--disable", action="store_true", help="Disable maintenance mode"
+    )
+    maintenance_parser.set_defaults(func=maintenance_command)
     return parser
 
 

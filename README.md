@@ -29,6 +29,7 @@ Switchboard is a small, production‑leaning FastAPI service that:
 - **Infrastructure Adapters** – `server/infrastructure/repositories.py` implements the repository interfaces against SQLAlchemy models, batching dependency lookups so task checkout avoids N+1 queries.
 - **Health & Operations** – `/health/live` and `/health/ready` surface liveness and dependency status via the new `HealthStatus` schema; `docs/failure-modes.md` enumerates remediation steps.
 - **Agent Toolkit** – `client/python/switchboard_client.py` exposes a resilient HTTP client while `scripts/local_runner.py` offers an executable agent loop for local testing.
+- **Maintenance Controls** – `/api/system-state`, the CLI `switchboard-cli maintenance` command, and the web dashboard banner expose a shared maintenance mode switch with optimistic concurrency and WebSocket broadcasts so humans and agents remain in sync.
 
 ## Documentation Map
 
@@ -96,6 +97,7 @@ Operators can trace how a request moves from CLI to FastAPI to persistence by re
 | `/health/live` | `GET` | Liveness probe returning the `HealthStatus` payload with `process` checks. |
 | `/health/ready` | `GET` | Readiness probe that validates database and storage access; returns HTTP 503 when dependencies fail. |
 | `/api/settings` | `GET` | Inspect rate limit and lease configuration (used by the CLI). |
+| `/api/system-state` | `GET`, `PUT` | Inspect or toggle global maintenance mode. `PUT` requires the admin token when `SWITCHBOARD_ADMIN_TOKEN` is set. |
 | `/api/files/{path}` | `PUT` | Upload live documentation available under `/live/<path>`. |
 | `/ws/plan` | `GET` (WebSocket) | Stream plan version updates and deltas for UI/agent sync. |
 
@@ -121,6 +123,16 @@ with SwitchboardClient("http://localhost:8000", "codex-1") as client:
 
 The client automatically registers the agent, reuses a `requests.Session`, and exposes convenience helpers such as `get_settings()` and `upload_file()`.
 
+### Maintenance Mode
+
+Switchboard includes a coordinated maintenance toggle that pauses new task checkouts while allowing in-flight work to finish:
+
+- **API:** `GET /api/system-state` returns the persisted flag, message, timestamp, and optimistic concurrency version. `PUT /api/system-state` updates the state and broadcasts the change to WebSocket listeners; set `SWITCHBOARD_ADMIN_TOKEN` to require `Authorization: Bearer <token>` for mutations.
+- **CLI:** `switchboard-cli maintenance --base <url> [--enable|--disable] [--message <text>] [--expected-version <n>] [--admin-token <token>]` inspects and toggles the state without writing bespoke scripts. The interactive `switchboard-cli run` command refuses to start when maintenance is active and surfaces the operator-provided message.
+- **UI:** The dashboard shows an amber banner whenever maintenance is enabled and includes a guarded toggle form that stores the admin token locally and uses optimistic concurrency.
+
+All channels share a single source of truth so operators can confidently pause checkouts during upgrades or incident response.
+
 ## CLI Runtime Summary
 
 The `switchboard-cli run` command now prints a formatted runtime summary before
@@ -131,6 +143,8 @@ readable table. Any sanitisation warnings (for example, negative poll
 intervals or missing lease information) are surfaced on **stderr** so scripts
 can react without parsing the summary. Consult [docs/cli-runtime.md](docs/cli-runtime.md)
 for a walkthrough of the start-up flow and warning catalogue.
+
+Run `switchboard-cli maintenance --base http://localhost:8000 --enable --admin-token <token>` to toggle maintenance mode outside the interactive loop.
 
 ## End-to-End Example (Local Runner)
 
@@ -351,6 +365,20 @@ The repository ships a minimal Python helper that behaves like a CLI. With the v
 python -m client.python.examples.agent_example
 ```
 
+## Developer Utilities & Quality Gates
+
+- `scripts/dev.py bootstrap` provisions a `.venv` with development dependencies
+  and installs pre-commit hooks.
+- `scripts/dev.py coverage-gate` validates coverage JSON output against the
+  ≥85% thresholds enforced in CI (see `.github/workflows/ci.yml`).
+- `scripts/dev.py bump-version` updates `server/app.py`, `CHANGELOG.md`, and
+  `RELEASE_NOTES.md` with a new semantic version stub.
+- `make qa` now runs formatting, linting, typing, tests, security scans, and the
+  coverage gate to mirror the CI pipeline locally.
+
+See [AUTOMATION.md](AUTOMATION.md) for agent workflows and
+[EXTENSION_GUIDE.md](EXTENSION_GUIDE.md) for custom plugin patterns.
+
 ## Community & Governance
 
 - [CODE_OF_CONDUCT](CODE_OF_CONDUCT.md)
@@ -361,6 +389,9 @@ python -m client.python.examples.agent_example
 - [PLAN](PLAN.md) – modernization roadmap
 - [REPORT](REPORT.md) – system overview and risk hotspots
 - [renovate.json](renovate.json) – automated dependency updates
+- [Architecture Overview](ARCHITECTURE_OVERVIEW.md)
+- [Extension Guide](EXTENSION_GUIDE.md)
+- [Automation Handbook](AUTOMATION.md)
 
 ## Observability (Logging, Metrics, Tracing)
 

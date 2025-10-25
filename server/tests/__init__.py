@@ -6,10 +6,16 @@ import pytest
 
 pytest.importorskip(
     "sqlalchemy",
-    reason="SQLAlchemy is not available in the offline test environment; server tests skipped.",
+    reason=(
+        "SQLAlchemy is not available in the offline test environment; "
+        "server tests skipped."
+    ),
 )
 pytest.importorskip(
     "fastapi",
-    reason="FastAPI is not available in the offline test environment; server tests skipped.",
+    reason=(
+        "FastAPI is not available in the offline test environment; "
+        "server tests skipped."
+    ),
 )
 

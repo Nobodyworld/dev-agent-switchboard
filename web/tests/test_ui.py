@@ -14,9 +14,16 @@ from pathlib import Path
 import pytest
 
 try:
-    from playwright.sync_api import expect, sync_playwright
+    from playwright.sync_api import Error as PlaywrightError, expect, sync_playwright
 except ImportError:  # pragma: no cover - handled by skip
-    pytest.skip("playwright is required for UI tests", allow_module_level=True)  # type: ignore[arg-type]
+    pytest.skip(
+        "playwright is required for UI tests",
+        allow_module_level=True,
+    )  # type: ignore[arg-type]
+
+
+HTTP_OK = 200
+SERVER_WAIT_INTERVAL = 0.2
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -34,11 +41,13 @@ def _wait_for_server(base_url: str, timeout: float = 15.0) -> None:
     health_url = f"{base_url}/health"
     while time.time() < deadline:
         try:
-            with contextlib.closing(urllib.request.urlopen(health_url, timeout=1)) as resp:  # noqa: S310
-                if resp.status == 200:
+            with contextlib.closing(
+                urllib.request.urlopen(health_url, timeout=1)  # noqa: S310
+            ) as resp:
+                if resp.status == HTTP_OK:
                     return
         except (urllib.error.URLError, TimeoutError):
-            time.sleep(0.2)
+            time.sleep(SERVER_WAIT_INTERVAL)
     raise RuntimeError("Timed out waiting for UI server")
 
 
@@ -58,7 +67,7 @@ def app_server() -> str:
     existing = env.get("PYTHONPATH")
     env["PYTHONPATH"] = f"{ROOT}{os.pathsep}{existing}" if existing else str(ROOT)
 
-    process = subprocess.Popen(  # noqa: S603,S607
+    process = subprocess.Popen(  # noqa: S603
         [
             sys.executable,
             "-m",
@@ -92,9 +101,16 @@ def app_server() -> str:
         process.wait(timeout=10)
 
 
-def test_task_lifecycle_with_feedback(app_server: str) -> None:
+def test_task_lifecycle_with_feedback(app_server: str) -> None:  # noqa: PLR0915 - E2E smoke covers many interactions
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        try:
+            browser = p.chromium.launch(headless=True)
+        except PlaywrightError as exc:
+            if "Executable doesn't exist" in str(exc):
+                pytest.skip(
+                    "Playwright browsers are not installed; run 'playwright install'."
+                )
+            raise
         page = browser.new_page()
         try:
             page.goto(f"{app_server}/", wait_until="domcontentloaded")

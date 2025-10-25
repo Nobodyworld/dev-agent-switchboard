@@ -3,7 +3,7 @@ from http import HTTPStatus
 
 import pytest
 
-# TODO - Replace direct asyncio.run calls with pytest-asyncio tests
+# TODO(P2, 3d) - Replace direct asyncio.run calls with pytest-asyncio tests
 # for clearer failure reporting.
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -14,12 +14,20 @@ from server.app import (
     delete_task,
     health,
     list_tasks,
+    mutate_system_state,
+    read_system_state,
     register_agent,
     update_task,
 )
 from server.db import AsyncSessionLocal
 from server.models import Task, TaskDependency
-from server.schema import AgentIn, CheckoutFailureReason, TaskIn, TaskUpdate
+from server.schema import (
+    AgentIn,
+    CheckoutFailureReason,
+    SystemStateUpdateIn,
+    TaskIn,
+    TaskUpdate,
+)
 from server.task_status import TaskStatus
 
 
@@ -203,5 +211,44 @@ def test_list_tasks_filters_by_status():
 
             assert {task.id for task in pending_only} == {pending.id}
             assert {task.id for task in completed_only} == {completed.id}
+
+    asyncio.run(scenario())
+
+
+def test_system_state_endpoints_toggle_and_detect_conflicts():
+    async def scenario():
+        async with AsyncSessionLocal() as session:
+            initial = await read_system_state(session=session)
+            assert initial.maintenance_mode is False
+
+            updated = await mutate_system_state(
+                SystemStateUpdateIn(maintenance_mode=True, message=""),
+                session=session,
+            )
+            assert updated.maintenance_mode is True
+            assert isinstance(updated.version, int)
+
+            latest = await read_system_state(session=session)
+            assert latest.maintenance_mode is True
+
+            await register_agent(
+                AgentIn(agent_name="maintenance-bot"), session=session
+            )
+            checkout_result = await checkout(
+                agent_id="maintenance-bot", session=session
+            )
+            assert checkout_result.reason == CheckoutFailureReason.MAINTENANCE_MODE
+            assert checkout_result.message is None
+
+            with pytest.raises(HTTPException) as exc_info:
+                await mutate_system_state(
+                    SystemStateUpdateIn(
+                        maintenance_mode=False,
+                        message="",
+                        expected_version=updated.version - 1 if updated.version else 0,
+                    ),
+                    session=session,
+                )
+            assert exc_info.value.status_code == HTTPStatus.CONFLICT
 
     asyncio.run(scenario())

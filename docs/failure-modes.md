@@ -47,6 +47,21 @@ identify the problem using built-in tooling, and the recommended remediation.
   agent polling cadence. Trusted agents can be whitelisted using the existing
   configuration knobs.
 
+## Maintenance Mode Left Enabled
+
+- **Symptoms** – `/api/tasks/checkout` responds with
+  `reason: "maintenance_mode"`; the dashboard shows an amber banner. Agents exit
+  early with messages such as "Maintenance mode is active; checkouts are
+  disabled."
+- **Detection** – Call `GET /api/system-state` or run `switchboard-cli
+  maintenance --base <url>` to inspect the persisted flag and operator message.
+  The WebSocket stream broadcasts a `system_state` payload whenever the value
+  changes.
+- **Mitigation** – Disable maintenance via the CLI, dashboard form, or `PUT
+  /api/system-state`. When `SWITCHBOARD_ADMIN_TOKEN` is set, include the bearer
+  token to authenticate the change. Once disabled, agents can resume checkouts
+  without restarting.
+
 ## Local Runner Misconfiguration
 
 - **Symptoms** – `scripts/local_runner.py` exits with connection errors or loops

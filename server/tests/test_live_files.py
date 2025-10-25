@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import shutil
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
 
 import pytest
 
@@ -14,7 +14,8 @@ STATIC_ROOT = Path(__file__).resolve().parents[2] / "web" / "static"
 STATIC_ROOT.mkdir(parents=True, exist_ok=True)
 
 FILES_ROOT = Path(CONFIGURED_FILES_ROOT)
-# TODO - Use TemporaryDirectory fixtures so tests never touch shared filesystem state between runs.
+# TODO(P2, 1d) - Use TemporaryDirectory fixtures so tests never touch shared filesystem
+# state between runs.
 
 
 @pytest.fixture(autouse=True)
@@ -35,7 +36,13 @@ def anyio_backend():
     return "asyncio"
 
 
-def build_scope(path: str, headers: Iterable[Tuple[str, str]] = ()) -> Dict:
+HTTP_OK = 200
+HTTP_NOT_MODIFIED = 304
+
+
+def build_scope(
+    path: str, headers: Iterable[tuple[str, str]] = ()
+) -> dict[str, object]:
     return {
         "type": "http",
         "asgi": {"version": "3.0", "spec_version": "2.3"},
@@ -53,26 +60,30 @@ def build_scope(path: str, headers: Iterable[Tuple[str, str]] = ()) -> Dict:
     }
 
 
-async def call_live(path: str, headers: Iterable[Tuple[str, str]] = ()) -> List[Dict]:
-    events: List[Dict] = []
+async def call_live(
+    path: str, headers: Iterable[tuple[str, str]] = ()
+) -> list[dict[str, object]]:
+    events: list[dict[str, object]] = []
     scope = build_scope(f"/live/{path}", headers=headers)
     body_sent = False
 
-    async def receive() -> Dict:
+    async def receive() -> dict[str, object]:
         nonlocal body_sent
         if body_sent:
             return {"type": "http.disconnect"}
         body_sent = True
         return {"type": "http.request", "body": b"", "more_body": False}
 
-    async def send(message: Dict) -> None:
+    async def send(message: dict[str, object]) -> None:
         events.append(message)
 
     await app(scope, receive, send)
     return events
 
 
-def collect_response(events: List[Dict]) -> Tuple[int, Dict[str, str], bytes]:
+def collect_response(
+    events: list[dict[str, object]]
+) -> tuple[int, dict[str, str], bytes]:
     status = events[0]["status"]
     headers = {
         key.decode().lower(): value.decode() for key, value in events[0]["headers"]
@@ -95,7 +106,7 @@ async def test_live_file_includes_sha256_etag():
     events = await call_live(path)
     status, headers, body = collect_response(events)
 
-    assert status == 200
+    assert status == HTTP_OK
     assert "etag" in headers, "ETag header should be present on live file responses"
     assert headers["etag"].strip('"') == expected_sha
     assert body == content
@@ -119,13 +130,13 @@ async def test_live_file_returns_304_on_matching_if_none_match():
     events = await call_live(path, headers=[("if-none-match", etag)])
     status, headers, body = collect_response(events)
 
-    assert status == 304
+    assert status == HTTP_NOT_MODIFIED
     assert headers.get("etag") == etag
     assert body == b""
 
     mismatch_events = await call_live(path, headers=[("if-none-match", '"bogus"')])
     mismatch_status, mismatch_headers, mismatch_body = collect_response(mismatch_events)
 
-    assert mismatch_status == 200
+    assert mismatch_status == HTTP_OK
     assert mismatch_headers.get("etag") == etag
     assert mismatch_body == content

@@ -165,7 +165,7 @@ async def build_registry_index(
     """Return the serialized ExecPlan index and related caching metadata."""
 
     registry = await ensure_registry(session)
-    # TODO - Cache the serialized registry when inputs are unchanged to
+    # TODO(P3, 5d) - Cache the serialized registry when inputs are unchanged to
     # reduce database load.
     plans = await load_plans(session)
     generated_at = _latest_generated_at(registry, plans)

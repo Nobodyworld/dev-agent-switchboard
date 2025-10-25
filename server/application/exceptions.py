@@ -20,3 +20,11 @@ class TaskNotFoundError(ApplicationError):
 
 class SelfDependencyError(ApplicationError):
     """Raised when a task attempts to depend on itself."""
+
+
+@dataclass(slots=True)
+class SystemStateConflictError(ApplicationError):
+    """Raised when attempting to update system state with a stale version."""
+
+    expected_version: int | None
+    actual_version: int | None

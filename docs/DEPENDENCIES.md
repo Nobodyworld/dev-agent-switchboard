@@ -19,7 +19,7 @@ pulled from `server/requirements*.txt` and `client/python/pyproject.toml`.
 | prometheus-fastapi-instrumentator | 6.1.0 | MIT | Metrics instrumentation. |
 | opentelemetry-sdk | 1.27.0 | Apache-2.0 | Telemetry pipeline. |
 | opentelemetry-exporter-otlp | 1.27.0 | Apache-2.0 | Sends traces/metrics to OTLP endpoints. |
-| opentelemetry-instrumentation-fastapi | 0.44b0 | Apache-2.0 | FastAPI auto-instrumentation. |
+| opentelemetry-instrumentation-fastapi | 0.48b0 | Apache-2.0 | FastAPI auto-instrumentation. |
 | PyYAML | 6.0.2 | MIT | Configuration parsing. |
 | python-multipart | 0.0.9 | Apache-2.0 | Upload handling for live files. |
 | greenlet | 3.2.4 | MIT | Required by SQLAlchemy. |
@@ -54,7 +54,7 @@ do not require extra dependencies beyond `requests`.
 ## Review Notes
 
 - No GPL or copyleft licenses are present in the runtime dependency tree.
-- OpenTelemetry beta instrumentation (`0.44b0`) is acceptable for development
+- OpenTelemetry beta instrumentation (`0.48b0`) is acceptable for development
   environments but should be revisited before a production hardening pass.
 - Dependencies are pinned for the server to simplify reproducible builds; the
   client package maintains a floor constraint to remain compatible with PyPI

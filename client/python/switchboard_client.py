@@ -36,6 +36,7 @@ class SwitchboardClient:
         auto_register: bool = True,
         max_retries: int = DEFAULT_MAX_RETRIES,
         retry_backoff: float = DEFAULT_RETRY_BACKOFF,
+        admin_token: str | None = None,
     ) -> None:
         """Initialize a :class:`SwitchboardClient`.
 
@@ -61,6 +62,10 @@ class SwitchboardClient:
         retry_backoff:
             Base number of seconds used for exponential backoff between retry
             attempts.
+        admin_token:
+            Optional token used for administrative endpoints such as
+            maintenance mode toggles. When provided the token is attached to
+            requests that explicitly opt-in to admin authentication.
 
         Notes
         -----
@@ -81,8 +86,10 @@ class SwitchboardClient:
             for key, value in operation_timeouts.items():
                 self._operation_timeouts[key] = float(value)
         self.last_checkout_reason: str | None = None
+        self.last_checkout_message: str | None = None
         self._max_retries = max(0, int(max_retries))
         self._retry_backoff = max(0.0, float(retry_backoff))
+        self._admin_token = admin_token
 
         if auto_register:
             self.register()
@@ -121,6 +128,11 @@ class SwitchboardClient:
         """
 
         self._session.close()
+
+    def set_admin_token(self, token: str | None) -> None:
+        """Set or clear the admin token used for privileged endpoints."""
+
+        self._admin_token = token
 
     def __enter__(self) -> SwitchboardClient:
         """Support ``with`` statements for deterministic cleanup.
@@ -283,6 +295,42 @@ class SwitchboardClient:
         payload = cast(dict[str, Any], response.json())
         return payload
 
+    def get_system_state(self) -> dict[str, Any]:
+        """Return the server's global maintenance state."""
+
+        response = self._request("get", "/api/system-state")
+        return cast(dict[str, Any], response.json())
+
+    def set_system_state(
+        self,
+        maintenance_mode: bool,
+        *,
+        message: str | None = None,
+        expected_version: int | None = None,
+        admin_token: str | None = None,
+    ) -> dict[str, Any]:
+        """Update the server's maintenance state via the admin endpoint."""
+
+        payload: dict[str, Any] = {
+            "maintenance_mode": bool(maintenance_mode),
+            "message": message,
+        }
+        if expected_version is not None:
+            payload["expected_version"] = expected_version
+
+        token = admin_token if admin_token is not None else self._admin_token
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        response = self._request(
+            "put",
+            "/api/system-state",
+            json=payload,
+            headers=headers,
+        )
+        return cast(dict[str, Any], response.json())
+
     def checkout(self) -> dict[str, Any] | None:
         """Checkout the next task for this agent.
 
@@ -304,6 +352,7 @@ class SwitchboardClient:
         )
         data = cast(dict[str, Any], response.json())
         self.last_checkout_reason = data.get("reason")
+        self.last_checkout_message = data.get("message")
         task_data = data.get("task")
         return cast(dict[str, Any] | None, task_data)
 

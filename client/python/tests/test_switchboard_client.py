@@ -206,6 +206,23 @@ def test_checkout_records_reason_when_task_missing():
 
     assert client.checkout() is None
     assert client.last_checkout_reason == "no_available"
+    assert client.last_checkout_message is None
+
+
+def test_checkout_records_message_when_server_includes_it():
+    session = Mock(spec=requests.Session)
+    response = _successful_response(
+        {"task": None, "reason": "maintenance_mode", "message": "Paused for upgrade"}
+    )
+    session.request.return_value = response
+
+    client = SwitchboardClient(
+        "http://example.com", "agent-007", session=session, auto_register=False
+    )
+
+    assert client.checkout() is None
+    assert client.last_checkout_reason == "maintenance_mode"
+    assert client.last_checkout_message == "Paused for upgrade"
 
 
 def test_heartbeat_returns_boolean_status():
@@ -327,3 +344,52 @@ def test_context_manager_closes_session():
         assert isinstance(client, SwitchboardClient)
 
     session.close.assert_called_once_with()
+
+
+def test_get_system_state_calls_expected_endpoint():
+    session = Mock(spec=requests.Session)
+    response = _successful_response({"maintenance_mode": False})
+    session.request.return_value = response
+
+    client = SwitchboardClient(
+        "http://example.com", "agent-007", session=session, auto_register=False
+    )
+
+    payload = client.get_system_state()
+
+    assert payload == {"maintenance_mode": False}
+    session.request.assert_called_once_with(
+        "get", "http://example.com/api/system-state", timeout=DEFAULT_REQUEST_TIMEOUT
+    )
+
+
+def test_set_system_state_includes_admin_token_and_payload():
+    session = Mock(spec=requests.Session)
+    response = _successful_response({"maintenance_mode": True})
+    session.request.return_value = response
+
+    client = SwitchboardClient(
+        "http://example.com",
+        "agent-007",
+        session=session,
+        auto_register=False,
+        admin_token="token-123",  # noqa: S106 - test fixture token
+    )
+
+    payload = client.set_system_state(True, message="Upgrade", expected_version=5)
+
+    assert payload == {"maintenance_mode": True}
+    session.request.assert_called_once_with(
+        "put",
+        "http://example.com/api/system-state",
+        json={
+            "maintenance_mode": True,
+            "message": "Upgrade",
+            "expected_version": 5,
+        },
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Bearer token-123",
+        },
+        timeout=DEFAULT_REQUEST_TIMEOUT,
+    )

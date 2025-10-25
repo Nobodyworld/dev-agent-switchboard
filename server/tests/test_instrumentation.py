@@ -196,6 +196,9 @@ def test_setup_metrics_uses_custom_registry(monkeypatch):
         "prometheus_fastapi_instrumentator",
         SimpleNamespace(Instrumentator=FakeInstrumentator),
     )
+    monkeypatch.setattr(
+        metrics_module, "Instrumentator", FakeInstrumentator, raising=False
+    )
 
     app = FastAPI()
     registry = object()

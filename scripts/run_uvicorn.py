@@ -5,9 +5,8 @@ from __future__ import annotations
 
 import argparse
 import os
-import subprocess
-import sys
-from typing import List
+
+import uvicorn.main
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -22,10 +21,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="server.app:app",
         help="Dotted path to the ASGI app (default: %(default)s).",
     )
+    default_host = os.getenv("UVICORN_HOST", "127.0.0.1")
     parser.add_argument(
         "--host",
-        default=os.getenv("UVICORN_HOST", "0.0.0.0"),
-        help="Host interface to bind (default: %(default)s).",
+        default=default_host,
+        help=(
+            "Host interface to bind (default: %(default)s). "
+            "Use 0.0.0.0 only on trusted networks."
+        ),
     )
     parser.add_argument(
         "--port",
@@ -47,15 +50,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def build_command(args: argparse.Namespace) -> List[str]:
+def build_args(args: argparse.Namespace) -> list[str]:
     extra_args = args.uvicorn_args or []
     if extra_args and extra_args[0] == "--":
         extra_args = extra_args[1:]
 
-    command: List[str] = [
-        sys.executable,
-        "-m",
-        "uvicorn",
+    command: list[str] = [
         args.app,
         "--host",
         args.host,
@@ -70,12 +70,13 @@ def build_command(args: argparse.Namespace) -> List[str]:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    command = build_command(args)
+    cli_args = build_args(args)
     try:
-        completed = subprocess.run(command, check=False)
-    except KeyboardInterrupt:
-        return 1
-    return completed.returncode
+        uvicorn.main.main(cli_args)
+    except SystemExit as exc:  # uvicorn exits via SystemExit
+        code = int(exc.code or 0)
+        return code
+    return 0
 
 
 if __name__ == "__main__":
