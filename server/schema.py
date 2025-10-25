@@ -15,6 +15,8 @@ __all__ = [
     "CheckoutOut",
     "CompleteIn",
     "CompleteResponse",
+    "ExtensionDescriptorOut",
+    "ExtensionSettingsOut",
     "ExecPlanEntry",
     "ExecPlanLifecycle",
     "ExecPlanOwner",
@@ -22,12 +24,14 @@ __all__ = [
     "ExecPlanRegistrySource",
     "FileUploadResponse",
     "HealthStatus",
-    "OkResponse",
     "LeaseSettingsOut",
+    "OkResponse",
     "PlanOut",
     "RateLimitSettingsOut",
     "SettingsResponse",
     "StatusResponse",
+    "SystemStateOut",
+    "SystemStateUpdateIn",
     "TaskIn",
     "TaskOut",
     "TaskStatus",
@@ -86,11 +90,13 @@ class CheckoutFailureReason(str, Enum):
     NO_AVAILABLE_TASKS = "no_available_tasks"
     TASK_NOT_FOUND = "task_not_found"
     TASK_NOT_AVAILABLE = "task_not_available"
+    MAINTENANCE_MODE = "maintenance_mode"
 
 
 class CheckoutOut(BaseModel):
     task: Optional[TaskOut] = None
     reason: Optional[CheckoutFailureReason] = None
+    message: Optional[str] = None
 
 
 class RateLimitSettingsOut(BaseModel):
@@ -103,6 +109,23 @@ class RateLimitSettingsOut(BaseModel):
 
 class LeaseSettingsOut(BaseModel):
     duration_seconds: int
+
+
+class ExtensionDescriptorOut(BaseModel):
+    name: str
+    capabilities: list[str] = Field(default_factory=list)
+    version: Optional[str] = None
+    description: Optional[str] = None
+    config: Optional[dict[str, Any]] = None
+
+
+class ExtensionSettingsOut(BaseModel):
+    modules: list[str] = Field(default_factory=list)
+    builtin_enabled: bool = Field(
+        default=True,
+        description="Whether builtin extensions are registered automatically.",
+    )
+    registered: list[ExtensionDescriptorOut] = Field(default_factory=list)
 
 
 class PlanOut(BaseModel):
@@ -147,6 +170,23 @@ class HealthStatus(StatusResponse):
 class SettingsResponse(BaseModel):
     rate_limit: RateLimitSettingsOut
     lease: LeaseSettingsOut
+    extensions: ExtensionSettingsOut
+
+
+class SystemStateOut(BaseModel):
+    maintenance_mode: bool
+    message: Optional[str] = None
+    updated_at: dt.datetime
+    version: int
+
+
+class SystemStateUpdateIn(BaseModel):
+    maintenance_mode: bool
+    message: Optional[str] = None
+    expected_version: Optional[int] = Field(
+        default=None,
+        description="Last observed version used for optimistic concurrency",
+    )
 
 
 class ExecPlanOwner(BaseModel):

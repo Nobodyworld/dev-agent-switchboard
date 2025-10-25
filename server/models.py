@@ -5,6 +5,7 @@ from typing import Any, Optional
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     Enum as SAEnum,
     ForeignKey,
@@ -25,6 +26,7 @@ __all__ = [
     "FileEntry",
     "Lease",
     "PlanVersion",
+    "SystemState",
     "Task",
     "TaskDependency",
 ]
@@ -112,6 +114,22 @@ class PlanVersion(Base):
         default=dt.datetime.utcnow,
         onupdate=dt.datetime.utcnow,
     )
+
+
+class SystemState(Base):
+    """Singleton row storing orchestration maintenance flags."""
+
+    __tablename__ = "system_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    maintenance_mode: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, default=dt.datetime.utcnow, onupdate=dt.datetime.utcnow
+    )
+    version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
 
 class ExecPlanRegistry(Base):

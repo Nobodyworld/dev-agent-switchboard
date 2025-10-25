@@ -47,8 +47,13 @@ Switchboard is intentionally modular:
 - **Client Toolkit** – `client/python/switchboard_client.py` and
   `scripts/local_runner.py` provide a Python API and executable runner that
   exercise the router.
+- **Maintenance Mode** – `server/application/system_state_service.py` persists
+  the global maintenance flag while the CLI (`switchboard-cli maintenance`) and
+  web dashboard keep operators informed and in control.
 
-See [Architecture](architecture.md) for diagrams and deeper discussion.
+See [Architecture](architecture.md) for diagrams and deeper discussion, and
+consult the top-level [Architecture Overview](../ARCHITECTURE_OVERVIEW.md) for a
+component map of the updated extension pipeline.
 
 ## Message Schema
 
@@ -68,6 +73,27 @@ examples and field definitions.
 Operational concerns—from database outages to lease contention—are captured in
 [Failure Modes](failure-modes.md). Each scenario includes detection guidance and
 recommended remediation steps.
+
+## Maintenance Mode
+
+Maintenance mode pauses new checkouts so you can apply migrations or debug
+issues without juggling active agents:
+
+1. Enable maintenance with the CLI:
+
+   ```bash
+   switchboard-cli maintenance --base http://localhost:8000 --enable --message "Applying migrations" --admin-token "$SWITCHBOARD_ADMIN_TOKEN"
+   ```
+
+2. The dashboard banner switches to an amber warning, and `switchboard-cli run`
+   exits immediately with the operator-supplied message.
+
+3. When ready, disable maintenance with the CLI or the dashboard form. The
+   server broadcasts the change to all WebSocket listeners so agents can resume
+   work.
+
+The admin token is optional in development but should be configured in
+production via `SWITCHBOARD_ADMIN_TOKEN`.
 
 ## End-to-End Example
 
@@ -91,9 +117,13 @@ Follow these steps to process a task locally:
 ## Additional Resources
 
 - [Architecture](architecture.md)
+- [Architecture Overview](../ARCHITECTURE_OVERVIEW.md)
 - [Message Schema](message-schema.md)
 - [Failure Modes](failure-modes.md)
 - [CLI Runtime Guide](cli-runtime.md)
+- [Extension Guide](../EXTENSION_GUIDE.md)
+- [Automation Handbook](../AUTOMATION.md)
+- [Incident Response Runbook](incident-response.md)
 - [Dependency & License Audit](DEPENDENCIES.md)
 - [README](../README.md)
 - [CHANGELOG](../CHANGELOG.md)

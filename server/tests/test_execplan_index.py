@@ -1,15 +1,18 @@
 import asyncio
 import datetime as dt
 
+import sqlalchemy as sa
 import yaml
 from httpx import ASGITransport, AsyncClient
-import sqlalchemy as sa
 
-# TODO - Modernize these tests to use pytest-asyncio fixtures instead of manual asyncio.run wrappers.
-
+# TODO(P3, 2d) - Modernize these tests to use pytest-asyncio fixtures instead of
+# manual asyncio.run wrappers.
 from server.app import app
 from server.db import AsyncSessionLocal
 from server.models import ExecPlan
+
+HTTP_OK = 200
+HTTP_NOT_MODIFIED = 304
 
 
 def _sample_plan() -> ExecPlan:
@@ -18,9 +21,11 @@ def _sample_plan() -> ExecPlan:
         title="Alpha Plan",
         summary="Coordinate alpha release",
         status="active",
-        lifecycle_created_at=dt.datetime(2024, 1, 1, 12, 0, 0),
-        lifecycle_updated_at=dt.datetime(2024, 1, 2, 12, 0, 0),
-        lifecycle_target_completion=dt.datetime(2024, 2, 1, 0, 0, 0),
+        lifecycle_created_at=dt.datetime(2024, 1, 1, 12, 0, 0, tzinfo=dt.timezone.utc),
+        lifecycle_updated_at=dt.datetime(2024, 1, 2, 12, 0, 0, tzinfo=dt.timezone.utc),
+        lifecycle_target_completion=dt.datetime(
+            2024, 2, 1, 0, 0, 0, tzinfo=dt.timezone.utc
+        ),
         owners=[{"agent_id": "owner-1", "role": "lead"}],
         tags=["release", "priority:high"],
         scope={
@@ -39,7 +44,7 @@ def _sample_plan() -> ExecPlan:
             "api": {"url": "https://example.com/api/execplans/alpha"},
         },
         metrics={"tasks_total": 5, "tasks_completed": 2},
-        changelog_token="v1",
+        changelog_token="test-token",  # noqa: S106 - fixture token
         extensions=[{"name": "switchboard:beta", "url": "https://example.com/beta"}],
     )
 
@@ -49,7 +54,7 @@ def test_execplan_index_empty_registry_defaults():
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/api/execplans/index")
-            assert response.status_code == 200
+            assert response.status_code == HTTP_OK
             data = response.json()
 
             assert data["version"] == 1
@@ -72,7 +77,7 @@ def test_execplan_index_includes_plan_metadata_and_yaml():
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             json_response = await client.get("/api/execplans/index")
-            assert json_response.status_code == 200
+            assert json_response.status_code == HTTP_OK
             body = json_response.json()
             assert body["plans"], "Expected plan metadata to be returned"
             plan = body["plans"][0]
@@ -83,7 +88,7 @@ def test_execplan_index_includes_plan_metadata_and_yaml():
             yaml_response = await client.get(
                 "/api/execplans/index", headers={"Accept": "application/yaml"}
             )
-            assert yaml_response.status_code == 200
+            assert yaml_response.status_code == HTTP_OK
             assert yaml_response.headers["content-type"].startswith("application/yaml")
             parsed = yaml.safe_load(yaml_response.text)
             assert parsed["plans"][0]["plan_id"] == "alpha"
@@ -92,7 +97,7 @@ def test_execplan_index_includes_plan_metadata_and_yaml():
                 "/api/execplans/index",
                 headers={"If-None-Match": json_response.headers["ETag"]},
             )
-            assert cached.status_code == 304
+            assert cached.status_code == HTTP_NOT_MODIFIED
             assert cached.headers["ETag"] == json_response.headers["ETag"]
 
     asyncio.run(scenario())
@@ -108,7 +113,7 @@ def test_execplan_index_etag_updates_on_mutation():
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             first = await client.get("/api/execplans/index")
-            assert first.status_code == 200
+            assert first.status_code == HTTP_OK
             first_tag = first.headers["ETag"]
 
         async with AsyncSessionLocal() as session:
@@ -121,7 +126,7 @@ def test_execplan_index_etag_updates_on_mutation():
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             second = await client.get("/api/execplans/index")
-            assert second.status_code == 200
+            assert second.status_code == HTTP_OK
             assert second.headers["ETag"] != first_tag
 
     asyncio.run(scenario())

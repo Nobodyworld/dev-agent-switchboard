@@ -4,7 +4,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -43,7 +42,7 @@ print(json.dumps({
     env["STORAGE_ROOT"] = str(custom_storage)
     env["FILES_ROOT"] = str(custom_files)
 
-    completed = subprocess.run(
+    completed = subprocess.run(  # noqa: S603 - executes controlled in-repo script
         [sys.executable, "-c", script],
         check=True,
         capture_output=True,

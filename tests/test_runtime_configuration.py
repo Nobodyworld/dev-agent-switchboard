@@ -27,6 +27,8 @@ def test_derive_runtime_configuration_with_valid_payload() -> None:
     assert config.max_poll_interval == 20.0
     assert config.backoff_multiplier == 2.0
     assert not config.warnings
+    assert config.maintenance_mode is False
+    assert config.maintenance_message is None
 
 
 def test_derive_runtime_configuration_sanitizes_inputs() -> None:
@@ -46,6 +48,8 @@ def test_derive_runtime_configuration_sanitizes_inputs() -> None:
     assert config.backoff_multiplier == 1.0
     assert "poll interval was negative" in config.warnings[0]
     assert any("max poll interval" in warning for warning in config.warnings)
+    assert config.maintenance_mode is False
+    assert config.maintenance_message is None
     assert any("backoff multiplier" in warning for warning in config.warnings)
 
 
@@ -62,6 +66,22 @@ def test_derive_runtime_configuration_carries_forward_warnings() -> None:
     assert config.lease_duration is None
     assert config.heartbeat_interval == DEFAULT_HEARTBEAT_INTERVAL
     assert config.warnings == ("pre-existing",)
+    assert config.maintenance_mode is False
+    assert config.maintenance_message is None
+
+
+def test_derive_runtime_configuration_includes_system_state() -> None:
+    config = derive_runtime_configuration(
+        requested_heartbeat_interval=None,
+        poll_interval=10.0,
+        max_poll_interval=20.0,
+        backoff_multiplier=2.0,
+        lease_settings=None,
+        system_state={"maintenance_mode": True, "message": "Upgrading"},
+    )
+
+    assert config.maintenance_mode is True
+    assert config.maintenance_message == "Upgrading"
 
 
 def test_compute_backoff_interval_delegates_to_runtime_helper() -> None:

@@ -5,7 +5,7 @@ from http import HTTPStatus
 import pytest
 from fastapi.testclient import TestClient
 
-# TODO - Port these integration tests to async clients so we exercise the
+# TODO(P3, 3d) - Port these integration tests to async clients so we exercise the
 # full middleware stack end-to-end.
 from sqlalchemy import delete, select
 

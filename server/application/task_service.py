@@ -4,7 +4,12 @@ import datetime as dt
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Callable, Literal
 
-from ..domain import (
+from server.application.exceptions import (
+    MissingDependenciesError,
+    SelfDependencyError,
+    TaskNotFoundError,
+)
+from server.domain import (
     Agent,
     CheckoutResult,
     CompletionResult,
@@ -14,41 +19,47 @@ from ..domain import (
     TaskAvailabilityPolicy,
     TaskRecord,
 )
-from ..domain.repositories import (
+from server.domain.repositories import (
     AgentRepository,
     LeaseRepository,
     PlanVersionRepository,
+    SystemStateRepository,
     TaskRepository,
 )
-from ..domain.task_status import TaskStatus
-from .exceptions import (
-    MissingDependenciesError,
-    SelfDependencyError,
-    TaskNotFoundError,
-)
+from server.domain.task_status import TaskStatus
+from server.extensions import ExtensionBundle
 
 
 class TaskService:
     """Coordinate task lifecycle, plan versions, and dependency management."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - orchestrator requires repository and policy collaborators
         self,
         *,
         agents: AgentRepository,
         tasks: TaskRepository,
         leases: LeaseRepository,
         plans: PlanVersionRepository,
+        system_state: SystemStateRepository | None = None,
         availability_policy: TaskAvailabilityPolicy,
         lease_policy: LeasePolicy,
         clock: Callable[[], dt.datetime],
+        extensions: ExtensionBundle | None = None,
     ) -> None:
         self._agents = agents
         self._tasks = tasks
         self._leases = leases
         self._plans = plans
+        self._system_state = system_state
         self._availability = availability_policy
         self._lease_policy = lease_policy
         self._clock = clock
+        self._extensions = extensions
+
+    async def _notify(self, event: str, **payload) -> None:
+        if self._extensions is None:
+            return
+        await self._extensions.emit(event, **payload)
 
     async def ensure_agent(self, agent: Agent) -> Agent:
         """Persist the agent if necessary and return the normalized entity."""
@@ -60,9 +71,24 @@ class TaskService:
     ) -> CheckoutResult:
         """Return the next available task for ``agent``."""
 
+        if self._system_state is not None:
+            state = await self._system_state.get_state()
+            if state.maintenance_mode:
+                result = CheckoutResult(
+                    task=None,
+                    lease=None,
+                    reason="maintenance_mode",
+                    message=state.message,
+                )
+                await self._notify("on_checkout", agent=agent, result=result)
+                return result
         now = self._clock()
         await self._agents.ensure(agent.normalized())
-        await self._leases.expire_stale(now=now)
+        expired_ids = await self._leases.expire_stale(now=now)
+        for expired_task_id in expired_ids:
+            task = await self._tasks.get(expired_task_id)
+            if task is not None and task.status != TaskStatus.PENDING:
+                await self._tasks.save(task.with_status(TaskStatus.PENDING))
         candidates = await self._tasks.list_candidates(task_id)
         status_lookup: Mapping[int, TaskStatus] | None = None
         if task_id is None:
@@ -90,11 +116,15 @@ class TaskService:
                     task_id=task.id, agent_id=agent.agent_id, now=now
                 )
                 persisted = await self._leases.save(new_lease)
-                return CheckoutResult(task=saved, lease=persisted, reason=None)
+                result = CheckoutResult(task=saved, lease=persisted, reason=None)
+                await self._notify("on_checkout", agent=agent, result=result)
+                return result
             if task_id is not None:
                 break
         reason = "task_not_available" if task_id is not None else "no_available_tasks"
-        return CheckoutResult(task=None, lease=None, reason=reason)
+        result = CheckoutResult(task=None, lease=None, reason=reason)
+        await self._notify("on_checkout", agent=agent, result=result)
+        return result
 
     async def heartbeat(self, agent_id: str, task_id: int) -> HeartbeatResult:
         """Extend the lease deadline if the agent currently holds it."""
@@ -102,11 +132,15 @@ class TaskService:
         now = self._clock()
         lease = await self._leases.for_task(task_id)
         if not self._lease_policy.can_heartbeat(lease, agent_id):
-            return HeartbeatResult(ok=False, task_id=task_id)
+            result = HeartbeatResult(ok=False, task_id=task_id)
+            await self._notify("on_heartbeat", agent_id=agent_id, result=result)
+            return result
         assert lease is not None  # mypy hint; guarded above
         refreshed = self._lease_policy.refresh(lease, now=now)
         await self._leases.save(refreshed)
-        return HeartbeatResult(ok=True, task_id=task_id)
+        result = HeartbeatResult(ok=True, task_id=task_id)
+        await self._notify("on_heartbeat", agent_id=agent_id, result=result)
+        return result
 
     async def complete(
         self, agent_id: str, task_id: int, *, notes: str | None = None
@@ -116,16 +150,22 @@ class TaskService:
         now = self._clock()
         lease = await self._leases.for_task(task_id)
         if not self._lease_policy.can_complete(lease, agent_id, now=now):
-            return CompletionResult(ok=False, task=None, notes=None)
+            result = CompletionResult(ok=False, task=None, notes=None)
+            await self._notify("on_complete", agent_id=agent_id, result=result)
+            return result
         task = await self._tasks.get(task_id)
         if task is None:
-            return CompletionResult(ok=False, task=None, notes=None)
+            result = CompletionResult(ok=False, task=None, notes=None)
+            await self._notify("on_complete", agent_id=agent_id, result=result)
+            return result
         normalized_notes = notes or None
         saved = await self._tasks.save(
             task.with_status(TaskStatus.COMPLETED, completed_notes=normalized_notes)
         )
         await self._leases.delete(task_id)
-        return CompletionResult(ok=True, task=saved, notes=saved.completed_notes)
+        result = CompletionResult(ok=True, task=saved, notes=saved.completed_notes)
+        await self._notify("on_complete", agent_id=agent_id, result=result)
+        return result
 
     async def abandon(self, agent_id: str, task_id: int) -> HeartbeatResult:
         """Release a lease and return the task to the pending queue."""
@@ -133,13 +173,19 @@ class TaskService:
         now = self._clock()
         lease = await self._leases.for_task(task_id)
         if not self._lease_policy.can_abandon(lease, agent_id, now=now):
-            return HeartbeatResult(ok=False, task_id=task_id)
+            result = HeartbeatResult(ok=False, task_id=task_id)
+            await self._notify("on_abandon", agent_id=agent_id, result=result)
+            return result
         task = await self._tasks.get(task_id)
         if task is None:
-            return HeartbeatResult(ok=False, task_id=task_id)
+            result = HeartbeatResult(ok=False, task_id=task_id)
+            await self._notify("on_abandon", agent_id=agent_id, result=result)
+            return result
         await self._tasks.save(task.with_status(TaskStatus.PENDING))
         await self._leases.delete(task_id)
-        return HeartbeatResult(ok=True, task_id=task_id)
+        result = HeartbeatResult(ok=True, task_id=task_id)
+        await self._notify("on_abandon", agent_id=agent_id, result=result)
+        return result
 
     async def create_task(
         self, *, title: str, description: str, depends_on: Iterable[int]
@@ -148,11 +194,13 @@ class TaskService:
 
         normalized_deps = self._normalize_dependencies(depends_on)
         await self._ensure_dependencies_exist(normalized_deps)
-        return await self._tasks.create(
+        task = await self._tasks.create(
             title=title, description=description, depends_on=normalized_deps
         )
+        await self._notify("on_task_created", task=task)
+        return task
 
-    async def update_task(
+    async def update_task(  # noqa: PLR0913 - mirrors repository update signature
         self,
         task_id: int,
         *,
@@ -185,6 +233,7 @@ class TaskService:
             raise TaskNotFoundError()
         if status in {TaskStatus.PENDING, TaskStatus.COMPLETED}:
             await self._leases.delete(task_id)
+        await self._notify("on_task_updated", task=updated)
         return updated
 
     async def delete_task(self, task_id: int) -> bool:
@@ -239,8 +288,8 @@ class TaskService:
 
     @staticmethod
     def _normalize_dependencies(depends_on: Iterable[int]) -> tuple[int, ...]:
-        unique = {dep_id for dep_id in depends_on if dep_id is not None}
-        return tuple(sorted(unique))
+        unique_dependencies = {dep_id for dep_id in depends_on if dep_id is not None}
+        return tuple(sorted(unique_dependencies))
 
     @staticmethod
     def _dependencies_completed_from_records(
@@ -251,6 +300,8 @@ class TaskService:
         if not task.depends_on:
             return True
         try:
-            return all(statuses[dep_id] == TaskStatus.COMPLETED for dep_id in task.depends_on)
+            return all(
+                statuses[dep_id] == TaskStatus.COMPLETED for dep_id in task.depends_on
+            )
         except KeyError:
             return None

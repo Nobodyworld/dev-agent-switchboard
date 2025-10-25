@@ -12,6 +12,7 @@ class CheckoutResult:
     task: TaskRecord | None
     lease: LeaseRecord | None
     reason: str | None = None
+    message: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

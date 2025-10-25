@@ -4,7 +4,7 @@ import datetime as dt
 from collections.abc import Iterable, Sequence
 from typing import Protocol
 
-from .entities import Agent, LeaseRecord, PlanVersionSnapshot, TaskRecord
+from .entities import Agent, LeaseRecord, PlanVersionSnapshot, SystemState, TaskRecord
 from .task_status import TaskStatus
 
 
@@ -17,7 +17,9 @@ class AgentRepository(Protocol):
 class TaskRepository(Protocol):
     """Persistence abstraction for tasks and dependency metadata."""
 
-    async def list_candidates(self, task_id: int | None = None) -> Sequence[TaskRecord]: ...
+    async def list_candidates(
+        self, task_id: int | None = None
+    ) -> Sequence[TaskRecord]: ...
 
     async def get(self, task_id: int) -> TaskRecord | None: ...
 
@@ -31,7 +33,7 @@ class TaskRepository(Protocol):
         depends_on: Iterable[int] = (),
     ) -> TaskRecord: ...
 
-    async def update(
+    async def update(  # noqa: PLR0913 - protocol mirrors repository override signature
         self,
         task_id: int,
         *,
@@ -54,7 +56,7 @@ class TaskRepository(Protocol):
 class LeaseRepository(Protocol):
     """Persistence abstraction for task leases."""
 
-    async def expire_stale(self, *, now: dt.datetime) -> None: ...
+    async def expire_stale(self, *, now: dt.datetime) -> tuple[int, ...]: ...
 
     async def for_task(self, task_id: int) -> LeaseRecord | None: ...
 
@@ -71,3 +73,17 @@ class PlanVersionRepository(Protocol):
     async def increment(self) -> int: ...
 
     async def snapshot(self) -> PlanVersionSnapshot: ...
+
+
+class SystemStateRepository(Protocol):
+    """Persistence abstraction for global maintenance state."""
+
+    async def get_state(self) -> SystemState: ...
+
+    async def update_state(
+        self,
+        *,
+        maintenance_mode: bool,
+        message: str | None,
+        expected_version: int | None,
+    ) -> SystemState: ...

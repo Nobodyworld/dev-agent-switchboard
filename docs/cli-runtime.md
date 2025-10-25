@@ -8,7 +8,8 @@ and how to interpret warnings that might appear when settings are sanitised.
 ## Start-up Flow
 
 1. The CLI registers the agent via `/api/agents`.
-2. It attempts to fetch `/api/settings` to learn the server's lease duration.
+2. It attempts to fetch `/api/settings` to learn the server's lease duration and
+   `/api/system-state` to determine whether maintenance mode is active.
 3. User-supplied arguments are combined with the server response by
    `derive_runtime_configuration`.
 4. A **runtime summary** is displayed. Values are rounded for readability and
@@ -16,6 +17,7 @@ and how to interpret warnings that might appear when settings are sanitised.
 
 | Field | Description |
 | --- | --- |
+| Maintenance mode | Whether maintenance is enabled and the operator-provided message. |
 | Heartbeat interval | Seconds between automatic heartbeats while a task is held. |
 | Poll interval | Baseline wait time between checkout attempts. |
 | Max poll interval | Upper bound when exponential backoff is applied. |

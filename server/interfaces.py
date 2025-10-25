@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 from .task_status import TaskStatus
 
@@ -68,7 +68,10 @@ class QueueDescriptor:
     def to_dict(self) -> dict[str, str | Mapping[str, str]]:
         """Serialize the descriptor into a JSON-friendly dictionary."""
 
-        payload: dict[str, str | Mapping[str, str]] = {"name": self.name, "kind": self.kind}
+        payload: dict[str, str | Mapping[str, str]] = {
+            "name": self.name,
+            "kind": self.kind,
+        }
         if self.metadata:
             payload["metadata"] = dict(self.metadata)
         return payload

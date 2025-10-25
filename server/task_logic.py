@@ -60,6 +60,7 @@ class CheckoutResult(NamedTuple):
 
     task: TaskRecord | None
     reason: str | None
+    message: str | None = None
 
 
 class CompleteResult(NamedTuple):
@@ -137,8 +138,8 @@ async def checkout_task(
     service = build_task_service(session)
     result = await service.checkout(Agent(agent_id=agent_id), task_id=task_id)
     if result.task is None:
-        return CheckoutResult(task=None, reason=result.reason)
-    return CheckoutResult(task=result.task, reason=None)
+        return CheckoutResult(task=None, reason=result.reason, message=result.message)
+    return CheckoutResult(task=result.task, reason=None, message=None)
 
 
 async def heartbeat(session: AsyncSession, agent_id: str, task_id: int) -> bool:

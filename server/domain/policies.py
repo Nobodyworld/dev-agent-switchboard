@@ -20,13 +20,11 @@ class TaskAvailabilityPolicy:
         lease: LeaseRecord | None,
         now: dt.datetime,
     ) -> bool:
-        if task.status == TaskStatus.COMPLETED:
+        if task.status != TaskStatus.PENDING:
             return False
         if not dependencies_completed:
             return False
-        if lease is not None and lease.expires_at > now:
-            return False
-        return True
+        return not (lease is not None and lease.expires_at > now)
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +63,9 @@ class LeasePolicy:
     def refresh(self, lease: LeaseRecord, *, now: dt.datetime) -> LeaseRecord:
         return lease.refresh(expires_at=self.deadline(now=now))
 
-    def new_lease(self, task_id: int, agent_id: str, *, now: dt.datetime) -> LeaseRecord:
+    def new_lease(
+        self, task_id: int, agent_id: str, *, now: dt.datetime
+    ) -> LeaseRecord:
         return LeaseRecord(
             task_id=task_id,
             agent_id=agent_id,

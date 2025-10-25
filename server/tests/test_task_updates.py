@@ -6,8 +6,8 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from server.application.factory import build_task_service
 from server.app import create_task, update_task
+from server.application.factory import build_task_service
 from server.db import AsyncSessionLocal
 from server.models import Lease, Task, TaskDependency
 from server.schema import TaskIn, TaskUpdate

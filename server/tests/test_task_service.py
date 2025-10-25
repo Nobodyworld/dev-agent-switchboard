@@ -4,7 +4,8 @@ import asyncio
 
 from sqlalchemy import select
 
-from server.application.factory import build_task_service
+from server.application import SystemStateUpdate
+from server.application.factory import build_system_state_service, build_task_service
 from server.db import AsyncSessionLocal
 from server.domain import Agent
 from server.models import Lease, Task
@@ -36,6 +37,28 @@ def test_checkout_skips_blocked_tasks_until_dependencies_complete() -> None:
             assert second.task is not None
             assert second.task.id == blocked.id
             assert second.task.status == TaskStatus.IN_PROGRESS
+
+    asyncio.run(scenario())
+
+
+def test_checkout_respects_maintenance_mode() -> None:
+    async def scenario() -> None:
+        async with AsyncSessionLocal() as session:
+            service = build_task_service(session)
+            state_service = build_system_state_service(session)
+
+            await state_service.update_state(
+                SystemStateUpdate(
+                    maintenance_mode=True,
+                    message=None,
+                    expected_version=None,
+                )
+            )
+
+            result = await service.checkout(Agent(agent_id="agent-maintenance"))
+            assert result.task is None
+            assert result.reason == "maintenance_mode"
+            assert result.message is None
 
     asyncio.run(scenario())
 

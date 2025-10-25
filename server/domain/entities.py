@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from typing import Mapping
 
 from .task_status import TaskStatus
 
@@ -16,7 +16,7 @@ class Agent:
     capabilities: tuple[str, ...] = ()
     metadata: Mapping[str, str] | None = None
 
-    def normalized(self) -> "Agent":
+    def normalized(self) -> Agent:
         """Return a copy with tuple-backed attributes normalized."""
 
         return replace(self, capabilities=tuple(self.capabilities))
@@ -36,7 +36,7 @@ class TaskRecord:
 
     def with_status(
         self, status: TaskStatus, *, completed_notes: str | None = None
-    ) -> "TaskRecord":
+    ) -> TaskRecord:
         """Return a copy of the task with an updated status and notes."""
 
         return replace(self, status=status, completed_notes=completed_notes)
@@ -51,7 +51,7 @@ class LeaseRecord:
     issued_at: dt.datetime
     expires_at: dt.datetime
 
-    def refresh(self, *, expires_at: dt.datetime) -> "LeaseRecord":
+    def refresh(self, *, expires_at: dt.datetime) -> LeaseRecord:
         """Return a copy of the lease with an updated expiry timestamp."""
 
         return replace(self, expires_at=expires_at)
@@ -63,3 +63,13 @@ class PlanVersionSnapshot:
 
     value: int
     updated_at: dt.datetime
+
+
+@dataclass(frozen=True, slots=True)
+class SystemState:
+    """Global orchestration state flags persisted by the service."""
+
+    maintenance_mode: bool
+    message: str | None
+    updated_at: dt.datetime
+    version: int

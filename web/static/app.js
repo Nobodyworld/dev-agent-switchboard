@@ -4,6 +4,12 @@ const state = {
   filter: 'all',
   planVersion: null,
   planUpdatedAt: null,
+  systemState: {
+    maintenance_mode: false,
+    message: null,
+    updated_at: null,
+    version: null,
+  },
 };
 
 let ws;
@@ -17,6 +23,7 @@ const STATUS_BADGE_CLASSES = {
   in_progress: 'bg-blue-100 text-blue-800',
   completed: 'bg-green-100 text-green-800',
 };
+const ADMIN_TOKEN_STORAGE_KEY = 'switchboardAdminToken';
 
 function escapeHtml(value) {
   if (value == null) return '';
@@ -69,6 +76,27 @@ function hideToast(toast) {
   );
   // In case transitions are disabled.
   setTimeout(() => toast.remove(), 400);
+}
+
+function loadAdminToken() {
+  try {
+    return localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || '';
+  } catch (error) {
+    console.warn('Unable to read admin token from storage', error);
+    return '';
+  }
+}
+
+function persistAdminToken(token) {
+  try {
+    if (token) {
+      localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token);
+    } else {
+      localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
+    }
+  } catch (error) {
+    console.warn('Unable to persist admin token', error);
+  }
 }
 
 async function extractErrorDetails(response) {
@@ -157,6 +185,101 @@ function renderPlanMeta() {
   meta.classList.remove('hidden');
 }
 
+function applySystemState(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return;
+  }
+  const enabled = Boolean(payload.maintenance_mode);
+  const message = typeof payload.message === 'string' ? payload.message.trim() : null;
+  const updatedAt = payload.updated_at || null;
+  const version = typeof payload.version === 'number' ? payload.version : null;
+  state.systemState = {
+    maintenance_mode: enabled,
+    message: message || null,
+    updated_at: updatedAt,
+    version,
+  };
+  renderMaintenanceState();
+}
+
+function renderMaintenanceState() {
+  const summary = document.getElementById('maintenanceSummary');
+  if (!summary) return;
+  const details = document.getElementById('maintenanceDetails');
+  const updatedWrapper = document.getElementById('maintenanceUpdatedWrapper');
+  const updated = document.getElementById('maintenanceUpdated');
+  const banner = document.getElementById('maintenanceBanner');
+  const bannerText = document.getElementById('maintenanceBannerText');
+  const bannerMessage = document.getElementById('maintenanceBannerMessage');
+  const toggle = document.getElementById('maintenanceToggle');
+  const messageInput = document.getElementById('maintenanceMessageInput');
+  const adminInput = document.getElementById('adminTokenInput');
+
+  const { maintenance_mode: enabled, message, updated_at: updatedAt } = state.systemState;
+
+  summary.textContent = enabled
+    ? 'Maintenance mode enabled — new checkouts are paused.'
+    : 'Maintenance mode disabled — agents may checkout tasks.';
+
+  if (details) {
+    if (message) {
+      details.textContent = message;
+      details.classList.remove('hidden');
+    } else {
+      details.textContent = '';
+      details.classList.add('hidden');
+    }
+  }
+
+  if (updated && updatedWrapper) {
+    if (updatedAt) {
+      const parsed = new Date(updatedAt);
+      if (!Number.isNaN(parsed.valueOf())) {
+        updated.textContent = parsed.toLocaleString();
+        updated.dateTime = parsed.toISOString();
+      } else {
+        updated.textContent = updatedAt;
+        updated.removeAttribute('dateTime');
+      }
+      updatedWrapper.classList.remove('hidden');
+    } else {
+      updated.textContent = '';
+      updated.removeAttribute('dateTime');
+      updatedWrapper.classList.add('hidden');
+    }
+  }
+
+  if (banner) {
+    if (enabled) {
+      banner.classList.remove('hidden');
+      if (bannerText) {
+        bannerText.textContent = 'Maintenance mode is active. New task checkouts are paused.';
+      }
+      if (bannerMessage) {
+        bannerMessage.textContent = message || 'Continue working on in-progress tasks or stand by.';
+      }
+    } else {
+      banner.classList.add('hidden');
+      if (bannerMessage) {
+        bannerMessage.textContent = '';
+      }
+    }
+  }
+
+  if (toggle) {
+    toggle.checked = Boolean(enabled);
+    toggle.setAttribute('aria-checked', enabled ? 'true' : 'false');
+  }
+
+  if (messageInput && document.activeElement !== messageInput) {
+    messageInput.value = message || '';
+  }
+
+  if (adminInput && !adminInput.dataset.dirty) {
+    adminInput.value = loadAdminToken();
+  }
+}
+
 function renderTaskList() {
   const container = document.getElementById('tasks');
   if (!container) return;
@@ -208,7 +331,7 @@ function renderTaskList() {
     })
     .join('');
 
-  // TODO - Replace innerHTML templating with DOM diffing to improve performance on large task lists.
+  // TODO(P2, 4d) - Replace innerHTML templating with DOM diffing to improve performance on large task lists.
   container.innerHTML = `
     <div class="overflow-x-auto">
       <table class="w-full text-sm border-collapse">
@@ -263,6 +386,18 @@ async function refreshPlan() {
   }
 }
 
+async function refreshSystemState({ silent = false } = {}) {
+  try {
+    const payload = await apiFetchJson('/api/system-state');
+    applySystemState(payload);
+  } catch (error) {
+    console.error('Failed to refresh system state', error);
+    if (!silent) {
+      showToast('Unable to load system status. Some controls may be stale.', 'error');
+    }
+  }
+}
+
 function startPing() {
   if (wsPingTimer) clearInterval(wsPingTimer);
   wsPingTimer = setInterval(() => {
@@ -296,8 +431,18 @@ function connectWS() {
   ws.onmessage = (event) => {
     try {
       const message = JSON.parse(event.data);
+      if (message.state) {
+        applySystemState(message.state);
+      }
       if (message.type === 'plan_version') {
         refreshPlan();
+      } else if (message.type === 'plan_snapshot') {
+        refreshPlan();
+      } else if (message.type === 'system_state') {
+        // already applied above; refresh if payload omitted state details
+        if (!message.state) {
+          refreshSystemState({ silent: true });
+        }
       }
     } catch (error) {
       console.warn('Failed to parse websocket payload', error);
@@ -308,7 +453,7 @@ function connectWS() {
     stopPing();
     reconnectAttempts += 1;
     console.warn(`ws closed; reconnecting in ${WS_RECONNECT_DELAY_MS / 1000}s (attempt #${reconnectAttempts})`);
-    // TODO - Switch to exponential backoff with jitter to avoid synchronized reconnect storms.
+    // TODO(P1, 1d) - Switch to exponential backoff with jitter to avoid synchronized reconnect storms.
     setTimeout(connectWS, WS_RECONNECT_DELAY_MS);
   };
 }
@@ -391,6 +536,10 @@ async function startTask(taskId) {
           message = `Task #${taskId} is not available to start.`;
         } else if (result.reason === 'no_available_tasks') {
           message = 'No tasks are currently available to start.';
+        } else if (result.reason === 'maintenance_mode') {
+          const detail = result.message || 'Maintenance mode is active; checkouts are paused.';
+          message = detail;
+          await refreshSystemState({ silent: true });
         }
       }
       showToast(message, 'error');
@@ -432,6 +581,55 @@ function handleTaskAction(event) {
   }
 }
 
+async function handleMaintenanceSubmit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const toggle = form.querySelector('#maintenanceToggle');
+  const messageInput = form.querySelector('#maintenanceMessageInput');
+  const tokenInput = form.querySelector('#adminTokenInput');
+  const enabled = toggle ? Boolean(toggle.checked) : false;
+  const message = messageInput ? messageInput.value.trim() : '';
+  const token = tokenInput ? tokenInput.value.trim() : '';
+
+  persistAdminToken(token);
+
+  const actionLabel = enabled ? 'enable maintenance mode' : 'disable maintenance mode';
+  if (!window.confirm(`Are you sure you want to ${actionLabel}?`)) {
+    return;
+  }
+
+  const payload = {
+    maintenance_mode: enabled,
+    message: message || null,
+  };
+  if (typeof state.systemState.version === 'number') {
+    payload.expected_version = state.systemState.version;
+  }
+
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  try {
+    const response = await apiFetchJson('/api/system-state', {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    applySystemState(response);
+    showToast('System state updated.', 'success');
+  } catch (error) {
+    console.error('Failed to update system state', error);
+    if (error && error.response && error.response.status === 409) {
+      showToast('System state update conflicted. Reloading latest state.', 'error');
+      await refreshSystemState({ silent: true });
+    }
+  }
+}
+
 function initEventListeners() {
   const filter = document.getElementById('statusFilter');
   if (filter) {
@@ -458,12 +656,43 @@ function initEventListeners() {
   if (tasksContainer) {
     tasksContainer.addEventListener('click', handleTaskAction);
   }
+
+  const maintenanceForm = document.getElementById('maintenanceForm');
+  if (maintenanceForm) {
+    maintenanceForm.addEventListener('submit', handleMaintenanceSubmit);
+  }
+
+  const adminTokenInput = document.getElementById('adminTokenInput');
+  if (adminTokenInput) {
+    adminTokenInput.value = loadAdminToken();
+    adminTokenInput.addEventListener('input', (event) => {
+      event.currentTarget.dataset.dirty = 'true';
+    });
+    adminTokenInput.addEventListener('blur', (event) => {
+      persistAdminToken(event.currentTarget.value.trim());
+    });
+  }
+
+  const clearTokenButton = document.getElementById('clearAdminToken');
+  if (clearTokenButton) {
+    clearTokenButton.addEventListener('click', () => {
+      persistAdminToken('');
+      const field = document.getElementById('adminTokenInput');
+      if (field) {
+        field.value = '';
+        delete field.dataset.dirty;
+      }
+      showToast('Admin token cleared for this browser session.', 'success');
+    });
+  }
 }
 
 function initialize() {
   initEventListeners();
   connectWS();
+  renderMaintenanceState();
   refreshPlan();
+  refreshSystemState();
 }
 
 document.addEventListener('DOMContentLoaded', initialize);

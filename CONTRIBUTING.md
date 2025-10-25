@@ -61,6 +61,8 @@ This command executes formatting, linting, type checking, security scanning, and
 - `make test` – Run the pytest suite.
 - `make security` – Bandit static analysis (CI additionally runs gitleaks for
   repository-wide secret scanning).
+- `make coverage` – Execute the coverage suite and enforce per-module thresholds
+  via `scripts/dev.py coverage-gate`.
 
 The `pre-commit` configuration also runs
 [`detect-secrets`](https://github.com/Yelp/detect-secrets) against the
@@ -74,7 +76,7 @@ your PR description.
 - [ ] Tests added or updated where appropriate.
 - [ ] Documentation updated (README, docs/, or inline docstrings).
 - [ ] `pre-commit run --all-files` passes locally.
-- [ ] CI is green (lint, type, tests, docs, security).
+- [ ] CI is green (lint, type, tests, docs, security, coverage).
 - [ ] Any configuration or migration changes include rollback instructions in the PR description.
 
 ## Triaging Issues
@@ -95,4 +97,6 @@ If you discover a vulnerability, please follow our [Security Policy](SECURITY.md
 
 Questions about setup or day-to-day usage should go to [SUPPORT.md](SUPPORT.md).
 
-We appreciate your contributions and look forward to collaborating with you!
+We appreciate your contributions and look forward to collaborating with you! If
+you are developing automation or agent tooling, consult `AUTOMATION.md` and
+`EXTENSION_GUIDE.md` before integrating with production systems.

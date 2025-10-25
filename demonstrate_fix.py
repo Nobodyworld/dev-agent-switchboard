@@ -6,15 +6,15 @@ This script doesn't run against the actual codebase, but demonstrates
 the conceptual difference between the broken and fixed versions.
 """
 
-from typing import Protocol, Any
 from dataclasses import dataclass
+from typing import Any
 
 
 # Mock classes to demonstrate the issue
 @dataclass
 class AsyncSession:
     """Mock AsyncSession (SQLAlchemy)."""
-    def execute(self, stmt: Any) -> Any:
+    def execute(self, _stmt: Any) -> Any:
         return "query result"
 
 
@@ -73,7 +73,7 @@ async def broken_get_plan_endpoint():
     
     try:
         # This is what the code did before the fix:
-        plan_dict = await _serialize_plan(session)  # ❌ WRONG!
+        await _serialize_plan(session)  # ❌ WRONG!
         print("✗ This should have failed but didn't in this mock")
     except AttributeError as e:
         print(f"✓ Got expected error: {e}")
@@ -94,7 +94,7 @@ async def broken_ws_plan_handler():
     
     try:
         # This is what the WebSocket code did before the fix:
-        plan_payload = await _serialize_plan(session)  # ❌ WRONG!
+        await _serialize_plan(session)  # ❌ WRONG!
         print("✗ This should have failed but didn't in this mock")
     except AttributeError as e:
         print(f"✓ Got expected error: {e}")
@@ -170,8 +170,10 @@ def print_summary():
     print()
     print("THE FIX:")
     print("  1. /api/plan endpoint:")
-    print("     Before: async def get_plan(session: AsyncSession = Depends(get_session))")
-    print("     After:  async def get_plan(service: TaskService = Depends(get_task_service))")
+    print("     Before: async def get_plan(")
+    print("             session: AsyncSession = Depends(get_session))")
+    print("     After:  async def get_plan(")
+    print("             service: TaskService = Depends(get_task_service))")
     print()
     print("  2. /ws/plan WebSocket:")
     print("     Before: plan_payload = await _serialize_plan(session)")

@@ -11,8 +11,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 try:
-    from server.db import Base, engine  # noqa: E402
-    from server.file_store import FILES_ROOT, ensure_root  # noqa: E402
+    from server.db import Base, engine
+    from server.file_store import FILES_ROOT, ensure_root
 except ModuleNotFoundError as exc:  # pragma: no cover - exercised when deps missing
     pytest.skip(
         f"Server dependencies unavailable: {exc}",

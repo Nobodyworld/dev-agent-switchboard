@@ -82,7 +82,9 @@ def _log_task(task: dict[str, Any]) -> None:
     LOGGER.info("Checked out task %s — %s", task_id, title)
 
 
-def _perform_heartbeat(client: SwitchboardClient, task_id: int, interval: float) -> None:
+def _perform_heartbeat(
+    client: SwitchboardClient, task_id: int, interval: float
+) -> None:
     """Send a heartbeat loop for a task until interrupted.
 
     Parameters
@@ -144,7 +146,10 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 else:
                     LOGGER.info(
-                        "Starting heartbeat maintenance for task %s — press Ctrl+C to stop",
+                        (
+                            "Starting heartbeat maintenance for task %s — "
+                            "press Ctrl+C to stop"
+                        ),
                         task_id,
                     )
                     _perform_heartbeat(client, task_id, args.heartbeat_interval)

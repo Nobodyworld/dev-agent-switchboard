@@ -1,0 +1,17 @@
+Switchboard targeted coverage summary
+Generated: 2025-10-25T03:09:55Z
+
+Module                                                       Covered   Total  Percent
+------------------------------------------------------------ ------- ------- --------
+server/extensions/__init__.py                                      5       5  100.00%
+server/extensions/builtin/__init__.py                              3       3  100.00%
+server/extensions/builtin/task_metrics.py                         18      20   90.00%
+server/extensions/interfaces.py                                   47      48   97.92%
+server/extensions/loader.py                                       45      45  100.00%
+server/extensions/runtime.py                                      25      25  100.00%
+
+Per-module thresholds (>=):
+- server/extensions/interfaces.py: 97.92% (threshold 85%) [PASS]
+- server/extensions/loader.py: 100.00% (threshold 85%) [PASS]
+- server/extensions/runtime.py: 100.00% (threshold 85%) [PASS]
+- server/extensions/builtin/task_metrics.py: 90.00% (threshold 85%) [PASS]

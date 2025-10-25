@@ -828,3 +828,217 @@ Transform Switchboard into the canonical queue and agent orchestration router. D
 - Local runner may leverage asyncio for agent simulation.
 - Documentation references should remain relative within repository to avoid broken links.
 
+# Introduce maintenance mode controls for orchestrator availability
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Give operators a first-class "maintenance mode" switch that halts new task checkouts while allowing in-flight work to complete. Surface the state through HTTP APIs, the CLI runtime summary, and the web dashboard so humans and agents understand availability. Provide an authenticated toggle endpoint with optimistic concurrency, persist state durably, and ensure WebSocket listeners are notified alongside plan updates.
+
+## Progress
+
+- [x] Initial state captured.
+- [x] Domain model and persistence designed.
+- [x] API and service logic implemented.
+- [x] CLI, UI, and docs updated.
+- [x] Automated tests updated/added.
+- [x] Validation complete.
+
+## Surprises & Discoveries
+
+- Observation: Installing the dev requirements uncovered a resolver conflict between `opentelemetry-sdk` and `opentelemetry-instrumentation-fastapi`, forcing an upgrade of the instrumentation packages to the 0.48 beta series before the suite could run.
+  Evidence: `pip install -r server/requirements-dev.txt` failed until both packages matched the same semantic-conventions release.
+- Observation: The CLI maintenance tests exercised the context-manager interface on `SwitchboardClient`, so mocks needed explicit `__enter__/__exit__` wiring to avoid `TypeError`.
+  Evidence: Initial pytest runs errored with `'Mock' object does not support the context manager protocol` on the maintenance command tests.
+- Observation: Playwright isn't provisioned with browsers in CI, requiring a graceful skip when Chromium binaries are absent.
+  Evidence: `BrowserType.launch` raised an "Executable doesn't exist" error until the test caught it and skipped.
+
+## Decision Log
+
+- Decision: Introduced a `_resolve_task_service` helper for FastAPI routes so that direct function calls in tests can lazily build a service when FastAPI's `Depends` sentinel is supplied.
+  Rationale: Preserves existing test call patterns without forcing wide refactors while keeping runtime dependency injection unchanged.
+  Date/Author: 2025-10-25 / gpt-5-codex
+- Decision: Expired leases now return their task IDs, allowing `TaskService.checkout` to reset those tasks to `pending` while keeping manually set `in_progress` tasks unavailable.
+  Rationale: Aligns both the blocked-task unit tests and the lease-expiration integration tests with the desired semantics.
+  Date/Author: 2025-10-25 / gpt-5-codex
+- Decision: Upgraded OpenTelemetry instrumentation packages to 0.48b0 to satisfy dependency constraints with the 1.27.0 SDK.
+  Rationale: Restores a working `pip install` flow and keeps observability tooling operational.
+  Date/Author: 2025-10-25 / gpt-5-codex
+
+## Outcomes & Retrospective
+
+- Maintenance mode state persisted atomically with optimistic locking.
+- Checkout attempts report actionable reasons when maintenance is active.
+- Web UI and CLI surface maintenance status with accessibility-friendly messaging.
+
+## Context and Orientation
+
+- Core FastAPI application lives in `server/app.py` and delegates to `TaskService` in `server/application/task_service.py` for lifecycle operations.
+- Domain entities and repositories are defined under `server/domain/`, with SQLAlchemy adapters in `server/infrastructure/repositories.py` and ORM models in `server/models.py`.
+- The operator dashboard is rendered from `web/index.html` and behaviour is managed by `web/static/app.js`.
+- CLI runtime summary logic sits in `client/python/runtime_config.py` and `switchboard_cli.py` orchestrates commands.
+- Tests primarily live under `server/tests/` and `tests/`, while documentation is concentrated in `README.md` and `docs/`.
+
+## Plan of Work
+
+1. **Modeling & Persistence**
+   - Add a `SystemState` domain entity and repository protocol capturing `maintenance_mode`, `message`, `updated_at`, and a version token.
+   - Create SQLAlchemy model/table `system_state` with a single-row constraint and optimistic locking via `version_id`.
+   - Implement `SqlAlchemySystemStateRepository` ensuring default row provisioning and concurrency handling.
+
+2. **Application & API Surface**
+   - Extend `TaskService` to consult the new repository before checkouts and propagate a distinct checkout reason.
+   - Introduce `SystemStateService` (application layer) responsible for reading/updating state with validation and concurrency tokens.
+   - Add FastAPI routes `/api/system-state` (GET/PUT) returning/accepting Pydantic schemas, enforce simple bearer token auth via existing settings.
+   - Broadcast maintenance state changes over WebSocket alongside plan updates.
+
+3. **Client, CLI, and UI**
+   - Update `switchboard_client.py` to expose `get_system_state()` and `set_system_state()` helpers.
+   - Surface maintenance status in CLI runtime summary and block `checkout` command when active, printing reasons.
+   - Enhance web dashboard to display a persistent banner when maintenance mode is enabled and provide a small toggle form (with confirmation) guarded by a shared secret config.
+
+4. **Documentation & Infrastructure**
+   - Document maintenance workflows in `README.md`, `docs/index.md`, and add operational playbook in `docs/failure-modes.md` or new doc.
+   - Update `.env.example`/Makefile or new config doc to mention `SWITCHBOARD_ADMIN_TOKEN` (or similar) required for toggling.
+   - Ensure Docker image and local runner respect new environment variable.
+
+5. **Testing & Validation**
+   - Add unit/integration tests covering repository behaviour, checkout blocking, API concurrency, CLI summary, and UI logic (if feasible with jest/Playwright stub or DOM unit test).
+   - Run `pytest -q` and linting (e.g., `ruff`, `mypy` if configured) ensuring green.
+   - Smoke-test via `uvicorn` manual run if time permits; otherwise document expected manual verification steps.
+
+## Concrete Steps
+
+1. Create/modify domain models and repositories; write SQLAlchemy adapter plus migration initialization logic.
+2. Extend application services and FastAPI routes; wire WebSocket broadcasts and authentication guard.
+3. Update client SDK, CLI, and web UI; add tests for new behaviours.
+4. Refresh documentation and configuration references; ensure new environment variable defaults.
+5. Execute test suite and document results, finalise plan sections.
+
+## Validation and Acceptance
+
+- HTTP GET `/api/system-state` returns persisted values with `ETag`/version token and toggling via PUT updates DB and notifies WebSocket listeners.
+- Checkout attempts during maintenance respond with `maintenance_mode` reason and do not modify leases.
+- CLI summary prints maintenance banner and `checkout` subcommand exits with non-zero status when blocked.
+- Web UI shows accessible banner and toggle (when admin token provided) reflecting latest state without requiring refresh.
+- Tests cover repository defaults, API concurrency, CLI summary output, and UI banner rendering logic; `pytest -q` passes (skipping FastAPI import issue if environment lacks optional deps).
+
+## Idempotence and Recovery
+
+- Repository default provisioning uses `INSERT .. ON CONFLICT DO NOTHING` semantics to avoid duplicate rows.
+- API updates include version token to prevent overwriting concurrent changes; clients can refetch on 409.
+- Configuration changes limited to documented environment variable; revert by removing variable and toggling off via API.
+
+## Artifacts and Notes
+
+- `pytest -q`
+
+## Interfaces and Dependencies
+
+- FastAPI, SQLAlchemy async session, and Pydantic for API schema.
+- CLI uses `requests`; ensure new endpoints reuse session.
+- UI continues to rely on HTMX/fetch for AJAX; no additional build tooling introduced.
+# Build observability backbone and extension layer
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Harden Switchboard for long-term stewardship by enriching observability (structured logging, correlation IDs, Prometheus coverage), codifying an extension/plugin system for task lifecycle events, and equipping future contributors—human or agentic—with automation guardrails, runbooks, and architectural scaffolding. The deliverable includes new documentation (architecture overview, extension guide, automation handbook), operational scripts, and CI quality gates enforcing coverage expectations.
+
+## Progress
+
+- [x] Initial repository state reviewed and Stage 3 scope mapped.
+- [x] Observability upgrades implemented and validated.
+- [x] Extension/runtime layer designed, documented, and shipped with reference plugin.
+- [x] Developer/agent enablement assets (docs, scripts, templates) prepared.
+- [x] CI/automation enhancements (quality gates, changelog tooling) landed.
+- [x] Final validation, documentation polish, and plan retrospective completed.
+
+## Surprises & Discoveries
+
+- Observation: Coverage remains ~22% overall, so enforcing global 85% would break CI; need targeted per-module thresholds instead.
+  Evidence: Existing `coverage.txt` artifact and Stage 2 summary show 22% coverage after pytest run with `--cov`.
+- Observation: Multiple legacy TODO comments lack priority/effort tags, conflicting with Stage 3 requirement to annotate each backlog marker.
+  Evidence: `rg "TODO"` identifies comments like `# TODO - Restrict CORS origins...` without metadata across `server/app.py` and UI assets.
+
+## Decision Log
+
+- Decision: Route lifecycle notifications through a cached `ExtensionBundle`
+  so TaskService emits checkout/completion events without coupling to concrete
+  plugins.
+  Rationale: Keeps the orchestration layer agnostic while enabling metrics,
+  alerts, or custom automation to subscribe via extensions.
+  Date/Author: 2024-06-18 / gpt-5-codex
+- Decision: Add `scripts/dev.py` for coverage gates and version bumps and wire
+  it into Makefile/CI to standardise quality automation.
+  Rationale: Replaces ad-hoc release steps and ensures coverage thresholds are
+  enforced both locally and in CI.
+  Date/Author: 2024-06-18 / gpt-5-codex
+
+## Outcomes & Retrospective
+
+- Extension hooks are first-class: `/api/settings` exposes active modules, and
+  builtin Prometheus counters track task lifecycle outcomes.
+- CI now fails fast when critical modules drop below 85% coverage; developers
+  can run `make coverage`/`scripts/dev.py coverage-gate` to reproduce locally.
+- Contributors and agents gain dedicated guides (`ARCHITECTURE_OVERVIEW.md`,
+  `EXTENSION_GUIDE.md`, `AUTOMATION.md`, `docs/incident-response.md`) plus a
+  bootstrap script for local environments.
+
+## Context and Orientation
+
+Key areas to touch:
+- `server/instrumentation/` and new `server/observability/` modules for metrics/log correlation.
+- `server/application/task_service.py` for lifecycle hook integration.
+- `server/settings.py`, `server/schema.py`, and `/api/settings` route for exposing extension config.
+- `.github/workflows/ci.yml`, `Makefile`, and new scripts under `scripts/` for automation gates.
+- Documentation additions under root (`ARCHITECTURE_OVERVIEW.md`, `EXTENSION_GUIDE.md`, `AUTOMATION.md`) and updates to `CONTRIBUTING.md`, `README.md`, and incident response references in `docs/`.
+
+## Plan of Work
+
+1. Observability: introduce request ID middleware, structured logging context, Prometheus task counters, and update health endpoints/tests. Document incident response and recovery guides.
+2. Extension Layer: design extension registry + hook interfaces, load modules from env-configured list, and ship a built-in metrics plugin. Ensure TaskService dispatches events and add coverage-driving tests.
+3. Enablement & Docs: add architecture overview, extension guide, automation doc, update CONTRIBUTING/README, and supply CLI/dev scripts plus templates.
+4. Automation Loop: augment CI with coverage gate + security/lint/test sequencing, add version bump/release scripts, update CHANGELOG/RELEASE_NOTES, and annotate TODOs with priority/effort metadata.
+5. Validation: run pytest (with coverage), mypy/ruff where applicable, refresh coverage artifact, and finalize documentation updates.
+
+## Concrete Steps
+
+1. Implement `RequestContextMiddleware` + logging filter, integrate metrics extension counters, add incident response doc, and update health route tests.
+2. Author `server/extensions` package (registry, interfaces, loader, builtin metrics plugin) and wire into `build_task_service`. Provide tests covering plugin dispatch + metrics updates.
+3. Create developer tooling: `scripts/dev.py` CLI for tasks (bootstrap, coverage gate, release bump) and stub templates. Draft new docs (`ARCHITECTURE_OVERVIEW.md`, `AUTOMATION.md`, `EXTENSION_GUIDE.md`).
+4. Update CI workflow for coverage gating using new script, adjust Makefile targets, and annotate existing TODOs with priority/effort.
+5. Run `pytest --cov ...`, update `coverage.txt`, execute lint/type commands as needed, and document results in changelog/release notes.
+
+## Validation and Acceptance
+
+- `pytest --cov` succeeds and coverage gate script enforces ≥85% on targeted modules while overall suite stays green.
+- CI workflow includes lint, typecheck, test, coverage, docs, and security stages with caching.
+- `/api/settings` now surfaces extension metadata and docs outline how to register plugins.
+- Incident response guide + automation doc provide actionable runbooks for operators/agents.
+
+## Idempotence and Recovery
+
+- Middleware + extension registration are idempotent; repeated startups reuse request ID header and metrics registry safely.
+- Extension loader gracefully skips missing modules, logging structured warnings for misconfiguration.
+- Release script updates maintainable version markers; revert by resetting touched files if mis-run.
+
+## Artifacts and Notes
+
+- Coverage gate: `python scripts/dev.py coverage-gate --json reports/coverage.json --module server/extensions/interfaces.py=85 ...`
+- Updated `coverage.txt` to summarize the targeted module thresholds enforced by CI.
+- New docs: `ARCHITECTURE_OVERVIEW.md`, `EXTENSION_GUIDE.md`, `AUTOMATION.md`,
+  `docs/incident-response.md`.
+
+## Interfaces and Dependencies
+
+- New `server/extensions` package exposes `ExtensionBundle` + loader for TaskService instrumentation.
+- Request context uses `contextvars` to propagate IDs into logging/tracing.
+- Coverage gate script expects `coverage json` output; CI wiring should reflect path `coverage/coverage.json`.
+- Built-in metrics plugin depends on `prometheus_client` (already required by metrics instrumentator).

@@ -6,7 +6,7 @@ import pytest
 
 from server.app import PLAN_BROADCASTER, PlanBroadcastPayload
 
-# TODO - Add tests that simulate slow websocket consumers to verify broadcaster
+# TODO(P2, 4d) - Add tests that simulate slow websocket consumers to verify broadcaster
 # backpressure handling.
 
 

@@ -1,33 +1,58 @@
+
 PYTHON?=python3
 API_BASE?=http://localhost:8000
 PLAN_FILE?=.agent/PLANS.md
 PLAN_REMOTE_PATH?=docs/PLANS.md
+VENV?=.venv
+ACTIVATE=. $(VENV)/bin/activate &&
 
-.PHONY: setup run test openapi publish-plan docker-up lint fmt typecheck security qa
+.PHONY: setup venv run test openapi publish-plan docker-up lint fmt typecheck security qa coverage dev-bootstrap release-bump
 
-setup:
-	$(PYTHON) -m venv .venv
-	. .venv/bin/activate && pip install -r server/requirements-dev.txt
+$(VENV)/.bootstrapped: server/requirements-dev.txt
+	@if [ ! -d "$(VENV)" ]; then \
+		$(PYTHON) -m venv $(VENV); \
+	fi
+	$(VENV)/bin/pip install -r server/requirements-dev.txt
+	touch $@
 
-run:
-	. .venv/bin/activate && uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
+venv: $(VENV)/.bootstrapped
 
-test:
-	. .venv/bin/activate && pytest server/tests
+setup: venv
 
-lint:
-	. .venv/bin/activate && ruff check .
+run: venv
+	$(ACTIVATE) uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
 
-fmt:
-	. .venv/bin/activate && black server client/python
+test: venv
+	$(ACTIVATE) pytest server/tests
 
-typecheck:
-	. .venv/bin/activate && mypy --strict server/file_store.py client/python/switchboard_client.py
+lint: venv
+	$(ACTIVATE) ruff check .
 
-security:
-	. .venv/bin/activate && bandit -q -r server
+fmt: venv
+	$(ACTIVATE) black server client/python
 
-qa: fmt lint typecheck test security
+typecheck: venv
+	$(ACTIVATE) mypy --strict server/file_store.py client/python/switchboard_client.py
+
+security: venv
+	$(ACTIVATE) bandit -q -r server
+
+coverage: venv
+	mkdir -p reports
+	$(ACTIVATE) pytest --cov=server/extensions --cov=server/application/task_service.py --cov-report=term-missing --cov-report=json:reports/coverage.json
+	$(ACTIVATE) python scripts/dev.py coverage-gate --json reports/coverage.json \
+		--module server/extensions/interfaces.py=85 \
+		--module server/extensions/loader.py=85 \
+		--module server/extensions/runtime.py=85 \
+		--module server/extensions/builtin/task_metrics.py=85
+
+qa: fmt lint typecheck test security coverage
+
+dev-bootstrap:
+	$(PYTHON) scripts/dev.py bootstrap --venv $(VENV)
+
+release-bump:
+	$(PYTHON) scripts/dev.py bump-version --part=patch
 
 openapi:
 	curl -s $(API_BASE)/openapi.json | jq '.'

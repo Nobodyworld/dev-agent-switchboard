@@ -16,7 +16,7 @@ def test_health_live_returns_process_check():
     assert payload["version"] == app.version
 
 
-def test_health_ready_reports_dependencies(monkeypatch):
+def test_health_ready_reports_dependencies():
     client = TestClient(app)
     response = client.get("/health/ready")
     assert response.status_code == HTTPStatus.OK
@@ -27,7 +27,7 @@ def test_health_ready_reports_dependencies(monkeypatch):
     assert payload["version"] == app.version
 
 
-def test_health_ready_returns_503_when_storage_fails(monkeypatch):
+def test_health_ready_returns_503_when_storage_fails():
     client = TestClient(app)
     with patch("server.app.ensure_root", side_effect=Exception("boom")):
         response = client.get("/health/ready")

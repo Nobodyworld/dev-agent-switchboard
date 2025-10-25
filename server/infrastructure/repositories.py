@@ -7,23 +7,51 @@ from collections.abc import Iterable, Sequence
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..domain.entities import Agent, LeaseRecord, PlanVersionSnapshot, TaskRecord
-from ..domain.repositories import (
+from server.domain.entities import (
+    Agent,
+    LeaseRecord,
+    PlanVersionSnapshot,
+    SystemState,
+    TaskRecord,
+)
+from server.domain.repositories import (
     AgentRepository,
     LeaseRepository,
     PlanVersionRepository,
+    SystemStateRepository,
     TaskRepository,
 )
-from ..domain.task_status import TaskStatus
-from ..models import Agent as AgentModel, Lease as LeaseModel, PlanVersion, Task, TaskDependency
-from ..time_utils import utcnow_naive
+from server.domain.task_status import TaskStatus
+from server.models import (
+    Agent as AgentModel,
+    Lease as LeaseModel,
+    PlanVersion,
+    SystemState as SystemStateModel,
+    Task,
+    TaskDependency,
+)
+from server.time_utils import utcnow_naive
 
 __all__ = [
     "SqlAlchemyAgentRepository",
-    "SqlAlchemyTaskRepository",
     "SqlAlchemyLeaseRepository",
     "SqlAlchemyPlanVersionRepository",
+    "SqlAlchemySystemStateRepository",
+    "SqlAlchemyTaskRepository",
+    "SystemStateConcurrencyError",
 ]
+
+
+class SystemStateConcurrencyError(RuntimeError):
+    """Raised when attempting to update system state with a stale version."""
+
+    def __init__(self, *, expected: int | None, actual: int | None) -> None:
+        self.expected = expected
+        self.actual = actual
+        message = "system state update conflict"
+        if expected is not None:
+            message += f" (expected {expected}, actual {actual})"
+        super().__init__(message)
 
 
 class SqlAlchemyAgentRepository(AgentRepository):
@@ -99,7 +127,7 @@ class SqlAlchemyTaskRepository(TaskRepository):
         instance = Task(title=title, description=description)
         self._session.add(instance)
         await self._session.flush()
-        normalized = tuple(sorted({dep for dep in depends_on}))
+        normalized = tuple(sorted(set(depends_on)))
         for dep_id in normalized:
             self._session.add(
                 TaskDependency(task_id=instance.id, depends_on_task_id=dep_id)
@@ -107,7 +135,7 @@ class SqlAlchemyTaskRepository(TaskRepository):
         await self._session.flush()
         return self._to_record(instance, normalized)
 
-    async def update(
+    async def update(  # noqa: PLR0913 - repository update allows optional field overrides
         self,
         task_id: int,
         *,
@@ -132,7 +160,7 @@ class SqlAlchemyTaskRepository(TaskRepository):
             await self._session.execute(
                 delete(TaskDependency).where(TaskDependency.task_id == task_id)
             )
-            normalized = tuple(sorted({dep for dep in depends_on}))
+            normalized = tuple(sorted(set(depends_on)))
             for dep_id in normalized:
                 self._session.add(
                     TaskDependency(task_id=task_id, depends_on_task_id=dep_id)
@@ -172,7 +200,7 @@ class SqlAlchemyTaskRepository(TaskRepository):
         return all(TaskStatus(row[0]) == TaskStatus.COMPLETED for row in rows)
 
     async def existing_ids(self, task_ids: Iterable[int]) -> set[int]:
-        ids = {task_id for task_id in task_ids}
+        ids = set(task_ids)
         if not ids:
             return set()
         rows = (
@@ -227,8 +255,20 @@ class SqlAlchemyLeaseRepository(LeaseRepository):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def expire_stale(self, *, now: dt.datetime) -> None:
-        await self._session.execute(delete(LeaseModel).where(LeaseModel.expires_at < now))
+    async def expire_stale(self, *, now: dt.datetime) -> tuple[int, ...]:
+        expired_ids = [
+            row[0]
+            for row in (
+                await self._session.execute(
+                    select(LeaseModel.task_id).where(LeaseModel.expires_at < now)
+                )
+            ).all()
+        ]
+        if expired_ids:
+            await self._session.execute(
+                delete(LeaseModel).where(LeaseModel.task_id.in_(expired_ids))
+            )
+        return tuple(expired_ids)
 
     async def for_task(self, task_id: int) -> LeaseRecord | None:
         row = (
@@ -273,7 +313,9 @@ class SqlAlchemyLeaseRepository(LeaseRepository):
         )
 
     async def delete(self, task_id: int) -> None:
-        await self._session.execute(delete(LeaseModel).where(LeaseModel.task_id == task_id))
+        await self._session.execute(
+            delete(LeaseModel).where(LeaseModel.task_id == task_id)
+        )
 
 
 class SqlAlchemyPlanVersionRepository(PlanVersionRepository):
@@ -316,3 +358,58 @@ class SqlAlchemyPlanVersionRepository(PlanVersionRepository):
             self._session.add(row)
             await self._session.flush()
         return row
+
+
+class SqlAlchemySystemStateRepository(SystemStateRepository):
+    """Persist global system state and ensure a singleton row exists."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_state(self) -> SystemState:
+        row = await self._ensure_row()
+        return self._to_entity(row)
+
+    async def update_state(
+        self,
+        *,
+        maintenance_mode: bool,
+        message: str | None,
+        expected_version: int | None,
+    ) -> SystemState:
+        row = await self._ensure_row(for_update=True)
+        if expected_version is not None and row.version != expected_version:
+            raise SystemStateConcurrencyError(
+                expected=expected_version, actual=row.version
+            )
+        row.maintenance_mode = bool(maintenance_mode)
+        row.message = message or None
+        row.version = (row.version or 0) + 1
+        row.updated_at = utcnow_naive()
+        await self._session.merge(row)
+        await self._session.flush()
+        return self._to_entity(row)
+
+    async def _ensure_row(
+        self, *, for_update: bool = False
+    ) -> SystemStateModel:
+        stmt = select(SystemStateModel)
+        if for_update:
+            stmt = stmt.with_for_update()
+        result = await self._session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if row is None:
+            row = SystemStateModel(maintenance_mode=False, message=None, version=0)
+            self._session.add(row)
+            await self._session.flush()
+            if for_update:
+                await self._session.refresh(row, with_for_update=True)
+        return row
+
+    def _to_entity(self, row: SystemStateModel) -> SystemState:
+        return SystemState(
+            maintenance_mode=bool(row.maintenance_mode),
+            message=row.message,
+            updated_at=row.updated_at,
+            version=row.version,
+        )
