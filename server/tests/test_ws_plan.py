@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -42,6 +44,10 @@ async def test_ws_plan_receives_snapshot_and_updates():
             assert len(update["plan"]["tasks"]) == 1
             assert update["plan"]["tasks"][0]["title"] == "ws-task"
 
+        for _ in range(5):
+            if PLAN_BROADCASTER.connection_count() == 0:
+                break
+            await asyncio.sleep(0)
         assert PLAN_BROADCASTER.connection_count() == 0
 
 
@@ -59,4 +65,8 @@ async def test_broadcast_plan_can_include_delta_payload():
             assert message["version"] == TEST_PLAN_VERSION
             assert message["delta"] == delta
 
+        for _ in range(5):
+            if PLAN_BROADCASTER.connection_count() == 0:
+                break
+            await asyncio.sleep(0)
         assert PLAN_BROADCASTER.connection_count() == 0

@@ -165,6 +165,12 @@ class HealthStatus(StatusResponse):
 
     checks: dict[str, bool] = Field(default_factory=dict)
     version: Optional[str] = None
+    started_at: Optional[dt.datetime] = None
+    uptime_seconds: Optional[float] = Field(default=None, ge=0)
+    environment: Optional[str] = None
+    commit_sha: Optional[str] = None
+    pid: Optional[int] = Field(default=None, ge=0)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class SettingsResponse(BaseModel):

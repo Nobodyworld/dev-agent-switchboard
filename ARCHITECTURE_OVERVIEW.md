@@ -57,6 +57,8 @@
 - **`server/instrumentation/`** – Optional logging, metrics, and tracing
   helpers. Metrics now work in concert with the extension hooks so Prometheus
   counters reflect lifecycle events.
+- **`server/observability/`** – Lightweight runtime metadata helpers powering
+  health endpoints and future diagnostics surfaces.
 - **`scripts/dev.py`** – Developer CLI for bootstrapping, coverage enforcement,
   and version bump automation.
 
@@ -66,9 +68,9 @@
    injects `X-Request-ID` headers and logging context.
 2. Builtin extensions register Prometheus counters. When `TaskService`
    transitions a task, the metrics hook increments labeled counters.
-3. Health endpoints (`/health/live`, `/health/ready`) include service version and
-   storage/database status. The incident response guide explains how to react to
-   failures and what telemetry to capture.
+3. Health endpoints (`/health/live`, `/health/ready`) include service version,
+   uptime, start timestamp, and storage/database status. The incident response
+   guide explains how to react to failures and what telemetry to capture.
 4. CI's coverage job produces `reports/coverage.json` and gates critical
    modules at ≥85% coverage to keep the observability and extension layer
    trustworthy.

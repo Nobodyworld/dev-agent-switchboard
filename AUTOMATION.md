@@ -35,6 +35,10 @@ with Switchboard safely and consistently.
   required thresholds. CI runs the same command to guard critical modules.
 - `scripts/dev.py bump-version` – Update runtime version metadata and create new
   changelog/release note stubs.
+- Runtime metadata can be extended via
+  `server.observability.runtime.register_runtime_metadata()`
+  (`# agent-entrypoint`) so deployments annotate health responses with rollout
+  details that downstream monitors can read.
 - `Makefile` targets:
   - `make qa` runs lint, typecheck, tests, security scan, and coverage gate.
   - `make coverage` mirrors the CI coverage job and writes `reports/coverage.json`.
@@ -58,3 +62,6 @@ with Switchboard safely and consistently.
   rationale and expected observability impact in `RELEASE_NOTES.md`.
 - **Do** attach the `X-Request-ID` header when making follow-up calls related to
   a failure so logs can be correlated quickly.
+- **Do** call `server.app.broadcast_plan()` (`# agent-safe-task`) after
+  automation mutates plan state so connected clients receive consistent
+  snapshots.

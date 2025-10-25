@@ -14,6 +14,9 @@ def test_health_live_returns_process_check():
     assert payload["ok"] is True
     assert payload["checks"] == {"process": True}
     assert payload["version"] == app.version
+    assert "started_at" in payload
+    assert payload["uptime_seconds"] >= 0
+    assert payload["pid"] > 0
 
 
 def test_health_ready_reports_dependencies():
@@ -25,6 +28,9 @@ def test_health_ready_reports_dependencies():
     assert payload["checks"]["database"] is True
     assert payload["checks"]["storage"] is True
     assert payload["version"] == app.version
+    assert "started_at" in payload
+    assert payload["uptime_seconds"] >= 0
+    assert payload["pid"] > 0
 
 
 def test_health_ready_returns_503_when_storage_fails():
@@ -35,3 +41,4 @@ def test_health_ready_returns_503_when_storage_fails():
     payload = response.json()
     assert payload["ok"] is False
     assert payload["checks"]["storage"] is False
+    assert payload["uptime_seconds"] >= 0

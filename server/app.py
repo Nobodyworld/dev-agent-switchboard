@@ -61,6 +61,7 @@ from .instrumentation import (
     setup_metrics,
     setup_tracing,
 )
+from .observability import get_runtime_snapshot
 from .middleware import RateLimitMiddleware
 from .schema import (
     AgentIn,
@@ -466,6 +467,8 @@ async def broadcast_plan(  # noqa: PLR0913 - broadcast requires optional collabo
                 include_plan=include_plan,
                 plan=plan,
             )
+            # agent-safe-task: safe for automation-triggered broadcasts after
+            # plan mutations; respects send timeouts and prunes stale sockets.
             payload: PlanBroadcastPayload = {"type": "plan_version"}
             if resolved_version is not None:
                 payload["version"] = resolved_version
@@ -484,6 +487,8 @@ async def broadcast_plan(  # noqa: PLR0913 - broadcast requires optional collabo
         plan=plan,
     )
 
+    # agent-safe-task: same guarantee when a TaskService instance is provided by
+    # automation workflows.
     payload: PlanBroadcastPayload = {"type": "plan_version"}
     if resolved_version is not None:
         payload["version"] = resolved_version
@@ -902,7 +907,10 @@ async def health_live() -> dict[str, object]:
         Serialized :class:`HealthStatus` payload indicating process health.
     """
 
-    return {"ok": True, "checks": {"process": True}, "version": app.version}
+    snapshot = get_runtime_snapshot(version=app.version)
+    payload: dict[str, object] = {"ok": True, "checks": {"process": True}}
+    payload.update(snapshot.model_dump())
+    return payload
 
 
 @app.get("/health/ready", response_model=HealthStatus)
@@ -937,7 +945,9 @@ async def health_ready(session: AsyncSession = Depends(get_session)):
         checks["storage"] = False
         overall_ok = False
 
-    payload = {"ok": overall_ok, "checks": checks, "version": app.version}
+    snapshot = get_runtime_snapshot(version=app.version)
+    payload: dict[str, object] = {"ok": overall_ok, "checks": checks}
+    payload.update(snapshot.model_dump())
     if not overall_ok:
         return JSONResponse(status_code=503, content=payload)
     return payload
