@@ -1042,3 +1042,106 @@ Key areas to touch:
 - Request context uses `contextvars` to propagate IDs into logging/tracing.
 - Coverage gate script expects `coverage json` output; CI wiring should reflect path `coverage/coverage.json`.
 - Built-in metrics plugin depends on `prometheus_client` (already required by metrics instrumentator).
+
+# Runtime observability enrichment
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`,
+`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
+proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in
+accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Elevate the runtime health surface area by tracking process metadata (uptime,
+start timestamps, deployment identifiers) and surfacing it via health probes so
+operators and agents can quickly diagnose issues. Introduce a reusable
+observability helper that other components (e.g., CLI tooling, diagnostics
+endpoints) can consume when presenting runtime context.
+
+## Progress
+
+- [x] Initial scope captured and plan drafted.
+- [x] Runtime snapshot helper implemented with tests.
+- [x] Health endpoints enriched with runtime metadata and validated.
+- [x] Documentation and release notes updated to describe the new insight.
+
+## Surprises & Discoveries
+
+- Observation: FastAPI happily serializes timezone-aware datetimes from plain
+  dict responses, so additional JSON encoding helpers were unnecessary.
+  Evidence: Updated health endpoint tests inspect ISO 8601 strings without
+  bespoke encoders.
+
+## Decision Log
+
+- Decision: Keep runtime metadata lightweight and environment-driven by
+  favouring optional env vars (`SWITCHBOARD_ENVIRONMENT`, `SWITCHBOARD_COMMIT_SHA`)
+  plus an imperative `register_runtime_metadata` hook.
+  Rationale: Avoids coupling to git repositories at runtime while still letting
+  deployers surface release identifiers or region hints programmatically.
+  Date/Author: 2025-01-07 / gpt-5-codex
+
+## Outcomes & Retrospective
+
+- Health endpoints now expose uptime, start time, PID, and deployment metadata
+  without breaking existing probes, improving triage for operators and agents.
+- The dedicated `server/observability/runtime.py` helper centralises runtime
+  metadata logic and adds unit coverage for the new surface area.
+
+## Context and Orientation
+
+- `server/app.py` defines the FastAPI application and health endpoints.
+- `server/schema.py` hosts Pydantic models for API responses.
+- `server/tests/test_health.py` verifies health endpoint behaviors.
+- `server` lacks a dedicated runtime metadata helper; new module will live under
+  `server/observability/`.
+
+## Plan of Work
+
+1. Create `server/observability/runtime.py` exposing a `RuntimeSnapshot` value
+   object, `register_runtime_metadata`, and `get_runtime_snapshot` helpers.
+2. Extend `HealthStatus` schema to include runtime metadata fields (uptime,
+   start timestamp, environment, commit SHA) with appropriate typing.
+3. Update health endpoints to merge runtime metadata into responses while
+   preserving existing structure and status semantics.
+4. Add focused tests covering the runtime helper and the enriched health payload
+   plus documentation + changelog updates for operators.
+
+## Concrete Steps
+
+1. Author the new observability module and its registration helpers with
+   timezone-aware timestamps and process metadata.
+2. Modify `server/schema.py` and `server/app.py` to leverage the snapshot helper
+   and return enriched health responses.
+3. Write unit tests for the helper (`server/tests/test_observability_runtime.py`)
+   and adjust health endpoint tests for the additional metadata.
+4. Document the feature in `ARCHITECTURE_OVERVIEW.md`, `CHANGELOG.md`, and
+   `RELEASE_NOTES.md`; run `pytest` to validate the suite.
+
+## Validation and Acceptance
+
+- `pytest` succeeds with the new observability tests in place.
+- `/health/live` and `/health/ready` include runtime metadata without breaking
+  existing consumers (structure remains JSON with `ok`, `checks`, `version`).
+- Operators gain documented guidance on interpreting the additional fields.
+
+## Idempotence and Recovery
+
+- Runtime snapshot helper caches startup metadata; repeated imports are safe and
+  deterministic.
+- Health endpoint changes are additive, so reverting simply removes the
+  supplemental metadata without impacting core behavior.
+
+## Artifacts and Notes
+
+- `pytest` validates the new observability unit tests and the updated health
+  expectations.
+
+## Interfaces and Dependencies
+
+- Health endpoints rely on `get_runtime_snapshot` but degrade gracefully if
+  optional metadata environment variables are absent.
+- New observability module depends only on the standard library to remain
+  lightweight.

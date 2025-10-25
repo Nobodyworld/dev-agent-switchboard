@@ -22,6 +22,9 @@
 - New developer CLI `scripts/dev.py` replaces ad-hoc release tooling; automation should call `python scripts/dev.py bump-version` when preparing a tagged release.
 - Reloading extension settings now refreshes the runtime bundle so disabling builtin plugins or swapping modules is immediately
   reflected by `/api/settings` responses and broadcast metadata.
+- `/health/live` and `/health/ready` now surface uptime, start timestamps, and
+  deployment identifiers to aid incident response without changing success
+  criteria.
 
 ## Testing
 - `pytest -q`

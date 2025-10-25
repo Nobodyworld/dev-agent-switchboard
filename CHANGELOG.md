@@ -9,6 +9,8 @@
   builtin toggle, registered descriptors) for operators and agents.
 - Developer CLI `scripts/dev.py` providing `bootstrap`, `coverage-gate`, and
   `bump-version` subcommands used by the Makefile and CI pipeline.
+- `server/observability/runtime.py` captures process uptime, deployment
+  metadata, and powers enriched health responses.
 - Architecture, automation, and incident response documentation (`ARCHITECTURE_OVERVIEW.md`,
   `AUTOMATION.md`, `docs/incident-response.md`).
 - Extension loader regression tests exercise explicit module loading,
@@ -27,6 +29,8 @@
 ### Changed
 - `TaskService` emits lifecycle events to extension bundles so plugins can react
   to checkouts, completions, and task mutations without altering core logic.
+- Health endpoints now include uptime, start timestamps, and process metadata to
+  simplify diagnostics without breaking existing probes.
 - CI adds a dedicated coverage job enforcing ≥85% coverage on the extension
   modules via `scripts/dev.py coverage-gate` (mirrored by `make coverage`).
 - Makefile quality targets bootstrap a project-local virtual environment before
