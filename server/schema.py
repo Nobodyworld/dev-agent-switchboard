@@ -35,6 +35,7 @@ __all__ = [
     "StatusResponse",
     "SystemStateOut",
     "SystemStateUpdateIn",
+    "TaskAnalyticsOut",
     "TaskIn",
     "TaskOut",
     "TaskStatus",
@@ -90,6 +91,23 @@ class TaskOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class TaskAnalyticsOut(BaseModel):
+    total_tasks: int = Field(ge=0)
+    pending_tasks: int = Field(ge=0)
+    in_progress_tasks: int = Field(ge=0)
+    completed_tasks: int = Field(ge=0)
+    ready_tasks: int = Field(ge=0)
+    blocked_tasks: int = Field(ge=0)
+    with_dependencies: int = Field(ge=0)
+    without_dependencies: int = Field(ge=0)
+    dependency_edges: int = Field(ge=0)
+    missing_dependency_tasks: int = Field(ge=0)
+    missing_dependency_edges: int = Field(ge=0)
+    average_dependencies: float = Field(ge=0)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class CheckoutFailureReason(str, Enum):
     NO_AVAILABLE_TASKS = "no_available_tasks"
     TASK_NOT_FOUND = "task_not_found"
@@ -131,7 +149,7 @@ class ExtensionSettingsOut(BaseModel):
     )
     registered: list[ExtensionDescriptorOut] = Field(default_factory=list)
     contract_version: str = Field(
-        default="2025.1",
+        default="2025.2",
         description="Version of the extension API contract exposed by the runtime.",
     )
     contract_notes: list[str] = Field(

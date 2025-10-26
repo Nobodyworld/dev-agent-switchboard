@@ -301,6 +301,12 @@ class SwitchboardClient:
         response = self._request("get", "/api/system-state")
         return cast(dict[str, Any], response.json())
 
+    def get_task_analytics(self) -> dict[str, Any]:
+        """Return aggregated analytics about task flow and dependencies."""
+
+        response = self._request("get", "/api/tasks/analytics")
+        return cast(dict[str, Any], response.json())
+
     def set_system_state(
         self,
         maintenance_mode: bool,

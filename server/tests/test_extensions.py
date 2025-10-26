@@ -7,6 +7,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from server.app import broadcast_plan
 from server.application import build_task_service
 from server.db import AsyncSessionLocal
 from server.domain import Agent
@@ -15,7 +16,7 @@ from server.extensions import (
     loader as extension_loader,
     set_extension_bundle,
 )
-from server.extensions.builtin import task_metrics, webhook_notifier
+from server.extensions.builtin import plan_metrics, task_metrics, webhook_notifier
 from server.extensions.interfaces import (
     ExtensionDescriptor,
     ExtensionLoadError,
@@ -23,6 +24,11 @@ from server.extensions.interfaces import (
 )
 from server.extensions.loader import load_extension_bundle
 from server.settings import reload_extension_settings
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
 
 
 class RecordingHook:
@@ -183,6 +189,7 @@ def test_load_extension_bundle_skips_missing_modules(monkeypatch, caplog):
     bundle = load_extension_bundle()
     assert any("Unable to import extension module" in record.message for record in caplog.records)
     assert any(descriptor.name == "builtin.task_metrics" for descriptor in bundle.descriptors)
+    assert any(descriptor.name == "builtin.plan_metrics" for descriptor in bundle.descriptors)
 
 
 def test_extension_bundle_startup_hooks_execute():
@@ -284,3 +291,96 @@ async def test_extension_bundle_emit_awaits_coroutines():
     bundle = ExtensionBundle(task_hooks=(Hook(),))
     await bundle.emit("on_event", payload="value")
     assert calls == ["value"]
+
+
+class RecordingPlanObserver:
+    def __init__(self) -> None:
+        self.events: list[tuple[int | None, dict[str, Any] | None, Any | None]] = []
+
+    async def on_plan_broadcast(
+        self,
+        *,
+        version: int | None,
+        plan: dict[str, Any] | None,
+        delta: dict[str, Any] | None,
+        analytics: Any | None,
+    ) -> None:
+        self.events.append((version, plan, analytics))
+
+
+def test_extension_bundle_emits_plan_observers():
+    observer = RecordingPlanObserver()
+    bundle = ExtensionBundle(plan_observers=(observer,))
+    asyncio.run(
+        bundle.emit_plan_event(
+            "on_plan_broadcast",
+            version=5,
+            plan={"version": 5},
+            delta=None,
+            analytics=None,
+        )
+    )
+    assert observer.events == [(5, {"version": 5}, None)]
+
+
+@pytest.mark.anyio
+async def test_broadcast_plan_notifies_plan_observers(monkeypatch):
+    observer_calls: list[tuple[int | None, Any]] = []
+
+    class Observer:
+        async def on_plan_broadcast(
+            self,
+            *,
+            version: int | None,
+            plan: dict[str, Any] | None,
+            delta: dict[str, Any] | None,
+            analytics: Any | None,
+        ) -> None:
+            observer_calls.append((version, analytics))
+
+    observer_bundle = ExtensionBundle(plan_observers=(Observer(),))
+    previous_bundle = set_extension_bundle(observer_bundle)
+    try:
+        async with AsyncSessionLocal() as session:
+            service = build_task_service(session)
+            analytics_calls = 0
+
+            original_analytics = service.analytics
+
+            async def wrapped_analytics() -> Any:
+                nonlocal analytics_calls
+                analytics_calls += 1
+                return await original_analytics()
+
+            monkeypatch.setattr(service, "analytics", wrapped_analytics)
+
+            await broadcast_plan(service=service, include_plan=True)
+    finally:
+        set_extension_bundle(previous_bundle)
+
+    assert observer_calls, "plan observers should receive broadcast notifications"
+    assert analytics_calls == 1
+
+
+@pytest.mark.anyio
+async def test_plan_metrics_observer_handles_keyword_arguments(monkeypatch):
+    observer = plan_metrics.PlanMetricsObserver()
+    captured: dict[str, Any] = {}
+
+    def fake_record_task_analytics_metrics(*, analytics: Any) -> bool:
+        captured["analytics"] = analytics
+        return True
+
+    monkeypatch.setattr(
+        plan_metrics, "record_task_analytics_metrics", fake_record_task_analytics_metrics
+    )
+
+    sample_payload = {"ready": 2, "blocked": 1}
+    await observer.on_plan_broadcast(
+        version=7,
+        plan={"version": 7},
+        delta={"changes": []},
+        analytics=sample_payload,
+    )
+
+    assert captured["analytics"] is sample_payload

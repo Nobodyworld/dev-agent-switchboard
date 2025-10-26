@@ -48,9 +48,9 @@
 - **`server/app.py`** – FastAPI wiring that now initializes the extension
   runtime and surfaces configuration metadata via `/api/settings`.
 - **`server/extensions/`** – Modular extension loader, registry, and builtin
-  task metrics plugin. Hooks are dispatched from `TaskService` so operators can
-  attach automation (alerts, audit trails, custom sinks) without modifying core
-  code paths.
+  task + plan metrics plugins. Hooks are dispatched from `TaskService` and
+  plan broadcasts so operators can attach automation (alerts, analytics
+  exporters, audit trails, custom sinks) without modifying core code paths.
 - **`server/extensions/builtin/webhook_notifier.py`** – Reference builtin
   extension that posts lifecycle events to a configurable HTTP endpoint and
   documents the contract note surfaced via `/api/settings`.
@@ -59,7 +59,7 @@
   mutations.
 - **`server/instrumentation/`** – Optional logging, metrics, and tracing
   helpers. Metrics now work in concert with the extension hooks so Prometheus
-  counters reflect lifecycle events.
+  counters reflect lifecycle events and plan broadcasts.
 - **`server/observability/telemetry.py`** – Centralises instrumentation
   bootstrap, exposes `/api/observability/telemetry`, and annotates runtime
   metadata with logging/metrics/tracing status.
@@ -87,7 +87,8 @@
 - Startup: `initialize_extensions(app)` loads builtin and user-defined modules,
   registering optional FastAPI startup hooks.
 - Runtime: `TaskService` emits events (`on_checkout`, `on_complete`, etc.) to the
-  bundle. Hooks may perform async work such as logging, alerting, or fan-out.
+  bundle and `broadcast_plan` triggers plan observers. Hooks may perform async
+  work such as logging, alerting, analytics export, or fan-out.
 - Discovery: `/api/settings` now returns `extensions` metadata (configured
   modules, builtin toggle, registered descriptors) so operators and agents can
   inspect which plugins are active.
@@ -100,4 +101,6 @@
   `RELEASE_NOTES.md`, ensuring release automation stays in sync with the runtime
   version.
 - Observability components remain optional via environment toggles (e.g.,
-  `SWITCHBOARD_ENABLE_METRICS`, `SWITCHBOARD_ENABLE_BUILTIN_EXTENSIONS`).
+  `SWITCHBOARD_ENABLE_METRICS`, `SWITCHBOARD_ENABLE_BUILTIN_EXTENSIONS`), and
+  when enabled the builtin `plan_metrics` observer keeps Prometheus gauges in
+  sync with the latest task analytics.

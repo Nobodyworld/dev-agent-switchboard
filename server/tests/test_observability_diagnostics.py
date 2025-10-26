@@ -133,7 +133,7 @@ def test_read_diagnostics_endpoint_shapes_payload(monkeypatch):
                 config={"enabled": True},
             ),
         ),
-        contract=ExtensionContract(api_version="2025.1", notes=("beta",)),
+        contract=ExtensionContract(api_version="2025.2", notes=("beta",)),
     )
     fake_runtime = RuntimeSnapshot(
         started_at=generated_at,
@@ -195,5 +195,5 @@ def test_read_diagnostics_endpoint_shapes_payload(monkeypatch):
     assert payload["packages"][0]["name"] == "alpha"
     assert payload["warnings"] == ["demo warning"]
     assert payload["features"]["rate_limit_enabled"] is True
-    assert payload["settings"]["extensions"]["contract_version"] == "2025.1"
+    assert payload["settings"]["extensions"]["contract_version"] == "2025.2"
     assert payload["settings"]["extensions"]["contract_notes"] == ["beta"]

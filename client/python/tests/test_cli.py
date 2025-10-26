@@ -401,6 +401,70 @@ class MaintenanceCommandTests(TestCase):
             self.assertEqual(1, switchboard_cli.maintenance_command(args))
 
 
+class AnalyticsCommandTests(TestCase):
+    def test_stats_command_formats_table_output(self) -> None:
+        args = argparse.Namespace(base="http://example.test", agent="stats", json=False)
+        client = _make_context_client()
+        client.get_task_analytics.return_value = {
+            "total_tasks": 5,
+            "pending_tasks": 2,
+            "in_progress_tasks": 1,
+            "completed_tasks": 2,
+            "ready_tasks": 3,
+            "blocked_tasks": 1,
+            "with_dependencies": 2,
+            "without_dependencies": 3,
+            "dependency_edges": 4,
+            "average_dependencies": 0.8,
+            "missing_dependency_tasks": 0,
+            "missing_dependency_edges": 0,
+        }
+
+        with (
+            mock.patch("switchboard_cli.SwitchboardClient", return_value=client),
+            mock.patch("switchboard_cli.print") as printer,
+        ):
+            self.assertEqual(0, switchboard_cli.analytics_command(args))
+
+        client.get_task_analytics.assert_called_once()
+        rendered = "\n".join(str(call.args[0]) for call in printer.call_args_list)
+        self.assertIn("Total tasks", rendered)
+        self.assertIn("Blocked", rendered)
+
+    def test_stats_command_supports_json_output(self) -> None:
+        args = argparse.Namespace(base="http://example.test", agent="stats", json=True)
+        client = _make_context_client()
+        payload = {"total_tasks": 7, "ready_tasks": 4}
+        client.get_task_analytics.return_value = payload
+
+        with (
+            mock.patch("switchboard_cli.SwitchboardClient", return_value=client),
+            mock.patch("switchboard_cli.print") as printer,
+        ):
+            self.assertEqual(0, switchboard_cli.analytics_command(args))
+
+        printer.assert_called_once()
+        printed_payload = printer.call_args[0][0]
+        self.assertIn("\"total_tasks\"", printed_payload)
+        self.assertIn("\"ready_tasks\"", printed_payload)
+
+    def test_stats_command_handles_request_errors(self) -> None:
+        args = argparse.Namespace(base="http://example.test", agent="stats", json=False)
+
+        with (
+            mock.patch(
+                "switchboard_cli.SwitchboardClient",
+                side_effect=requests.RequestException("boom"),
+            ),
+            mock.patch("switchboard_cli.print") as printer,
+        ):
+            self.assertEqual(1, switchboard_cli.analytics_command(args))
+
+        printer.assert_called_with(
+            "Failed to fetch task analytics: boom", file=sys.stderr
+        )
+
+
 class LeaseExtractionTests(TestCase):
     def test_extracts_valid_duration(self) -> None:
         lease_seconds, warnings = switchboard_cli.extract_lease_duration(

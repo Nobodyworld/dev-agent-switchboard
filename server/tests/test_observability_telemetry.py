@@ -29,6 +29,8 @@ def test_bootstrap_observability_tracks_enabled_subsystems(monkeypatch):
     payload = telemetry.get_telemetry_report(app_version="1.2.3")
     assert payload["runtime"]["version"] == "1.2.3"
     assert payload["metrics"]["details"]["endpoint"].endswith("/metrics")
+    assert payload["metrics"]["details"]["plan_observers"] >= 1
+    assert "task_analytics" in payload["metrics"]["details"]
     assert payload["logging"]["warnings"] == []
 
 

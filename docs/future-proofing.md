@@ -28,7 +28,7 @@ integrations.
 
 ## Extension Contracts
 
-- `EXTENSION_API_VERSION` currently sits at **2025.1**. Increment this when
+- `EXTENSION_API_VERSION` currently sits at **2025.2**. Increment this when
   signature changes require partner action, and document compatibility notes via
   `registry.append_contract_note()` so `/api/settings` surfaces the delta.
 - The builtin `webhook_notifier` showcases the recommended contract:

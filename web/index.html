@@ -103,6 +103,20 @@
       </div>
     </section>
 
+    <section class="mb-8 p-4 bg-white rounded-xl shadow" aria-labelledby="analytics-heading">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 id="analytics-heading" class="text-xl font-semibold">Task Analytics</h2>
+          <p id="analyticsSummary" class="text-sm text-gray-600">Analytics have not been loaded yet.</p>
+          <p class="text-xs text-gray-400 hidden" id="analyticsUpdatedWrapper">Last updated <time id="analyticsUpdated" datetime=""></time></p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button id="refreshAnalytics" class="px-3 py-2 rounded bg-gray-800 text-white">Refresh</button>
+        </div>
+      </div>
+      <div id="analyticsCards" class="mt-4 analytics-grid" role="region" aria-live="polite"></div>
+    </section>
+
     <section class="mb-8 p-4 bg-white rounded-xl shadow">
       <h2 class="text-xl font-semibold mb-2">Create Task</h2>
       <form id="createTask" class="space-y-2">

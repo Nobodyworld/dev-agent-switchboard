@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
 
 from sqlalchemy import delete, or_, select
@@ -12,6 +12,7 @@ from server.domain.entities import (
     LeaseRecord,
     PlanVersionSnapshot,
     SystemState,
+    TaskAnalytics,
     TaskRecord,
 )
 from server.domain.repositories import (
@@ -207,6 +208,90 @@ class SqlAlchemyTaskRepository(TaskRepository):
             await self._session.execute(select(Task.id).where(Task.id.in_(ids)))
         ).all()
         return {row[0] for row in rows}
+
+    async def analytics(self) -> TaskAnalytics:
+        tasks = (await self._session.execute(select(Task))).scalars().all()
+        if not tasks:
+            return TaskAnalytics(
+                total_tasks=0,
+                pending_tasks=0,
+                in_progress_tasks=0,
+                completed_tasks=0,
+                ready_tasks=0,
+                blocked_tasks=0,
+                with_dependencies=0,
+                without_dependencies=0,
+                dependency_edges=0,
+                missing_dependency_tasks=0,
+                missing_dependency_edges=0,
+                average_dependencies=0.0,
+            )
+
+        dependency_map = await self._dependency_map(task.id for task in tasks)
+        status_counter: Counter[TaskStatus] = Counter()
+        status_lookup: dict[int, TaskStatus] = {}
+        for task in tasks:
+            status = task.status if isinstance(task.status, TaskStatus) else TaskStatus(task.status)
+            status_counter[status] += 1
+            status_lookup[task.id] = status
+
+        total_tasks = len(tasks)
+        with_dependencies = 0
+        dependency_edges = 0
+        missing_dependency_tasks = 0
+        missing_dependency_edges = 0
+        ready_tasks = 0
+        blocked_tasks = 0
+
+        for task in tasks:
+            dependencies = dependency_map.get(task.id, ())
+            if dependencies:
+                with_dependencies += 1
+                dependency_edges += len(dependencies)
+            if status_lookup[task.id] != TaskStatus.PENDING:
+                continue
+            if not dependencies:
+                ready_tasks += 1
+                continue
+            dependency_missing = False
+            all_completed = True
+            for dep_id in dependencies:
+                dep_status = status_lookup.get(dep_id)
+                if dep_status is None:
+                    dependency_missing = True
+                    missing_dependency_edges += 1
+                    all_completed = False
+                    continue
+                if dep_status != TaskStatus.COMPLETED:
+                    all_completed = False
+            if dependency_missing:
+                missing_dependency_tasks += 1
+            if all_completed:
+                ready_tasks += 1
+            else:
+                blocked_tasks += 1
+
+        without_dependencies = total_tasks - with_dependencies
+        average_dependencies = (
+            float(dependency_edges) / float(total_tasks)
+            if total_tasks
+            else 0.0
+        )
+
+        return TaskAnalytics(
+            total_tasks=total_tasks,
+            pending_tasks=status_counter.get(TaskStatus.PENDING, 0),
+            in_progress_tasks=status_counter.get(TaskStatus.IN_PROGRESS, 0),
+            completed_tasks=status_counter.get(TaskStatus.COMPLETED, 0),
+            ready_tasks=ready_tasks,
+            blocked_tasks=blocked_tasks,
+            with_dependencies=with_dependencies,
+            without_dependencies=without_dependencies,
+            dependency_edges=dependency_edges,
+            missing_dependency_tasks=missing_dependency_tasks,
+            missing_dependency_edges=missing_dependency_edges,
+            average_dependencies=average_dependencies,
+        )
 
     def _to_record(self, task: Task, depends_on: Iterable[int] = ()) -> TaskRecord:
         dependencies = tuple(sorted(depends_on))

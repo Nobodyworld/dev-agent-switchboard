@@ -146,7 +146,8 @@ jobs:
             --module server/extensions/interfaces.py=85 \
             --module server/extensions/loader.py=85 \
             --module server/extensions/runtime.py=85 \
-            --module server/extensions/builtin/task_metrics.py=85
+            --module server/extensions/builtin/task_metrics.py=85 \
+            --module server/extensions/builtin/plan_metrics.py=85
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4

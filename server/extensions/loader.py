@@ -44,10 +44,11 @@ def load_extension_bundle(
 
     if include_builtin:
         try:
-            from .builtin import task_metrics, webhook_notifier
+            from .builtin import plan_metrics, task_metrics, webhook_notifier
 
             task_metrics.register(registry)
             webhook_notifier.register(registry)
+            plan_metrics.register(registry)
         except Exception:  # pragma: no cover - builtin registration should succeed
             LOGGER.exception("Failed to register builtin extensions")
 

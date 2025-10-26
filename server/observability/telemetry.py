@@ -10,6 +10,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
+from server.extensions import get_extension_bundle
 from server.instrumentation import (
     configure_logging,
     setup_logging,
@@ -19,6 +20,7 @@ from server.instrumentation import (
 from server.instrumentation.logging import DEFAULT_REQUEST_ID_HEADER
 
 from .diagnostics import DiagnosticsReport, collect_diagnostics
+from .metrics import describe_task_metrics
 from .runtime import get_runtime_snapshot, register_runtime_metadata
 
 
@@ -108,6 +110,13 @@ def bootstrap_observability(app: FastAPI) -> TelemetryState:
     metrics_path = os.getenv("SWITCHBOARD_METRICS_PATH", "/metrics")
     metrics_enabled = setup_metrics(app, endpoint=metrics_path)
     metrics_configured = metrics_enabled and _truthy_env("SWITCHBOARD_ENABLE_METRICS")
+    bundle = get_extension_bundle()
+    plan_observer_count = len(bundle.plan_observers)
+    analytics_summary = describe_task_metrics()
+    last_updated = analytics_summary.get("last_updated_at")
+    if isinstance(last_updated, datetime):
+        analytics_summary = dict(analytics_summary)
+        analytics_summary["last_updated_at"] = last_updated.isoformat()
 
     tracing_enabled = setup_tracing(app)
     tracing_configured = tracing_enabled and _truthy_env("SWITCHBOARD_ENABLE_TRACING")
@@ -139,6 +148,8 @@ def bootstrap_observability(app: FastAPI) -> TelemetryState:
             details={
                 "endpoint": metrics_path,
                 "headers": dict(_parse_headers(os.getenv("SWITCHBOARD_METRICS_HEADERS"))),
+                "plan_observers": plan_observer_count,
+                "task_analytics": analytics_summary,
             },
             warnings=tuple(
                 warning
@@ -179,6 +190,8 @@ def bootstrap_observability(app: FastAPI) -> TelemetryState:
             "metrics": {
                 "enabled": state.metrics.enabled,
                 "endpoint": metrics_path if state.metrics.enabled else None,
+                "plan_observers": plan_observer_count,
+                "task_analytics_last_updated": analytics_summary.get("last_updated_at"),
             },
             "tracing": {
                 "enabled": state.tracing.enabled,
