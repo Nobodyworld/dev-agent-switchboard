@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import os
 import shutil
 import sys
@@ -30,6 +31,46 @@ def _reset_files() -> None:
     if os.path.exists(FILES_ROOT):
         shutil.rmtree(FILES_ROOT)
     ensure_root()
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers",
+        "asyncio: execute test coroutine via asyncio.run",
+    )
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_pyfunc_call(pyfuncitem: pytest.Function) -> bool | None:
+    """Execute ``@pytest.mark.asyncio`` tests with fixture arguments safely."""
+
+    if pyfuncitem.get_closest_marker("asyncio") is None:
+        return None
+
+    signature = inspect.signature(pyfuncitem.obj)
+    kwargs = {
+        name: pyfuncitem.funcargs[name]
+        for name in signature.parameters
+        if name in pyfuncitem.funcargs
+    }
+
+    missing_required = [
+        name
+        for name, parameter in signature.parameters.items()
+        if parameter.default is inspect._empty
+        and parameter.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+        and name not in kwargs
+    ]
+    if missing_required:
+        # Delegate back to pytest so it can surface a helpful error message.
+        return None
+
+    outcome = pyfuncitem.obj(**kwargs)
+    if not inspect.isawaitable(outcome):  # pragma: no cover - defensive guardrail
+        return None
+
+    asyncio.run(outcome)
+    return True
 
 
 @pytest.fixture(autouse=True)

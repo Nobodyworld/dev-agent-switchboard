@@ -14,6 +14,8 @@ Switchboard is a small, production‑leaning FastAPI service that:
 - Ships a lightweight admin UI with color-coded status badges and a friendly empty state so task filters always communicate what you're seeing.
 - Ships with **AGENTS.md** and a **.agent/PLANS.md** template aligned with the ExecPlan pattern.
 - Includes a **Python client** and a **local runner** for agent integrations alongside container packaging.
+- Surfaces a structured diagnostics snapshot (`/api/diagnostics`) and dashboard panel so operators can verify package versions, configuration, and feature toggles without leaving the app.
+- Exposes `/api/observability/telemetry` so operators and agents can check logging, metrics, tracing, and webhook status in one request.
 - Documents the full stack layout in [docs/architecture.md](docs/architecture.md) and the new [documentation hub](docs/index.md).
 
 ## Why
@@ -24,7 +26,7 @@ Switchboard is a small, production‑leaning FastAPI service that:
 
 ## How
 
-- **Router & Interfaces** – `server/app.py` and `server/interfaces.py` translate domain records from `TaskService` into immutable payloads returned by the API.
+- **Router & Schemas** – `server/app.py` and `server/schema.py` translate domain records from `TaskService` into immutable payloads returned by the API.
 - **Domain & Application Layers** – `server/domain/` defines immutable task and lease records, while `server/application/task_service.py` orchestrates lifecycle rules through repository interfaces.
 - **Infrastructure Adapters** – `server/infrastructure/repositories.py` implements the repository interfaces against SQLAlchemy models, batching dependency lookups so task checkout avoids N+1 queries.
 - **Health & Operations** – `/health/live` and `/health/ready` surface liveness and dependency status via the new `HealthStatus` schema; `docs/failure-modes.md` enumerates remediation steps.
@@ -97,6 +99,7 @@ Operators can trace how a request moves from CLI to FastAPI to persistence by re
 | `/health/live` | `GET` | Liveness probe returning the `HealthStatus` payload with `process` checks. |
 | `/health/ready` | `GET` | Readiness probe that validates database and storage access; returns HTTP 503 when dependencies fail. |
 | `/api/settings` | `GET` | Inspect rate limit and lease configuration (used by the CLI). |
+| `/api/diagnostics` | `GET` | Retrieve runtime metadata, package versions, feature toggles, and system state for operators and UI diagnostics. |
 | `/api/system-state` | `GET`, `PUT` | Inspect or toggle global maintenance mode. `PUT` requires the admin token when `SWITCHBOARD_ADMIN_TOKEN` is set. |
 | `/api/files/{path}` | `PUT` | Upload live documentation available under `/live/<path>`. |
 | `/ws/plan` | `GET` (WebSocket) | Stream plan version updates and deltas for UI/agent sync. |

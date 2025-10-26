@@ -2,53 +2,31 @@
 
 This reference documents the JSON contracts exchanged between agents, the
 dashboard, and the Switchboard orchestration router. Every structure is backed
-by the dataclasses in `server/interfaces.py` and the Pydantic models in
-`server/schema.py`.
+by the Pydantic models in `server/schema.py`.
 
-## TaskEnvelope
+## TaskOut
 
-A `TaskEnvelope` wraps the canonical payload returned during checkout and plan
-updates. It combines queue metadata, task details, and the active lease when one
-exists.
+`TaskOut` represents an immutable task payload returned by `/api/tasks`,
+`/api/tasks/{id}`, and successful checkouts:
 
 ```json
 {
-  "queue": {
-    "name": "default",
-    "kind": "task",
-    "metadata": {
-      "version": "v1"
-    }
-  },
-  "task": {
-    "id": 42,
-    "title": "Publish documentation",
-    "description": "Refresh message schema reference",
-    "status": "in_progress",
-    "depends_on": [21, 23],
-    "metadata": {
-      "updated_at": "2025-02-20T18:04:32.481Z"
-    }
-  },
-  "lease": {
-    "task_id": 42,
-    "agent_id": "docbot",
-    "issued_at": "2025-02-20T18:00:00Z",
-    "expires_at": "2025-02-20T18:20:00Z"
-  }
+  "id": 42,
+  "title": "Publish documentation",
+  "description": "Refresh message schema reference",
+  "status": "in_progress",
+  "completed_notes": null,
+  "depends_on": [21, 23]
 }
 ```
 
-- **queue** – `QueueDescriptor` containing a stable queue identifier and optional
-  metadata (version tags, affinity labels, etc.).
-- **task** – `TaskPayload` representing the work item. The `metadata` bag may
-  include `completed_notes`, `updated_at`, or future routing hints.
-- **lease** – `TaskLease` describing the active lease. Absent when the task is
-  not leased.
+- **status** – Enumerated value from `TaskStatus`.
+- **depends_on** – Ordered task identifiers representing prerequisites.
+- **completed_notes** – Persisted operator or agent notes (may be `null`).
 
-## CheckoutOutcome
+## CheckoutOut
 
-The `/api/tasks/checkout` endpoint returns a `CheckoutOutcome` serialized as:
+The `/api/tasks/checkout` endpoint returns a `CheckoutOut` payload:
 
 ```json
 {
@@ -57,23 +35,27 @@ The `/api/tasks/checkout` endpoint returns a `CheckoutOutcome` serialized as:
     "title": "Publish documentation",
     "description": "Refresh message schema reference",
     "status": "in_progress",
-    "depends_on": [21, 23],
-    "completed_notes": null
+    "completed_notes": null,
+    "depends_on": [21, 23]
   },
-  "reason": null
+  "reason": null,
+  "message": null
 }
 ```
 
-- **task** – Populated `TaskOut` structure when a lease is granted.
+- **task** – Populated `TaskOut` when a lease is granted; omitted when checkout
+  fails.
 - **reason** – Machine-readable failure code (`"no_available_tasks"`,
-  `"task_not_found"`, or `"task_not_available"`).
+  `"task_not_found"`, `"task_not_available"`, or `"maintenance_mode"`).
+- **message** – Optional human-readable explanation accompanying the failure
+  reason.
 
 Clients should persist `reason` (the Python SDK stores it on
 `SwitchboardClient.last_checkout_reason`) to inform backoff policies.
 
-## CompletionOutcome
+## CompleteResponse
 
-The `/api/tasks/{id}/complete` endpoint responds with:
+Completing a task responds with `CompleteResponse`:
 
 ```json
 {
@@ -85,12 +67,38 @@ The `/api/tasks/{id}/complete` endpoint responds with:
 - **ok** – Indicates whether the completion succeeded.
 - **notes** – Normalized completion notes persisted on the task (may be `null`).
 
-When completion succeeds, a fresh `TaskEnvelope` is emitted via the plan
-broadcast WebSocket containing the updated status and cleared lease.
+When completion succeeds, the WebSocket broadcaster emits a `plan_version`
+payload (see `PlanOut` below) containing the updated task list and version.
+
+## PlanOut
+
+Plan broadcasts and `GET /api/plan` share the `PlanOut` payload:
+
+```json
+{
+  "version": 17,
+  "updated_at": "2025-10-26T03:15:40.124720+00:00",
+  "tasks": [
+    {
+      "id": 42,
+      "title": "Publish documentation",
+      "description": "Refresh message schema reference",
+      "status": "in_progress",
+      "completed_notes": null,
+      "depends_on": [21, 23]
+    }
+  ]
+}
+```
+
+- **version** – Monotonically increasing integer indicating the latest plan
+  revision.
+- **updated_at** – UTC timestamp of the plan snapshot.
+- **tasks** – Array of `TaskOut` objects.
 
 ## HealthStatus
 
-Health probes share a consistent payload shape:
+Health probes share the `HealthStatus` payload:
 
 ```json
 {
@@ -100,7 +108,9 @@ Health probes share a consistent payload shape:
     "database": true,
     "storage": true
   },
-  "version": "0.1.0"
+  "version": "0.1.0",
+  "uptime_seconds": 23.4,
+  "started_at": "2025-10-26T02:45:19.120418+00:00"
 }
 ```
 
@@ -110,9 +120,46 @@ Health probes share a consistent payload shape:
   When any check fails the endpoint responds with HTTP 503 and `ok: false` while
   still emitting the body above.
 
+## TelemetryReportOut
+
+`/api/observability/telemetry` surfaces instrumentation posture via
+`TelemetryReportOut`:
+
+```json
+{
+  "logging": {
+    "enabled": true,
+    "notes": ["RequestIdMiddleware active"]
+  },
+  "metrics": {
+    "enabled": true,
+    "notes": ["Prometheus exporter registered"]
+  },
+  "tracing": {
+    "enabled": false,
+    "notes": []
+  },
+  "webhook": {
+    "enabled": true,
+    "notes": ["SWITCHBOARD_WEBHOOK_URL configured"]
+  },
+  "request_id_header": "X-Request-ID"
+}
+```
+
+- **logging/metrics/tracing/webhook** – `TelemetrySubsystemOut` structures with
+  `enabled` flags and explanatory notes.
+- **request_id_header** – Header downstream systems should propagate.
+
+## DiagnosticsReportOut
+
+`/api/diagnostics` returns `DiagnosticsReportOut` summarising package versions
+and runtime state. See the endpoint documentation for detailed fields; the
+payload is intentionally verbose to support operations automation.
+
 ## Agent Registration
 
-Agent registration is unchanged but included here for completeness:
+`POST /api/agents` returns an `AgentRegistrationResponse`:
 
 ```json
 {
@@ -121,6 +168,5 @@ Agent registration is unchanged but included here for completeness:
 }
 ```
 
-The `AgentDescriptor` introduced in `server/interfaces.py` ensures the
-`agent_id` is normalized before persistence, enabling future metadata (labels,
-capabilities) to be captured without breaking wire contracts.
+- **ok** – Always `true`.
+- **agent_id** – Canonical identifier used in checkout and heartbeat calls.

@@ -6,7 +6,7 @@ PLAN_REMOTE_PATH?=docs/PLANS.md
 VENV?=.venv
 ACTIVATE=. $(VENV)/bin/activate &&
 
-.PHONY: setup venv run test openapi publish-plan docker-up lint fmt typecheck security qa coverage dev-bootstrap release-bump
+.PHONY: setup venv run test openapi publish-plan docker-up lint fmt typecheck security qa coverage dev-bootstrap release-bump todo-check verify
 
 $(VENV)/.bootstrapped: server/requirements-dev.txt
 	@if [ ! -d "$(VENV)" ]; then \
@@ -35,18 +35,24 @@ typecheck: venv
 	$(ACTIVATE) mypy --strict server/file_store.py client/python/switchboard_client.py
 
 security: venv
-	$(ACTIVATE) bandit -q -r server
+        $(ACTIVATE) bandit -q -r server
+
+todo-check:
+        $(PYTHON) scripts/dev.py check-todos --root .
 
 coverage: venv
-	mkdir -p reports
-	$(ACTIVATE) pytest --cov=server/extensions --cov=server/application/task_service.py --cov-report=term-missing --cov-report=json:reports/coverage.json
-	$(ACTIVATE) python scripts/dev.py coverage-gate --json reports/coverage.json \
-		--module server/extensions/interfaces.py=85 \
-		--module server/extensions/loader.py=85 \
-		--module server/extensions/runtime.py=85 \
-		--module server/extensions/builtin/task_metrics.py=85
+        mkdir -p reports
+        $(ACTIVATE) pytest --cov=server/extensions --cov=server/application/task_service.py --cov-report=term-missing --cov-report=json:reports/coverage.json
+        $(ACTIVATE) python scripts/dev.py coverage-gate --json reports/coverage.json \
+                --module server/extensions/loader.py=85 \
+                --module server/extensions/runtime.py=85 \
+                --module server/extensions/builtin/task_metrics.py=85 \
+                --module server/observability/diagnostics.py=80
 
-qa: fmt lint typecheck test security coverage
+qa: fmt lint typecheck test security todo-check coverage
+
+verify: venv
+        $(ACTIVATE) python scripts/dev.py verify
 
 dev-bootstrap:
 	$(PYTHON) scripts/dev.py bootstrap --venv $(VENV)

@@ -41,7 +41,8 @@ Switchboard is intentionally modular:
 
 - **Router & API** – `server/app.py` exposes REST, WebSocket, and health
   endpoints. Queue orchestration occurs in `server/application/task_service.py`
-  backed by shared dataclasses in `server/domain/` and `server/interfaces.py`.
+  backed by domain records in `server/domain/` and the Pydantic schemas in
+  `server/schema.py`.
 - **Domain Logic** – `server/domain/` and `server/application/task_service.py` encapsulate task lifecycle rules,
   leases, and dependency evaluation.
 - **Client Toolkit** – `client/python/switchboard_client.py` and
@@ -57,11 +58,13 @@ component map of the updated extension pipeline.
 
 ## Message Schema
 
-The router exchanges structured payloads defined in `server/interfaces.py`. Key
+The router exchanges structured payloads defined in `server/schema.py`. Core
 structures include:
 
-- **TaskEnvelope** – wraps queue metadata, task payload, and active lease
-  details.
+- **TaskOut** – immutable task payload returned by `/api/tasks` and checkout
+  responses.
+- **PlanOut** – WebSocket broadcast payload capturing the current plan version
+  and serialized tasks.
 - **HealthStatus** – aggregates liveness and readiness checks with per-probe
   booleans.
 
@@ -124,6 +127,7 @@ Follow these steps to process a task locally:
 - [Extension Guide](../EXTENSION_GUIDE.md)
 - [Automation Handbook](../AUTOMATION.md)
 - [Incident Response Runbook](incident-response.md)
+- [Future-Proofing Guide](future-proofing.md)
 - [Dependency & License Audit](DEPENDENCIES.md)
 - [README](../README.md)
 - [CHANGELOG](../CHANGELOG.md)

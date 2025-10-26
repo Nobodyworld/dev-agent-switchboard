@@ -1,6 +1,7 @@
 import asyncio
 import sys
 from types import ModuleType, SimpleNamespace
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
@@ -14,8 +15,12 @@ from server.extensions import (
     loader as extension_loader,
     set_extension_bundle,
 )
-from server.extensions.builtin import task_metrics
-from server.extensions.interfaces import ExtensionDescriptor, ExtensionLoadError
+from server.extensions.builtin import task_metrics, webhook_notifier
+from server.extensions.interfaces import (
+    ExtensionDescriptor,
+    ExtensionLoadError,
+    ExtensionRegistry,
+)
 from server.extensions.loader import load_extension_bundle
 from server.settings import reload_extension_settings
 
@@ -115,6 +120,61 @@ def test_builtin_metrics_hook_increments_counters(monkeypatch):
         - before_complete.get("completed", 0.0)
     ) == pytest.approx(1.0)
     reload_extension_settings()
+
+
+def test_webhook_notifier_registers_and_emits(monkeypatch):
+    events: list[dict[str, Any]] = []
+
+    class DummyClient:
+        def __init__(self, timeout: float):
+            self.timeout = timeout
+
+        async def __aenter__(self):  # pragma: no cover - trivial context manager
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):  # pragma: no cover - trivial
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            events.append({"url": url, "json": json, "headers": headers})
+
+    monkeypatch.setenv(webhook_notifier.URL_ENV, "https://example.test/hook")
+    monkeypatch.setenv(webhook_notifier.EVENTS_ENV, "on_complete")
+    monkeypatch.setenv("SWITCHBOARD_ENABLE_BUILTIN_EXTENSIONS", "1")
+    monkeypatch.setattr(webhook_notifier.httpx, "AsyncClient", DummyClient)
+
+    registry = ExtensionRegistry()
+    webhook_notifier.register(registry)
+    bundle = registry.freeze()
+
+    assert any(
+        descriptor.name == "builtin.webhook_notifier" for descriptor in bundle.descriptors
+    )
+    assert any("Webhook notifier" in note for note in bundle.contract.notes)
+
+    hook = next((hook for hook in bundle.task_hooks if isinstance(hook, webhook_notifier.WebhookNotifier)), None)
+    assert hook is not None
+
+    asyncio.run(
+        hook.on_complete(
+            agent_id="agent-1",
+            result=SimpleNamespace(ok=True, task=SimpleNamespace(id=5)),
+        )
+    )
+
+    assert events
+    payload = events[0]["json"]
+    assert payload["event"] == "on_complete"
+    assert payload["data"]["task_id"] == 5
+
+
+def test_webhook_notifier_rejects_invalid_timeout(monkeypatch):
+    monkeypatch.setenv(webhook_notifier.URL_ENV, "https://example.test/hook")
+    monkeypatch.setenv(webhook_notifier.TIMEOUT_ENV, "invalid")
+
+    registry = ExtensionRegistry()
+    with pytest.raises(ExtensionLoadError):
+        webhook_notifier.register(registry)
 
 
 def test_load_extension_bundle_skips_missing_modules(monkeypatch, caplog):

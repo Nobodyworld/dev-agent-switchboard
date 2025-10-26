@@ -51,16 +51,20 @@
   task metrics plugin. Hooks are dispatched from `TaskService` so operators can
   attach automation (alerts, audit trails, custom sinks) without modifying core
   code paths.
+- **`server/extensions/builtin/webhook_notifier.py`** – Reference builtin
+  extension that posts lifecycle events to a configurable HTTP endpoint and
+  documents the contract note surfaced via `/api/settings`.
 - **`server/application/task_service.py`** – Coordinates task lifecycle and
   notifies registered extensions on checkout, completion, abandonment, and task
   mutations.
 - **`server/instrumentation/`** – Optional logging, metrics, and tracing
   helpers. Metrics now work in concert with the extension hooks so Prometheus
   counters reflect lifecycle events.
-- **`server/observability/`** – Lightweight runtime metadata helpers powering
-  health endpoints and future diagnostics surfaces.
+- **`server/observability/telemetry.py`** – Centralises instrumentation
+  bootstrap, exposes `/api/observability/telemetry`, and annotates runtime
+  metadata with logging/metrics/tracing status.
 - **`scripts/dev.py`** – Developer CLI for bootstrapping, coverage enforcement,
-  and version bump automation.
+  todo auditing, extension scaffolding, and version bump automation.
 
 ## Observability Flow
 
@@ -69,11 +73,14 @@
 2. Builtin extensions register Prometheus counters. When `TaskService`
    transitions a task, the metrics hook increments labeled counters.
 3. Health endpoints (`/health/live`, `/health/ready`) include service version,
-   uptime, start timestamp, and storage/database status. The incident response
-   guide explains how to react to failures and what telemetry to capture.
+   uptime, start timestamp, and storage/database status. `/api/observability/telemetry`
+   summarises whether logging, metrics, tracing, and builtin webhooks are active
+   so operators can correlate events quickly. The incident response guide
+   explains how to react to failures and what telemetry to capture.
 4. CI's coverage job produces `reports/coverage.json` and gates critical
-   modules at ≥85% coverage to keep the observability and extension layer
-   trustworthy.
+  modules at ≥85% coverage to keep the observability and extension layer
+  trustworthy. `scripts/audit_metrics.py` expands this with complexity and
+  dependency depth metrics for stewardship reviews.
 
 ## Extension Lifecycle
 

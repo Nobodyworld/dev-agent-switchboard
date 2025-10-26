@@ -33,6 +33,8 @@ This document summarizes the primary integration points for agents interacting w
 | `/api/tasks/{id}/abandon` | `POST` | Release the lease without completion so other agents can claim it. |
 | `/api/files/{path}` | `PUT` | Upload live documentation; the latest version is served at `/live/<path>`. |
 | `/api/settings` | `GET` | Inspect rate limit and lease configuration; used by the CLI to calibrate heartbeat cadence. |
+| `/api/diagnostics` | `GET` | Retrieve runtime metadata (Python version, packages, feature toggles, system state) for dashboards and operators. |
+| `/api/observability/telemetry` | `GET` | Summarise logging, metrics, tracing, and webhook enablement plus request ID header guidance. |
 
 ### End-to-End Agent Flow
 
@@ -85,6 +87,21 @@ The CLI automatically fetches lease settings, adjusts heartbeat cadence when nec
 ## Rate Limit Configuration
 
 The API enforces request rate limiting via `RateLimitMiddleware`. Environment variables listed in `.env.example` control behavior. Invalid numeric inputs raise a `RateLimitConfigurationError` during startup, making misconfiguration immediately visible in agent logs. Agents can inspect `/api/settings.rate_limit` to adapt their polling cadence when stricter limits are deployed.
+
+## Diagnostics Snapshot
+
+`GET /api/diagnostics` aggregates information that helps operators and automated agents confirm a deployment is healthy, while
+`GET /api/observability/telemetry` summarises instrumentation state at a glance:
+
+- `runtime` — process metadata (PID, uptime, deployment version, commit SHA).
+- `packages` — installed versions versus pinned requirements for core dependencies (FastAPI, SQLAlchemy, OpenTelemetry, etc.).
+- `settings` — the same lease, rate limit, and extension data exposed by `/api/settings`.
+- `features` — derived booleans for metrics, tracing, maintenance mode, and admin-token configuration.
+- `system_state` — the persisted maintenance flag and message.
+- `warnings` — any mismatched or missing packages detected when comparing to `server/requirements.txt`.
+- `telemetry.logging|metrics|tracing` — booleans and configuration details that show whether optional observability subsystems are active.
+
+The web dashboard surfaces this payload in the Diagnostics panel so humans can sanity-check upgrades without shell access. Agents may poll the endpoint to confirm optional dependencies before enabling instrumentation-heavy behaviors.
 
 ## Integration Tips
 

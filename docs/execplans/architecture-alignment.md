@@ -41,7 +41,7 @@ Clarify the server architecture by introducing explicit domain, application, and
 
 - `server/app.py` currently mixes HTTP concerns, persistence calls, and domain orchestration in a single module.
 - Legacy `server/task_logic.py` previously intertwined SQLAlchemy access with domain policies; the new structure relocates those concerns into `server/domain/` and `server/application/task_service.py`.
-- `server/interfaces.py` provides immutable dataclasses used across multiple layers but lacks separation between domain entities and transport payloads.
+- Transport payloads now rely on the Pydantic models in `server/schema.py`, removing the deprecated `server/interfaces.py` dataclasses that previously blurred domain and API concerns.
 - Tests under `server/tests/` focus on API behavior rather than layered components.
 
 ## Plan of Work

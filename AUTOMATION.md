@@ -27,14 +27,32 @@ with Switchboard safely and consistently.
 5. **Complete or Abandon** – Finish with `POST /api/tasks/{id}/complete` including
    `notes`, or `POST /api/tasks/{id}/abandon` if you cannot proceed.
 
+## Observability Signals
+
+- `GET /api/observability/telemetry` – Summarises whether logging, metrics, and
+  tracing are currently active and which request ID header to propagate. This is
+  the canonical way for agents to detect feature flags before emitting extra
+  headers or scraping `/metrics`.
+- `GET /api/diagnostics` – Rich runtime snapshot including extension contract
+  metadata and dependency status. Automation should cache this payload and
+  invalidate when `runtime.metadata.observability` changes.
+- `GET /metrics` – Prometheus endpoint if `SWITCHBOARD_ENABLE_METRICS=1`.
+
 ## Tooling
 
 - `scripts/dev.py bootstrap` – Provision a local environment (`.venv`) with all
   dev dependencies, including pre-commit hooks for formatting and security.
-- `scripts/dev.py coverage-gate` – Validate coverage JSON output against
-  required thresholds. CI runs the same command to guard critical modules.
+- `scripts/dev.py verify` – Run lint, type, test, security, and coverage gates in
+  one invocation (CI mirrors this pipeline).
+- `scripts/dev.py coverage-gate` – Validate coverage JSON output against required
+  thresholds.
+- `scripts/dev.py check-todos` – Ensure TODO/FIXME markers include priority and
+  effort metadata.
+- `scripts/dev.py scaffold-extension` – Generate a starter module pre-populated
+  with contract metadata and TODO placeholders.
 - `scripts/dev.py bump-version` – Update runtime version metadata and create new
   changelog/release note stubs.
+- `scripts/audit_metrics.py` – Produce coverage, cyclomatic complexity, and dependency depth summaries in `reports/system_metrics.json` for stewardship reporting.
 - Runtime metadata can be extended via
   `server.observability.runtime.register_runtime_metadata()`
   (`# agent-entrypoint`) so deployments annotate health responses with rollout
@@ -65,3 +83,6 @@ with Switchboard safely and consistently.
 - **Do** call `server.app.broadcast_plan()` (`# agent-safe-task`) after
   automation mutates plan state so connected clients receive consistent
   snapshots.
+- **Do** query `/api/observability/telemetry` during startup to determine
+  whether builtin webhook or metrics extensions are active before emitting
+  redundant alerts.

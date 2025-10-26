@@ -47,22 +47,29 @@ Our tooling enforces commit structure locally (via [`conventional-pre-commit`](h
 
 ## Quality Gates
 
-Before pushing, run the full quality suite:
+Before pushing, run the full quality suite via the new `verify` helper:
 
 ```bash
-make qa
+python scripts/dev.py verify
 ```
 
-This command executes formatting, linting, type checking, security scanning, and tests. Individual commands are also available:
+This command executes linting, type checking, Bandit, pip-audit, and the
+coverage suite (including `scripts/dev.py coverage-gate`). If you prefer Make
+targets, `make qa` now chains `fmt`, `lint`, `typecheck`, `test`,
+`security`, `todo-check`, and `coverage` to mirror CI.
+
+Individual commands remain available:
 
 - `make fmt` – Format Python code with Black and organize imports via Ruff.
 - `make lint` – Static analysis with Ruff and Prettier lint checks for web assets.
 - `make typecheck` – MyPy static type checking.
 - `make test` – Run the pytest suite.
-- `make security` – Bandit static analysis (CI additionally runs gitleaks for
-  repository-wide secret scanning).
+- `make security` – Bandit static analysis (CI additionally runs gitleaks and
+  `pip-audit` for supply-chain checks).
 - `make coverage` – Execute the coverage suite and enforce per-module thresholds
   via `scripts/dev.py coverage-gate`.
+- `make todo-check` – Validate that TODO/FIXME markers include priority and
+  effort metadata.
 
 The `pre-commit` configuration also runs
 [`detect-secrets`](https://github.com/Yelp/detect-secrets) against the
@@ -78,6 +85,14 @@ your PR description.
 - [ ] `pre-commit run --all-files` passes locally.
 - [ ] CI is green (lint, type, tests, docs, security, coverage).
 - [ ] Any configuration or migration changes include rollback instructions in the PR description.
+
+## TODOs & Follow-ups
+
+- Use the format `TODO(Px, <effort>)` or `FIXME(Px, <effort>)` so priority and
+  rough effort are obvious (e.g., `# TODO(P2, 2d) - backfill audit logs`).
+- Run `python scripts/dev.py check-todos` or `make todo-check` before
+  submission; CI enforces the same policy.
+- Link TODOs to issues where possible for traceability.
 
 ## Triaging Issues
 

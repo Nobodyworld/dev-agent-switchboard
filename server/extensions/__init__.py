@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .interfaces import (
+    EXTENSION_API_VERSION,
     ExtensionBundle,
     ExtensionDescriptor,
     ExtensionLoadError,
@@ -17,6 +18,7 @@ from .runtime import (
 )
 
 __all__ = [
+    "EXTENSION_API_VERSION",
     "ExtensionBundle",
     "ExtensionDescriptor",
     "ExtensionLoadError",

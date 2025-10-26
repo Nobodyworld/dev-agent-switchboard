@@ -9,9 +9,12 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
-from typing import Iterable
+from textwrap import dedent
+
+TODO_PATTERN = re.compile(r"\b(?:TODO|FIXME)\(P[1-3],\s*[^)]+\)")
 
 
 def _resolve_executable(bin_name: str, venv_path: Path) -> Path:
@@ -81,6 +84,127 @@ def cmd_coverage_gate(args: argparse.Namespace) -> None:
         module_path, _ = module_spec.split("=", 1)
         coverage = _extract_coverage(data, module_path) or 0.0
         print(f"  {module_path}: {coverage:.2f}%")
+
+
+def cmd_verify(args: argparse.Namespace) -> None:
+    """Run lint, type-check, security scan, and coverage gates sequentially."""
+
+    coverage_json = Path(args.coverage_json).resolve()
+    coverage_json.parent.mkdir(parents=True, exist_ok=True)
+
+    commands = [
+        ["ruff", "check", "."],
+        [
+            "mypy",
+            "--config-file",
+            "mypy.ini",
+            "server",
+            "client",
+            "scripts",
+        ],
+        ["bandit", "-q", "-r", "server"],
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "--cov=server/extensions",
+            "--cov=server/application/task_service.py",
+            "--cov-report=term-missing",
+            f"--cov-report=json:{coverage_json}",
+        ],
+    ]
+
+    for command in commands:
+        print(f"→ {' '.join(str(part) for part in command)}")
+        subprocess.check_call(command)
+
+    gate_args = argparse.Namespace(
+        json=str(coverage_json),
+        module=[
+            "server/extensions/loader.py=85",
+            "server/extensions/runtime.py=85",
+            "server/extensions/builtin/task_metrics.py=85",
+            "server/observability/diagnostics.py=80",
+        ],
+    )
+    cmd_coverage_gate(gate_args)
+
+    if not args.skip_audit:
+        print("→ pip-audit")
+        subprocess.check_call(["pip-audit", "--progress-spinner=off"])
+
+
+def cmd_check_todos(args: argparse.Namespace) -> None:
+    """Enforce priority/effort metadata on TODO and FIXME markers."""
+
+    root = Path(args.root).resolve()
+    violations: list[tuple[Path, int, str]] = []
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.suffix in {".pyc", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico"}:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if "TODO(" not in line and "FIXME(" not in line:
+                continue
+            stripped = line.lstrip()
+            if not stripped.startswith(("#", "//", "/*", "*", "<!--")):
+                continue
+            if TODO_PATTERN.search(line):
+                continue
+            violations.append((path, lineno, line.strip()))
+
+    if violations:
+        for path, lineno, line in violations:
+            print(f"{path}:{lineno}: TODO/FIXME missing priority/effort tag -> {line}")
+        raise SystemExit(1)
+
+    print("All TODO/FIXME annotations include priority and effort metadata.")
+
+
+def cmd_scaffold_extension(args: argparse.Namespace) -> None:
+    """Generate a starter extension module with contract metadata."""
+
+    directory = Path(args.directory).resolve()
+    directory.mkdir(parents=True, exist_ok=True)
+    module_path = directory / f"{args.name}.py"
+    if module_path.exists() and not args.force:
+        raise SystemExit(f"{module_path} already exists; pass --force to overwrite")
+
+    template = dedent(
+        """
+        \"\"\"Extension stub for `{name}`.\"\"\"
+
+        from __future__ import annotations
+
+        from server.extensions.interfaces import ExtensionDescriptor, ExtensionRegistry
+
+
+        def register_extension(registry: ExtensionRegistry) -> None:
+            \"\"\"Register the {name} extension with Switchboard.\"\"\"
+
+            registry.append_contract_note(
+                "{name} extension depends on deployment-specific configuration."
+            )
+            registry.register_extension(
+                ExtensionDescriptor(
+                    name="custom.{name}",
+                    capabilities=("sample",),
+                    version="0.1.0",
+                    description="Describe what this extension does.",
+                    config={{"enabled": False}},
+                )
+            )
+            # TODO(P3, 1d) - Implement lifecycle hooks for this extension.
+        """
+    ).format(name=args.name).strip()
+
+    module_path.write_text(template + "\n", encoding="utf-8")
+    print(f"Extension scaffold written to {module_path}")
 
 
 _VERSION_RE = re.compile(r'version="(?P<version>\d+\.\d+\.\d+)"')
@@ -177,6 +301,43 @@ def build_parser() -> argparse.ArgumentParser:
         help="Module coverage specification path=threshold",
     )
     coverage.set_defaults(func=cmd_coverage_gate)
+
+    verify = subparsers.add_parser(
+        "verify", help="Run lint, type-check, security, and coverage gates"
+    )
+    verify.add_argument(
+        "--coverage-json",
+        default="reports/coverage.json",
+        help="Path for coverage JSON report",
+    )
+    verify.add_argument(
+        "--skip-audit",
+        action="store_true",
+        help="Skip pip-audit execution",
+    )
+    verify.set_defaults(func=cmd_verify)
+
+    todos = subparsers.add_parser(
+        "check-todos", help="Ensure TODO/FIXME comments include priority metadata"
+    )
+    todos.add_argument("--root", default=".", help="Root directory to scan")
+    todos.set_defaults(func=cmd_check_todos)
+
+    scaffold = subparsers.add_parser(
+        "scaffold-extension", help="Generate a starter extension module"
+    )
+    scaffold.add_argument("name", help="Module name without file extension")
+    scaffold.add_argument(
+        "--directory",
+        default="server/extensions/community",
+        help="Directory for the generated module",
+    )
+    scaffold.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing module files",
+    )
+    scaffold.set_defaults(func=cmd_scaffold_extension)
 
     bump = subparsers.add_parser("bump-version", help="Bump server version and changelog stubs")
     bump.add_argument("--part", choices=["major", "minor", "patch"], default="patch")
