@@ -56,6 +56,53 @@
       </div>
     </section>
 
+    <section class="mb-8 p-4 bg-white rounded-xl shadow" aria-labelledby="diagnostics-heading">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 id="diagnostics-heading" class="text-xl font-semibold">Diagnostics</h2>
+          <p id="diagnosticsSummary" class="text-sm text-gray-600">Diagnostics have not been loaded yet.</p>
+          <p class="text-xs text-gray-400 hidden" id="diagnosticsUpdatedWrapper">Last generated <time id="diagnosticsUpdated" datetime=""></time></p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button id="refreshDiagnostics" class="px-3 py-2 rounded bg-gray-800 text-white">Refresh</button>
+          <button id="toggleDiagnostics" class="px-3 py-2 rounded bg-gray-200 text-gray-800" aria-expanded="false" aria-controls="diagnosticsPanel">Show details</button>
+        </div>
+      </div>
+      <div id="diagnosticsPanel" class="mt-4 hidden" role="region" aria-live="polite">
+        <div class="grid gap-4 md:grid-cols-3">
+          <article class="p-4 border rounded-lg bg-gray-50">
+            <h3 class="text-sm font-semibold text-gray-700 mb-2">Runtime</h3>
+            <dl id="diagnosticsRuntime" class="space-y-1 text-xs text-gray-600"></dl>
+          </article>
+          <article class="p-4 border rounded-lg bg-gray-50">
+            <h3 class="text-sm font-semibold text-gray-700 mb-2">Configuration</h3>
+            <dl id="diagnosticsSettings" class="space-y-1 text-xs text-gray-600"></dl>
+          </article>
+          <article class="p-4 border rounded-lg bg-gray-50">
+            <h3 class="text-sm font-semibold text-gray-700 mb-2">Feature Flags</h3>
+            <ul id="diagnosticsFeatures" class="space-y-1 text-xs text-gray-600"></ul>
+          </article>
+        </div>
+        <div class="mt-4 overflow-x-auto">
+          <table class="w-full text-sm border-collapse" aria-describedby="diagnostics-heading">
+            <thead>
+              <tr class="bg-gray-100 text-left">
+                <th class="border px-2 py-1">Package</th>
+                <th class="border px-2 py-1">Installed</th>
+                <th class="border px-2 py-1">Required</th>
+                <th class="border px-2 py-1">Status</th>
+              </tr>
+            </thead>
+            <tbody id="diagnosticsPackages"></tbody>
+          </table>
+        </div>
+        <div class="mt-4">
+          <h3 class="text-sm font-semibold text-gray-700 mb-2">Warnings</h3>
+          <ul id="diagnosticsWarnings" class="space-y-1 text-xs text-gray-600"></ul>
+        </div>
+      </div>
+    </section>
+
     <section class="mb-8 p-4 bg-white rounded-xl shadow">
       <h2 class="text-xl font-semibold mb-2">Create Task</h2>
       <form id="createTask" class="space-y-2">

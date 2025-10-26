@@ -28,8 +28,8 @@ Explain the user‑visible behavior to be enabled and how to observe it.
 
 ## Surprises & Discoveries
 
-- Observation: ...
-  Evidence: ...
+- Observation: Upgrading `opentelemetry-instrumentation-fastapi` pulled `0.59b0` beta builds that require `opentelemetry-api`/`sdk` 1.38.0 and matching semantic conventions.
+  Evidence: `pip install --upgrade opentelemetry-instrumentation-fastapi` resolved 0.59b0 and emitted resolver warnings until the SDK pins were bumped. (See shell transcript `a76bf9†L1-L24`.)
 
 ## Decision Log
 
@@ -158,6 +158,104 @@ Improve the Switchboard operator UI so task data stays reliable and comprehensib
 - Toast utilities rely on DOM IDs inserted into `index.html`.
 - Playwright tests depend on `pytest` and `playwright.sync_api`.
 # Restore core server imports and datetime helpers
+
+# Modernize dependencies and surface runtime diagnostics
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Raise the operational readiness of Switchboard by upgrading pinned dependencies, tightening runtime diagnostics, and exposing observability information everywhere it matters. The work ensures modern package baselines, adds a typed diagnostics aggregator exposed through the API, mirrors it in the admin UI, and documents validation flows so operators and agents can confirm configuration health without shell access.
+
+## Progress
+
+- [x] Initial repository assessment and dependency inventory captured.
+- [x] Dependency constraints updated and compatibility validated.
+- [x] Diagnostics domain model and service layer implemented with tests.
+- [x] `/api/diagnostics` endpoint wired and covered by contract tests.
+- [x] Web UI updated with diagnostics panel and resilient client rendering.
+- [x] Documentation refreshed (endpoint reference, dependency matrix, changelog).
+- [ ] Final verification (linters, type checks, pytest, UI smoke) captured.
+
+## Surprises & Discoveries
+
+- Observation: The upgraded mypy baseline exposes dozens of legacy typing issues unrelated to the diagnostics work, including
+  long-standing `Base` inheritance typing gaps and unused `type: ignore` markers across instrumentation modules.
+  Evidence: `mypy server` output highlighting 69 pre-existing errors. (See shell transcript `23a84f†L1-L79`.)
+
+- Observation: Ruff's global run now inspects JavaScript assets and mis-parses ES syntax as Python, so we scoped checks to the
+  touched Python modules until the config can be tightened.
+  Evidence: `ruff check web/static/app.js` raised parser errors when executed without exclusions. (See shell transcript `c34767†L1-L151`.)
+
+## Decision Log
+
+- Decision: Centralise diagnostics payload assembly in `server/observability/diagnostics.py` and expose it through a new FastAPI
+  route rather than inlining logic inside the handler.
+  Rationale: Keeps aggregation reusable across future CLI tooling while containing IO and schema conversions in a single module.
+  Date/Author: 2024-10-18 / gpt-5-codex
+
+## Outcomes & Retrospective
+
+- Observability now spans the API and UI: `/api/diagnostics` delivers package/version parity data, and the operator dashboard can
+  toggle a diagnostics panel that fetches and renders the report on demand.
+- Documentation and dependency manifests reflect the upgraded library set, ensuring reproducible installs and operator guidance
+  stay aligned.
+- Outstanding debt centres on repository-wide typing clean-up; a follow-up should introduce shared SQLAlchemy base typing and
+  audit instrumentation modules for annotation completeness.
+
+## Context and Orientation
+
+- Dependency pins live in `server/requirements.txt` and cascade into `server/requirements-dev.txt`; docs mirror these versions in `docs/DEPENDENCIES.md`.
+- API schemas reside in `server/schema.py`; FastAPI routes are declared in `server/app.py`.
+- Runtime helpers for observability exist under `server/observability/`, currently limited to `get_runtime_snapshot`.
+- UI assets render from `web/static/app.js` and `web/static/styles.css`; the HTML shell is `web/index.html`.
+- Tests cover HTTP behaviour via `server/tests/` (pytest) and UI flows through `web/tests/test_ui.py` (Playwright).
+
+## Plan of Work
+
+1. Audit dependency versions via `pip index`/release notes; capture deltas in the plan and docs.
+2. Update `server/requirements*.txt`, adjust import guards, and run `pip install -r server/requirements-dev.txt` locally to catch incompatibilities.
+3. Design a `DiagnosticsReport` schema (domain + API) exposing package versions, feature toggles, extension states, and health metadata; add service helpers pulling from existing modules.
+4. Expose `/api/diagnostics` returning the structured report; include caching safeguards and admin token reuse where appropriate.
+5. Expand unit tests covering diagnostics assembly, failure handling, and endpoint integration; update Playwright smoke to assert UI rendering.
+6. Enhance `web/static/app.js` with a diagnostics drawer fed by the new endpoint, styled via `styles.css`, and accessible from the header.
+7. Refresh docs (README, docs/AI_INTERFACE.md, docs/DEPENDENCIES.md, CHANGELOG) summarising the new endpoint and dependency upgrades.
+8. Execute pytest, mypy, ruff, and targeted Playwright smoke; record outputs here.
+
+## Concrete Steps
+
+1. `cd /workspace/switchboard && python -m pip install --upgrade -r server/requirements-dev.txt`
+2. `python -m pip index versions fastapi` (repeat for packages needing confirmation)
+3. `pytest server/tests/test_diagnostics.py`
+4. `pytest web/tests/test_ui.py -k diagnostics`
+5. `ruff check . && mypy server`
+
+## Validation and Acceptance
+
+- `/api/diagnostics` returns HTTP 200 with populated metadata even when optional packages are missing; FastAPI docs document the schema.
+- The UI shows a diagnostics drawer that refreshes live without page reload, handles failures gracefully, and shares toast feedback.
+- Dependency documentation matches pinned versions; CI tasks (lint, type-check, pytest) succeed.
+
+## Idempotence and Recovery
+
+- Dependency upgrades are pinned; rollback by restoring prior requirement files.
+- Diagnostics service relies on read-only introspection; failures degrade gracefully by flagging missing entries rather than crashing.
+- UI fetch retries reuse existing toast infrastructure; feature can be disabled by hiding the button if needed.
+
+## Artifacts and Notes
+
+- `pytest server/tests/test_observability_diagnostics.py server/tests/test_settings_endpoint.py`
+- `ruff check server/observability/diagnostics.py server/app.py`
+- `mypy server` (fails due to legacy issues; see Surprises & Discoveries.)
+
+## Interfaces and Dependencies
+
+- Introduce `server/observability/diagnostics.py` exporting `collect_diagnostics()`.
+- Add `DiagnosticsReport` Pydantic schema in `server/schema.py`.
+- FastAPI route handler `get_diagnostics` in `server/app.py` returns the report.
+- UI consumes endpoint at `GET /api/diagnostics` via `fetchJson('diagnostics')` helper.
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 

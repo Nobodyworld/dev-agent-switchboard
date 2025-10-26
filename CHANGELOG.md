@@ -3,10 +3,26 @@
 ## Unreleased
 
 ### Added
+- Telemetry bootstrap helper (`server/observability/telemetry.py`) powering the
+  new `/api/observability/telemetry` endpoint and runtime metadata annotations.
+- Extension contract versioning (`EXTENSION_API_VERSION`), registry contract
+  notes, and a builtin webhook notifier showcasing lifecycle webhooks.
+- Developer CLI subcommands: `verify` (lint/type/test/security/coverage),
+  `check-todos` (priority metadata enforcement), and `scaffold-extension`
+  (contract-aware module template generator).
+- CI security stage running Bandit and `pip-audit`; Makefile and docs now expose
+  matching local commands.
+- Future-proofing playbook (`docs/future-proofing.md`) outlining scaling,
+  containerisation, migration, and agent safety strategies.
+- Incident response, automation, AI interface, and architecture docs updated
+  with telemetry guidance, extension contract notes, and new tooling references.
+- Diagnostics version loader cache plus `clear_required_versions_cache()` helper
+  with coverage to support deterministic diagnostics testing.
 - Extension runtime under `server/extensions/` with builtin Prometheus task
   metrics hook and documentation in `EXTENSION_GUIDE.md`.
 - `/api/settings` now surfaces extension configuration metadata (modules,
   builtin toggle, registered descriptors) for operators and agents.
+- `/api/diagnostics` aggregates runtime metadata, package versions, feature flags, and system state; the admin UI renders a diagnostics panel backed by the same payload.
 - Developer CLI `scripts/dev.py` providing `bootstrap`, `coverage-gate`, and
   `bump-version` subcommands used by the Makefile and CI pipeline.
 - `server/observability/runtime.py` captures process uptime, deployment
@@ -16,7 +32,7 @@
 - Extension loader regression tests exercise explicit module loading,
   missing-registrar warnings, and error handling to backstop the new coverage
   thresholds.
-- `server/interfaces.py` and `server/application/task_service.py` define immutable queue, task, and agent interfaces powering the checkout workflow.
+- Stewardship metrics CLI `scripts/audit_metrics.py` exports coverage, complexity, and dependency depth summaries to `reports/system_metrics.json` for automation and reporting.
 - `/health/live` and `/health/ready` endpoints expose liveness and readiness probes via the new `HealthStatus` schema.
 - `scripts/local_runner.py` provides a reference agent loop that registers, heartbeats, and optionally completes tasks.
 - Documentation hub at `docs/index.md`, message schema reference, failure modes guide, and TODO backlog enumerating follow-up work.
@@ -27,6 +43,16 @@
 - Coverage workflow captured in `coverage.txt` to document current package-level coverage baselines.
 
 ### Changed
+- `/api/settings` includes extension contract version/notes so operators can
+  audit plugin compatibility.
+- Observability documentation and health guidance highlight
+  `/api/observability/telemetry` for instrumentation awareness.
+- CI quality matrix now runs a dedicated security stage; `make qa` and
+  `scripts/dev.py verify` mirror the updated pipeline.
+- Builtin Prometheus metrics hook now honours strict type hints and optional
+  dependency guards so Ruff and mypy run cleanly on extensions code.
+- `TaskOut` uses `ConfigDict(from_attributes=True)` to align with modern
+  Pydantic configuration and remove deprecation warnings.
 - `TaskService` emits lifecycle events to extension bundles so plugins can react
   to checkouts, completions, and task mutations without altering core logic.
 - Health endpoints now include uptime, start timestamps, and process metadata to
@@ -51,7 +77,12 @@
 - Server modules now use absolute imports, typed set conversions, and explicit constants throughout tests to satisfy strict Ruff rules and improve readability.
 - Release documentation expanded with `RELEASE_NOTES.md` to call out operator-facing upgrade guidance alongside the changelog.
 
+### Removed
+- Deprecated `server/interfaces.py` dataclasses in favour of the canonical Pydantic schemas in `server/schema.py`.
+
 ### Fixed
+- Diagnostics package status parsing reuses the cached requirements metadata,
+  avoiding repeated filesystem reads across requests and tests.
 - Restored missing imports in `server/tests/conftest.py` so database reset fixtures execute reliably during test runs.
 - Removed stale reference artifacts in favour of the live test suite and addressed lint violations across CLI, test, and instrumentation code (magic numbers, nested context managers, hard-coded tokens).
 - Resolved stale extension metadata when disabling builtin plugins by reloading

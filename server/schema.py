@@ -2,9 +2,9 @@
 
 import datetime as dt
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .task_status import TaskStatus
 
@@ -15,19 +15,22 @@ __all__ = [
     "CheckoutOut",
     "CompleteIn",
     "CompleteResponse",
-    "ExtensionDescriptorOut",
-    "ExtensionSettingsOut",
+    "DiagnosticsPackageOut",
+    "DiagnosticsReportOut",
     "ExecPlanEntry",
     "ExecPlanLifecycle",
     "ExecPlanOwner",
     "ExecPlanRegistryIndex",
     "ExecPlanRegistrySource",
+    "ExtensionDescriptorOut",
+    "ExtensionSettingsOut",
     "FileUploadResponse",
     "HealthStatus",
     "LeaseSettingsOut",
     "OkResponse",
     "PlanOut",
     "RateLimitSettingsOut",
+    "RuntimeInfoOut",
     "SettingsResponse",
     "StatusResponse",
     "SystemStateOut",
@@ -36,6 +39,8 @@ __all__ = [
     "TaskOut",
     "TaskStatus",
     "TaskUpdate",
+    "TelemetryReportOut",
+    "TelemetrySubsystemOut",
 ]
 
 
@@ -60,18 +65,18 @@ class TaskIn(BaseModel):
 
 
 class TaskUpdate(BaseModel):
-    title: Optional[str] = Field(
+    title: str | None = Field(
         default=None,
         max_length=MAX_TITLE_LENGTH,
         description="Updated task title",
     )
-    description: Optional[str] = Field(
+    description: str | None = Field(
         default=None,
         max_length=MAX_DESCRIPTION_LENGTH,
         description="Updated task description",
     )
-    status: Optional[TaskStatus] = None
-    depends_on: Optional[list[int]] = Field(default=None)
+    status: TaskStatus | None = None
+    depends_on: list[int] | None = Field(default=None)
 
 
 class TaskOut(BaseModel):
@@ -79,11 +84,10 @@ class TaskOut(BaseModel):
     title: str
     description: str
     status: TaskStatus
-    completed_notes: Optional[str] = None
+    completed_notes: str | None = None
     depends_on: list[int] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CheckoutFailureReason(str, Enum):
@@ -94,9 +98,9 @@ class CheckoutFailureReason(str, Enum):
 
 
 class CheckoutOut(BaseModel):
-    task: Optional[TaskOut] = None
-    reason: Optional[CheckoutFailureReason] = None
-    message: Optional[str] = None
+    task: TaskOut | None = None
+    reason: CheckoutFailureReason | None = None
+    message: str | None = None
 
 
 class RateLimitSettingsOut(BaseModel):
@@ -114,9 +118,9 @@ class LeaseSettingsOut(BaseModel):
 class ExtensionDescriptorOut(BaseModel):
     name: str
     capabilities: list[str] = Field(default_factory=list)
-    version: Optional[str] = None
-    description: Optional[str] = None
-    config: Optional[dict[str, Any]] = None
+    version: str | None = None
+    description: str | None = None
+    config: dict[str, Any] | None = None
 
 
 class ExtensionSettingsOut(BaseModel):
@@ -126,6 +130,14 @@ class ExtensionSettingsOut(BaseModel):
         description="Whether builtin extensions are registered automatically.",
     )
     registered: list[ExtensionDescriptorOut] = Field(default_factory=list)
+    contract_version: str = Field(
+        default="2025.1",
+        description="Version of the extension API contract exposed by the runtime.",
+    )
+    contract_notes: list[str] = Field(
+        default_factory=list,
+        description="Additional compatibility notes surfaced by the runtime.",
+    )
 
 
 class PlanOut(BaseModel):
@@ -135,7 +147,7 @@ class PlanOut(BaseModel):
 
 
 class CompleteIn(BaseModel):
-    notes: Optional[str] = None
+    notes: str | None = None
 
 
 class OkResponse(BaseModel):
@@ -151,7 +163,7 @@ class StatusResponse(OkResponse):
 
 
 class CompleteResponse(StatusResponse):
-    notes: Optional[str] = None
+    notes: str | None = None
 
 
 class FileUploadResponse(StatusResponse):
@@ -164,13 +176,36 @@ class HealthStatus(StatusResponse):
     """Payload describing aggregated health-check information."""
 
     checks: dict[str, bool] = Field(default_factory=dict)
-    version: Optional[str] = None
-    started_at: Optional[dt.datetime] = None
-    uptime_seconds: Optional[float] = Field(default=None, ge=0)
-    environment: Optional[str] = None
-    commit_sha: Optional[str] = None
-    pid: Optional[int] = Field(default=None, ge=0)
+    version: str | None = None
+    started_at: dt.datetime | None = None
+    uptime_seconds: float | None = Field(default=None, ge=0)
+    environment: str | None = None
+    commit_sha: str | None = None
+    pid: int | None = Field(default=None, ge=0)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class RuntimeInfoOut(BaseModel):
+    """Serialized runtime metadata describing the running process."""
+
+    started_at: dt.datetime
+    uptime_seconds: float = Field(ge=0)
+    pid: int = Field(ge=0)
+    version: str | None = None
+    environment: str | None = None
+    commit_sha: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DiagnosticsPackageOut(BaseModel):
+    """Package version and status metadata included in diagnostics payloads."""
+
+    name: str
+    installed: str | None = None
+    required: str | None = None
+    status: Literal["ok", "mismatch", "missing"]
+    homepage: str | None = None
+    summary: str | None = None
 
 
 class SettingsResponse(BaseModel):
@@ -181,62 +216,100 @@ class SettingsResponse(BaseModel):
 
 class SystemStateOut(BaseModel):
     maintenance_mode: bool
-    message: Optional[str] = None
+    message: str | None = None
     updated_at: dt.datetime
     version: int
 
 
 class SystemStateUpdateIn(BaseModel):
     maintenance_mode: bool
-    message: Optional[str] = None
-    expected_version: Optional[int] = Field(
+    message: str | None = None
+    expected_version: int | None = Field(
         default=None,
         description="Last observed version used for optimistic concurrency",
     )
 
 
+class DiagnosticsReportOut(BaseModel):
+    """Aggregated diagnostics payload returned by `/api/diagnostics`."""
+
+    python_version: str
+    implementation: str
+    platform: str
+    executable: str
+    runtime: RuntimeInfoOut
+    packages: list[DiagnosticsPackageOut] = Field(default_factory=list)
+    settings: SettingsResponse
+    system_state: SystemStateOut | None = None
+    features: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    generated_at: dt.datetime
+
+
+class TelemetrySubsystemOut(BaseModel):
+    """Runtime status for an individual observability subsystem."""
+
+    enabled: bool
+    configured: bool
+    details: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class TelemetryReportOut(BaseModel):
+    """Shape returned by `/api/observability/telemetry`."""
+
+    generated_at: dt.datetime
+    logging: TelemetrySubsystemOut
+    metrics: TelemetrySubsystemOut
+    tracing: TelemetrySubsystemOut
+    request_id_header: str
+    health_endpoints: list[str] = Field(default_factory=list)
+    runtime: RuntimeInfoOut
+    diagnostics: DiagnosticsReportOut | None = None
+
+
 class ExecPlanOwner(BaseModel):
     agent_id: str
-    role: Optional[str] = None
-    contact: Optional[str] = None
+    role: str | None = None
+    contact: str | None = None
 
 
 class ExecPlanLifecycle(BaseModel):
-    created_at: Optional[dt.datetime] = None
-    updated_at: Optional[dt.datetime] = None
-    target_completion: Optional[dt.datetime] = None
+    created_at: dt.datetime | None = None
+    updated_at: dt.datetime | None = None
+    target_completion: dt.datetime | None = None
 
 
 class ExecPlanLink(BaseModel):
     url: str
-    format: Optional[str] = None
-    rel: Optional[str] = None
+    format: str | None = None
+    rel: str | None = None
 
 
 class ExecPlanEntry(BaseModel):
     plan_id: str
     title: str
-    summary: Optional[str] = None
+    summary: str | None = None
     status: str
-    lifecycle: Optional[ExecPlanLifecycle] = None
-    owners: Optional[list[ExecPlanOwner]] = None
-    tags: Optional[list[str]] = None
-    scope: Optional[dict[str, Any]] = None
+    lifecycle: ExecPlanLifecycle | None = None
+    owners: list[ExecPlanOwner] | None = None
+    tags: list[str] | None = None
+    scope: dict[str, Any] | None = None
     links: dict[str, dict[str, Any]]
-    metrics: Optional[dict[str, Any]] = None
-    changelog_token: Optional[str] = None
-    extensions: Optional[list[dict[str, Any]]] = None
+    metrics: dict[str, Any] | None = None
+    changelog_token: str | None = None
+    extensions: list[dict[str, Any]] | None = None
 
 
 class ExecPlanRegistrySource(BaseModel):
-    url: Optional[str] = None
-    etag: Optional[str] = None
+    url: str | None = None
+    etag: str | None = None
 
 
 class ExecPlanRegistryIndex(BaseModel):
     version: int
     registry_id: str
     generated_at: dt.datetime
-    source: Optional[ExecPlanRegistrySource] = None
+    source: ExecPlanRegistrySource | None = None
     plans: list[ExecPlanEntry]
-    extensions: Optional[list[dict[str, Any]]] = None
+    extensions: list[dict[str, Any]] | None = None

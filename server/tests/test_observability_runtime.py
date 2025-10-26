@@ -1,7 +1,10 @@
 from datetime import datetime, timezone
 
-from server.observability import get_runtime_snapshot, register_runtime_metadata
-from server.observability import runtime as runtime_module
+from server.observability import (
+    get_runtime_snapshot,
+    register_runtime_metadata,
+    runtime as runtime_module,
+)
 
 
 def test_runtime_snapshot_includes_environment_metadata(monkeypatch):

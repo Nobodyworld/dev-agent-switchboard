@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        stage: [lint, typecheck, test]
+        stage: [lint, typecheck, test, security]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -48,6 +48,10 @@ jobs:
         if: matrix.stage == 'lint'
         run: pre-commit run --all-files --show-diff-on-failure
 
+      - name: Validate TODO annotations
+        if: matrix.stage == 'lint'
+        run: python scripts/dev.py check-todos --root .
+
       - name: Run mypy
         if: matrix.stage == 'typecheck'
         run: |
@@ -58,6 +62,12 @@ jobs:
         run: |
           mkdir -p reports
           pytest --maxfail=1 --disable-warnings --junitxml=reports/pytest.xml
+
+      - name: Run security scanners
+        if: matrix.stage == 'security'
+        run: |
+          bandit -q -r server
+          pip-audit --progress-spinner=off
 
       - name: Upload pytest report
         if: matrix.stage == 'test'

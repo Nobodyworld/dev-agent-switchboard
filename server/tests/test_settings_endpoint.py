@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from server.app import app
+from server.extensions import EXTENSION_API_VERSION
 from server.middleware.rate_limit import get_current_rate_limit_middleware
 from server.settings import (
     ENABLE_BUILTIN_EXTENSIONS_ENV,
@@ -68,6 +69,7 @@ def test_settings_endpoint_returns_defaults():
     lease = payload["lease"]
     extensions = payload["extensions"]
     bundle = get_settings_bundle()
+    registered = extensions["registered"]
 
     assert rate["requests"] == bundle.rate_limit.requests == DEFAULT_REQUESTS
     assert (
@@ -86,8 +88,10 @@ def test_settings_endpoint_returns_defaults():
     assert extensions["modules"] == list(bundle.extensions.modules)
     assert extensions["builtin_enabled"] is bundle.extensions.enable_builtin
     assert any(
-        descriptor["name"] == "builtin.task_metrics" for descriptor in extensions["registered"]
+        descriptor["name"] == "builtin.task_metrics" for descriptor in registered
     )
+    assert extensions["contract_version"] == EXTENSION_API_VERSION
+    assert all(isinstance(note, str) for note in extensions["contract_notes"])
 
 
 def test_settings_endpoint_reflects_overrides(monkeypatch):
@@ -115,11 +119,11 @@ def test_settings_endpoint_reflects_overrides(monkeypatch):
         "enabled": True,
     }
     assert lease == {"duration_seconds": 45}
-    assert extensions == {
-        "modules": ["custom.module"],
-        "builtin_enabled": False,
-        "registered": [],
-    }
+    assert extensions["modules"] == ["custom.module"]
+    assert extensions["builtin_enabled"] is False
+    assert extensions["registered"] == []
+    assert extensions["contract_version"] == EXTENSION_API_VERSION
+    assert extensions["contract_notes"] == []
 
 
 def test_extension_settings_bundle_matches_runtime(monkeypatch):

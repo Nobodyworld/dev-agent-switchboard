@@ -16,7 +16,8 @@ incidents affecting Switchboard.
 1. **Capture context**
    - Request ID from the failing response headers.
    - `/api/settings` payload (rate limits, lease duration, extensions).
-   - `/health/live` and `/health/ready` JSON payloads.
+   - `/health/live`, `/health/ready`, and `/api/observability/telemetry` JSON
+     payloads (instrumentation status and request ID header guidance).
 2. **Check telemetry**
    - `/metrics` (if enabled) – focus on `switchboard_task_*` counters to identify
      spikes in checkout/heartbeat failures.
@@ -57,4 +58,5 @@ incidents affecting Switchboard.
 2. File TODO entries (with priority/effort tags) in `docs/TODO-ISSUES.md` for any
    structural improvements identified.
 3. Ensure CI runs (`make qa`) before closing the incident to verify no regressions
-   were introduced during the fix.
+   were introduced during the fix. `python scripts/dev.py verify` mirrors the CI
+   job graph and runs in the same order, including pip-audit.

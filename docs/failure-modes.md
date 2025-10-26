@@ -30,8 +30,9 @@ identify the problem using built-in tooling, and the recommended remediation.
 - **Symptoms** – Agents receive `reason: "task_not_available"` during checkout
   or heartbeats return `ok: false` because another agent owns the lease.
 - **Detection** – Review task details via `/api/tasks` to confirm status and
-  `completed_notes`. The plan broadcast (WebSocket `/ws/plan`) includes the
-  active lease holder in `TaskEnvelope.lease` metadata.
+  `completed_notes`. Inspect the plan broadcast (WebSocket `/ws/plan`) for the
+  latest `PlanOut` payload or query `/api/tasks/{id}` to verify whether the
+  lease has expired.
 - **Mitigation** – Ensure agents heartbeat within the configured lease window.
   Operators can call `/api/tasks/{id}/abandon` to release tasks that are stuck
   after the lease expires.

@@ -175,5 +175,12 @@ def test_task_lifecycle_with_feedback(app_server: str) -> None:  # noqa: PLR0915
             assert any("Delete task" in msg for msg in dialog_messages)
 
             expect(page.locator('tr:has-text("Task A")')).to_be_visible()
+
+            page.click('#toggleDiagnostics')
+            page.wait_for_selector('#diagnosticsPanel:not(.hidden)')
+            page.wait_for_selector('#diagnosticsPackages tr')
+            expect(page.locator('#diagnosticsPackages')).to_contain_text('fastapi')
+            summary = page.locator('#diagnosticsSummary')
+            expect(summary).not_to_have_text('Diagnostics have not been loaded yet.')
         finally:
             browser.close()

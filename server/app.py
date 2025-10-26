@@ -53,16 +53,15 @@ from .application.exceptions import (
 from .db import AsyncSessionLocal, Base, engine, get_session
 from .domain import Agent, SystemState, TaskRecord
 from .execplan_registry import build_registry_index
-from .extensions import get_extension_bundle, initialize_extensions
+from .extensions import ExtensionBundle, get_extension_bundle, initialize_extensions
 from .file_store import ensure_root, full_path, put_file
-from .instrumentation import (
-    configure_logging,
-    setup_logging,
-    setup_metrics,
-    setup_tracing,
-)
-from .observability import get_runtime_snapshot
 from .middleware import RateLimitMiddleware
+from .observability import (
+    bootstrap_observability,
+    collect_diagnostics,
+    get_runtime_snapshot,
+    get_telemetry_report,
+)
 from .schema import (
     AgentIn,
     AgentRegistrationResponse,
@@ -70,13 +69,16 @@ from .schema import (
     CheckoutOut,
     CompleteIn,
     CompleteResponse,
-    FileUploadResponse,
-    HealthStatus,
+    DiagnosticsPackageOut,
+    DiagnosticsReportOut,
     ExtensionDescriptorOut,
     ExtensionSettingsOut,
+    FileUploadResponse,
+    HealthStatus,
     LeaseSettingsOut,
     PlanOut,
     RateLimitSettingsOut,
+    RuntimeInfoOut,
     SettingsResponse,
     StatusResponse,
     SystemStateOut,
@@ -84,8 +86,10 @@ from .schema import (
     TaskIn,
     TaskOut,
     TaskUpdate,
+    TelemetryReportOut,
 )
 from .settings import (
+    SettingsBundle,
     get_admin_token,
     get_rate_limit_settings,
     get_settings_bundle,
@@ -138,12 +142,49 @@ def require_admin_token(request: Request) -> None:
     if token != configured:
         raise HTTPException(status_code=401, detail="Invalid or missing admin token")
 
+
+def _build_settings_response(
+    settings_bundle: SettingsBundle | None = None,
+    extension_bundle: ExtensionBundle | None = None,
+) -> SettingsResponse:
+    """Return a serialized view of settings shared across diagnostics endpoints."""
+
+    bundle = settings_bundle or get_settings_bundle()
+    extension_runtime = extension_bundle or get_extension_bundle()
+    rate_settings = bundle.rate_limit
+    lease_settings = bundle.lease
+    extension_settings = bundle.extensions
+    return SettingsResponse(
+        rate_limit=RateLimitSettingsOut(
+            requests=rate_settings.requests,
+            window_seconds=rate_settings.window_seconds,
+            trusted_bypass=sorted(rate_settings.trusted_bypass),
+            trusted_proxies=sorted(rate_settings.trusted_proxies),
+            enabled=rate_settings.enabled,
+        ),
+        lease=LeaseSettingsOut(duration_seconds=lease_settings.duration_seconds),
+        extensions=ExtensionSettingsOut(
+            modules=list(extension_settings.modules),
+            builtin_enabled=extension_settings.enable_builtin,
+            registered=[
+                ExtensionDescriptorOut(
+                    name=descriptor.name,
+                    capabilities=list(descriptor.capabilities),
+                    version=descriptor.version,
+                    description=descriptor.description,
+                    config=descriptor.config,
+                )
+                for descriptor in extension_runtime.descriptors
+            ],
+            contract_version=extension_runtime.contract.api_version,
+            contract_notes=list(extension_runtime.contract.notes),
+        ),
+    )
+
 try:  # optional live file ETag helper
     from .file_store import etag_for_path  # type: ignore[attr-defined]
 except ImportError:  # pragma: no cover - helper may be absent
     etag_for_path = None  # type: ignore[assignment]
-
-configure_logging()
 
 
 @asynccontextmanager
@@ -185,11 +226,11 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="Switchboard", version="0.1.0", lifespan=lifespan)
 
-setup_logging(app)
-setup_tracing(app)
+bootstrap_observability(app)
 initialize_extensions(app)
 
-# TODO(P1, 1d) - Restrict CORS origins to trusted hosts once deployment domains are known.
+# TODO(P1, 1d) - Restrict CORS origins to trusted hosts once deployment
+# domains are known.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -207,35 +248,62 @@ app.add_middleware(
 async def read_settings() -> SettingsResponse:
     """Return the current rate limit and lease configuration."""
 
-    settings_bundle = get_settings_bundle()
-    rate_settings = settings_bundle.rate_limit
-    lease_settings = settings_bundle.lease
-    extension_settings = settings_bundle.extensions
-    bundle = get_extension_bundle()
-    return SettingsResponse(
-        rate_limit=RateLimitSettingsOut(
-            requests=rate_settings.requests,
-            window_seconds=rate_settings.window_seconds,
-            trusted_bypass=sorted(rate_settings.trusted_bypass),
-            trusted_proxies=sorted(rate_settings.trusted_proxies),
-            enabled=rate_settings.enabled,
-        ),
-        lease=LeaseSettingsOut(duration_seconds=lease_settings.duration_seconds),
-        extensions=ExtensionSettingsOut(
-            modules=list(extension_settings.modules),
-            builtin_enabled=extension_settings.enable_builtin,
-            registered=[
-                ExtensionDescriptorOut(
-                    name=descriptor.name,
-                    capabilities=list(descriptor.capabilities),
-                    version=descriptor.version,
-                    description=descriptor.description,
-                    config=descriptor.config,
-                )
-                for descriptor in bundle.descriptors
-            ],
-        ),
+    return _build_settings_response()
+
+
+@app.get("/api/diagnostics", response_model=DiagnosticsReportOut)
+async def read_diagnostics(
+    session: AsyncSession = Depends(get_session),
+) -> DiagnosticsReportOut:
+    """Return an aggregated diagnostics snapshot for operators and agents."""
+
+    state_service = build_system_state_service(session)
+    system_state = await state_service.get_state()
+    report = collect_diagnostics(app_version=app.version, system_state=system_state)
+    settings_response = _build_settings_response(
+        report.settings_bundle, report.extension_bundle
     )
+    runtime_info = RuntimeInfoOut(**report.runtime.model_dump())
+    packages = [
+        DiagnosticsPackageOut(
+            name=package.name,
+            installed=package.installed_version,
+            required=package.required_version,
+            status=package.status,
+            homepage=package.homepage,
+            summary=package.summary,
+        )
+        for package in report.packages
+    ]
+    system_state_out = None
+    if system_state is not None:
+        system_state_out = SystemStateOut(
+            maintenance_mode=system_state.maintenance_mode,
+            message=system_state.message,
+            updated_at=system_state.updated_at,
+            version=system_state.version,
+        )
+    return DiagnosticsReportOut(
+        python_version=report.python_version,
+        implementation=report.implementation,
+        platform=report.platform,
+        executable=report.executable,
+        runtime=runtime_info,
+        packages=packages,
+        settings=settings_response,
+        system_state=system_state_out,
+        features=dict(report.features),
+        warnings=list(report.warnings),
+        generated_at=report.generated_at,
+    )
+
+
+@app.get("/api/observability/telemetry", response_model=TelemetryReportOut)
+async def read_telemetry() -> TelemetryReportOut:
+    """Return instrumentation state for observability consumers."""
+
+    payload = get_telemetry_report(app_version=app.version)
+    return TelemetryReportOut.model_validate(payload)
 
 
 @app.get("/api/system-state", response_model=SystemStateOut)
@@ -316,8 +384,8 @@ class PlanBroadcaster:
         """Register a new WebSocket connection for future broadcasts."""
 
         async with self._lock:
-            # TODO(P3, 3d) - Record connection metadata to help with targeted disconnects
-            # and diagnostics.
+            # TODO(P3, 3d) - Record connection metadata to help with targeted
+            # disconnects and diagnostics.
             self._connections.add(ws)
 
     async def discard(self, ws: WebSocket) -> None:
@@ -959,5 +1027,3 @@ async def health():
 
     return "OK"
 
-
-setup_metrics(app)

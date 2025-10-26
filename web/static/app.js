@@ -10,6 +10,10 @@ const state = {
     updated_at: null,
     version: null,
   },
+  diagnostics: null,
+  diagnosticsVisible: false,
+  diagnosticsLoading: false,
+  diagnosticsFetchedAt: null,
 };
 
 let ws;
@@ -185,6 +189,251 @@ function renderPlanMeta() {
   meta.classList.remove('hidden');
 }
 
+function formatTimestamp(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) {
+    return null;
+  }
+  return date;
+}
+
+function renderDiagnostics() {
+  const summary = document.getElementById('diagnosticsSummary');
+  const panel = document.getElementById('diagnosticsPanel');
+  const toggle = document.getElementById('toggleDiagnostics');
+  const refresh = document.getElementById('refreshDiagnostics');
+  const updatedWrapper = document.getElementById('diagnosticsUpdatedWrapper');
+  const updatedTime = document.getElementById('diagnosticsUpdated');
+
+  if (!summary || !panel || !toggle || !refresh) {
+    return;
+  }
+
+  if (state.diagnosticsLoading) {
+    refresh.disabled = true;
+    refresh.textContent = 'Refreshing…';
+    summary.textContent = 'Refreshing diagnostics…';
+  } else {
+    refresh.disabled = false;
+    refresh.textContent = 'Refresh';
+    if (state.diagnostics) {
+      const warnings = Array.isArray(state.diagnostics.warnings)
+        ? state.diagnostics.warnings.length
+        : 0;
+      summary.textContent = warnings
+        ? `Diagnostics loaded with ${warnings} warning${warnings === 1 ? '' : 's'}.`
+        : 'Diagnostics loaded successfully.';
+    } else {
+      summary.textContent = 'Diagnostics have not been loaded yet.';
+    }
+  }
+
+  const fetchedAt = state.diagnostics?.generated_at || state.diagnosticsFetchedAt;
+  const parsed = formatTimestamp(fetchedAt);
+  if (updatedWrapper && updatedTime) {
+    if (parsed) {
+      updatedTime.textContent = parsed.toLocaleString();
+      updatedTime.dateTime = parsed.toISOString();
+      updatedWrapper.classList.remove('hidden');
+    } else {
+      updatedTime.textContent = '';
+      updatedTime.removeAttribute('dateTime');
+      updatedWrapper.classList.add('hidden');
+    }
+  }
+
+  if (state.diagnosticsVisible) {
+    panel.classList.remove('hidden');
+    toggle.textContent = 'Hide details';
+    toggle.setAttribute('aria-expanded', 'true');
+  } else {
+    panel.classList.add('hidden');
+    toggle.textContent = 'Show details';
+    toggle.setAttribute('aria-expanded', 'false');
+  }
+
+  if (!state.diagnostics) {
+    renderDiagnosticsRuntime(null);
+    renderDiagnosticsSettings(null);
+    renderDiagnosticsFeatures(null);
+    renderDiagnosticsPackages([]);
+    renderDiagnosticsWarnings([]);
+    return;
+  }
+
+  renderDiagnosticsRuntime(state.diagnostics.runtime);
+  renderDiagnosticsSettings(state.diagnostics.settings);
+  renderDiagnosticsFeatures(state.diagnostics.features);
+  renderDiagnosticsPackages(state.diagnostics.packages);
+  renderDiagnosticsWarnings(state.diagnostics.warnings);
+}
+
+function renderDiagnosticsRuntime(runtime) {
+  const container = document.getElementById('diagnosticsRuntime');
+  if (!container) return;
+  if (!runtime) {
+    container.innerHTML = '<p class="text-gray-400">Runtime metadata unavailable.</p>';
+    return;
+  }
+  const started = formatTimestamp(runtime.started_at);
+  const rows = [
+    { label: 'Started', value: started ? started.toLocaleString() : '—' },
+    {
+      label: 'Uptime',
+      value:
+        typeof runtime.uptime_seconds === 'number'
+          ? `${runtime.uptime_seconds.toFixed(1)}s`
+          : '—',
+    },
+    { label: 'PID', value: runtime.pid != null ? String(runtime.pid) : '—' },
+    { label: 'Version', value: runtime.version || '—' },
+    { label: 'Environment', value: runtime.environment || '—' },
+    { label: 'Commit', value: runtime.commit_sha || '—' },
+  ];
+  container.innerHTML = rows
+    .map(
+      ({ label, value }) =>
+        `<div class="flex justify-between gap-2"><dt class="font-semibold text-gray-700">${escapeHtml(label)}</dt><dd class="text-right">${escapeHtml(String(value))}</dd></div>`
+    )
+    .join('');
+}
+
+function renderDiagnosticsSettings(settings) {
+  const container = document.getElementById('diagnosticsSettings');
+  if (!container) return;
+  if (!settings) {
+    container.innerHTML = '<p class="text-gray-400">Settings payload unavailable.</p>';
+    return;
+  }
+  const rate = settings.rate_limit || {};
+  const lease = settings.lease || {};
+  const extensions = settings.extensions || {};
+  const modules = Array.isArray(extensions.modules)
+    ? extensions.modules
+        .filter(Boolean)
+        .map((item) => escapeHtml(String(item)))
+        .join(', ')
+    : '';
+  const registeredCount = Array.isArray(extensions.registered)
+    ? extensions.registered.length
+    : 0;
+  const rateLabel = rate.enabled
+    ? `${rate.requests ?? '—'} req / ${rate.window_seconds ?? '—'}s`
+    : 'Disabled';
+  container.innerHTML = `
+    <div class="flex justify-between gap-2"><dt class="font-semibold text-gray-700">Lease duration</dt><dd class="text-right">${escapeHtml(String(lease.duration_seconds ?? '—'))}s</dd></div>
+    <div class="flex justify-between gap-2"><dt class="font-semibold text-gray-700">Rate limit</dt><dd class="text-right">${escapeHtml(rateLabel)}</dd></div>
+    <div class="flex justify-between gap-2"><dt class="font-semibold text-gray-700">Modules</dt><dd class="text-right">${modules || 'None'}</dd></div>
+    <div class="flex justify-between gap-2"><dt class="font-semibold text-gray-700">Registered extensions</dt><dd class="text-right">${registeredCount}</dd></div>
+  `;
+}
+
+function renderDiagnosticsFeatures(features) {
+  const list = document.getElementById('diagnosticsFeatures');
+  if (!list) return;
+  if (!features || typeof features !== 'object') {
+    list.innerHTML = '<li class="text-gray-400">Feature data unavailable.</li>';
+    return;
+  }
+  const entries = Object.entries(features)
+    .sort(([a], [b]) => a.localeCompare(b));
+  if (!entries.length) {
+    list.innerHTML = '<li class="text-gray-400">Feature data unavailable.</li>';
+    return;
+  }
+  list.innerHTML = entries
+    .map(([key, value]) => {
+      const label = escapeHtml(key.replace(/_/g, ' '));
+      if (typeof value === 'boolean') {
+        const icon = value ? '✅' : '⚠️';
+        const tone = value ? 'text-green-700' : 'text-amber-700';
+        const descriptor = value ? 'Enabled' : 'Disabled';
+        return `<li><span class="${tone} font-semibold">${icon}</span> ${label}: <span>${descriptor}</span></li>`;
+      }
+      return `<li><span class="font-semibold text-gray-700">${label}:</span> ${escapeHtml(String(value))}</li>`;
+    })
+    .join('');
+}
+
+function renderDiagnosticsPackages(packages) {
+  const tbody = document.getElementById('diagnosticsPackages');
+  if (!tbody) return;
+  if (!Array.isArray(packages) || !packages.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="border px-2 py-2 text-sm text-gray-500">No package data reported.</td></tr>';
+    return;
+  }
+  const statusStyles = {
+    ok: { label: 'OK', classes: 'bg-green-100 text-green-700' },
+    mismatch: { label: 'Mismatch', classes: 'bg-amber-100 text-amber-700' },
+    missing: { label: 'Missing', classes: 'bg-red-100 text-red-700' },
+  };
+  tbody.innerHTML = packages
+    .map((pkg) => {
+      const status = statusStyles[pkg.status] || {
+        label: pkg.status,
+        classes: 'bg-gray-100 text-gray-700',
+      };
+      const installed = pkg.installed ? escapeHtml(pkg.installed) : '—';
+      const required = pkg.required ? escapeHtml(pkg.required) : '—';
+      const name = pkg.homepage
+        ? `<a class="text-blue-600 hover:underline" href="${escapeHtml(pkg.homepage)}" target="_blank" rel="noopener">${escapeHtml(pkg.name)}</a>`
+        : escapeHtml(pkg.name);
+      const summary = pkg.summary ? `<div class="text-xs text-gray-500">${escapeHtml(pkg.summary)}</div>` : '';
+      return `
+        <tr>
+          <td class="border px-2 py-1 align-top">${name}${summary}</td>
+          <td class="border px-2 py-1 align-top">${installed}</td>
+          <td class="border px-2 py-1 align-top">${required}</td>
+          <td class="border px-2 py-1 align-top"><span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${status.classes}">${escapeHtml(status.label)}</span></td>
+        </tr>
+      `;
+    })
+    .join('');
+}
+
+function renderDiagnosticsWarnings(warnings) {
+  const list = document.getElementById('diagnosticsWarnings');
+  if (!list) return;
+  if (!Array.isArray(warnings) || warnings.length === 0) {
+    list.innerHTML = '<li class="text-gray-400">No warnings reported.</li>';
+    return;
+  }
+  list.innerHTML = warnings
+    .map((warning) => `<li>• ${escapeHtml(String(warning))}</li>`)
+    .join('');
+}
+
+async function refreshDiagnostics({ silent = false } = {}) {
+  if (state.diagnosticsLoading) {
+    return;
+  }
+  state.diagnosticsLoading = true;
+  renderDiagnostics();
+  try {
+    const payload = await apiFetchJson('/api/diagnostics');
+    state.diagnostics = payload;
+    state.diagnosticsFetchedAt = payload.generated_at || new Date().toISOString();
+    renderDiagnostics();
+  } catch (error) {
+    console.error('Failed to load diagnostics', error);
+    if (!silent) {
+      showToast('Unable to load diagnostics. Try again shortly.', 'error');
+    }
+  } finally {
+    state.diagnosticsLoading = false;
+    renderDiagnostics();
+  }
+}
+
+function toggleDiagnosticsPanel() {
+  state.diagnosticsVisible = !state.diagnosticsVisible;
+  renderDiagnostics();
+  if (state.diagnosticsVisible && !state.diagnostics && !state.diagnosticsLoading) {
+    refreshDiagnostics({ silent: true });
+  }
+}
+
 function applySystemState(payload) {
   if (!payload || typeof payload !== 'object') {
     return;
@@ -199,6 +448,15 @@ function applySystemState(payload) {
     updated_at: updatedAt,
     version,
   };
+  if (state.diagnostics && typeof state.diagnostics === 'object') {
+    state.diagnostics.system_state = {
+      maintenance_mode: state.systemState.maintenance_mode,
+      message: state.systemState.message,
+      updated_at: state.systemState.updated_at,
+      version: state.systemState.version,
+    };
+    renderDiagnostics();
+  }
   renderMaintenanceState();
 }
 
@@ -662,6 +920,22 @@ function initEventListeners() {
     maintenanceForm.addEventListener('submit', handleMaintenanceSubmit);
   }
 
+  const diagnosticsToggle = document.getElementById('toggleDiagnostics');
+  if (diagnosticsToggle) {
+    diagnosticsToggle.addEventListener('click', (event) => {
+      event.preventDefault();
+      toggleDiagnosticsPanel();
+    });
+  }
+
+  const diagnosticsRefresh = document.getElementById('refreshDiagnostics');
+  if (diagnosticsRefresh) {
+    diagnosticsRefresh.addEventListener('click', (event) => {
+      event.preventDefault();
+      refreshDiagnostics();
+    });
+  }
+
   const adminTokenInput = document.getElementById('adminTokenInput');
   if (adminTokenInput) {
     adminTokenInput.value = loadAdminToken();
@@ -691,8 +965,10 @@ function initialize() {
   initEventListeners();
   connectWS();
   renderMaintenanceState();
+  renderDiagnostics();
   refreshPlan();
   refreshSystemState();
+  refreshDiagnostics({ silent: true });
 }
 
 document.addEventListener('DOMContentLoaded', initialize);

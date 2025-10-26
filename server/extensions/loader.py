@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 import logging
 import os
-from typing import Iterable, Sequence
+from collections.abc import Iterable, Sequence
 
 from .interfaces import ExtensionBundle, ExtensionLoadError, ExtensionRegistry
 
@@ -44,11 +44,12 @@ def load_extension_bundle(
 
     if include_builtin:
         try:
-            from .builtin import task_metrics
+            from .builtin import task_metrics, webhook_notifier
 
             task_metrics.register(registry)
+            webhook_notifier.register(registry)
         except Exception:  # pragma: no cover - builtin registration should succeed
-            LOGGER.exception("Failed to register builtin metrics extension")
+            LOGGER.exception("Failed to register builtin extensions")
 
     configured_modules: tuple[str, ...]
     if modules is not None:
