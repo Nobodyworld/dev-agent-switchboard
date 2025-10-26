@@ -31,6 +31,7 @@ This document summarizes the primary integration points for agents interacting w
 | `/api/tasks/{id}/heartbeat` | `POST` | Extend the lease for the active task. Agents should heartbeat at least twice per lease window. |
 | `/api/tasks/{id}/complete` | `POST` | Submit completion notes and mark the task done. |
 | `/api/tasks/{id}/abandon` | `POST` | Release the lease without completion so other agents can claim it. |
+| `/api/tasks/analytics` | `GET` | Retrieve aggregated task analytics (ready vs blocked, dependency density). |
 | `/api/files/{path}` | `PUT` | Upload live documentation; the latest version is served at `/live/<path>`. |
 | `/api/settings` | `GET` | Inspect rate limit and lease configuration; used by the CLI to calibrate heartbeat cadence. |
 | `/api/diagnostics` | `GET` | Retrieve runtime metadata (Python version, packages, feature toggles, system state) for dashboards and operators. |
@@ -83,6 +84,14 @@ python -m client.python.switchboard_cli run \
 ```
 
 The CLI automatically fetches lease settings, adjusts heartbeat cadence when necessary, and surfaces warnings to stderr. Background heartbeats keep the lease alive while you decide whether to complete or abandon a task.
+
+Inspect overall backlog health via:
+
+```bash
+switchboard-cli stats --base http://localhost:8000
+```
+
+Add `--json` to emit a machine-readable payload for dashboards or scripts.
 
 ## Rate Limit Configuration
 

@@ -61,6 +61,7 @@ from .observability import (
     collect_diagnostics,
     get_runtime_snapshot,
     get_telemetry_report,
+    span,
 )
 from .schema import (
     AgentIn,
@@ -83,6 +84,7 @@ from .schema import (
     StatusResponse,
     SystemStateOut,
     SystemStateUpdateIn,
+    TaskAnalyticsOut,
     TaskIn,
     TaskOut,
     TaskUpdate,
@@ -526,6 +528,59 @@ async def broadcast_plan(  # noqa: PLR0913 - broadcast requires optional collabo
 ) -> None:
     """Broadcast the latest plan version to connected WebSocket listeners."""
 
+    bundle = get_extension_bundle()
+    observer_count = len(bundle.plan_observers)
+
+    async def _dispatch(
+        task_service: TaskService,
+        *,
+        resolved_version: int | None,
+        plan_payload: dict[str, Any] | None,
+    ) -> None:
+        analytics = None
+        if observer_count:
+            with span(
+                "broadcast_plan.analytics",
+                plan_version=resolved_version,
+                observer_count=observer_count,
+            ):
+                analytics = await task_service.analytics()
+
+        # agent-safe-task: safe for automation-triggered broadcasts after
+        # plan mutations; respects send timeouts and prunes stale sockets.
+        payload: PlanBroadcastPayload = {"type": "plan_version"}
+        if resolved_version is not None:
+            payload["version"] = resolved_version
+        if plan_payload is not None:
+            payload["plan"] = plan_payload
+        if delta is not None:
+            payload["delta"] = delta
+
+        if observer_count:
+            with span(
+                "broadcast_plan.observers",
+                plan_version=resolved_version,
+                observer_count=observer_count,
+                has_plan=plan_payload is not None,
+                includes_delta=delta is not None,
+            ):
+                await bundle.emit_plan_event(
+                    "on_plan_broadcast",
+                    version=resolved_version,
+                    plan=plan_payload,
+                    delta=delta,
+                    analytics=analytics,
+                )
+
+        with span(
+            "broadcast_plan.broadcast",
+            plan_version=resolved_version,
+            observer_count=observer_count,
+            has_plan=plan_payload is not None,
+            includes_delta=delta is not None,
+        ):
+            await PLAN_BROADCASTER.broadcast(payload)
+
     if service is None and session is None:
         async with AsyncSessionLocal() as temp_session:
             temp_service = build_task_service(temp_session)
@@ -535,16 +590,7 @@ async def broadcast_plan(  # noqa: PLR0913 - broadcast requires optional collabo
                 include_plan=include_plan,
                 plan=plan,
             )
-            # agent-safe-task: safe for automation-triggered broadcasts after
-            # plan mutations; respects send timeouts and prunes stale sockets.
-            payload: PlanBroadcastPayload = {"type": "plan_version"}
-            if resolved_version is not None:
-                payload["version"] = resolved_version
-            if plan_payload is not None:
-                payload["plan"] = plan_payload
-            if delta is not None:
-                payload["delta"] = delta
-            await PLAN_BROADCASTER.broadcast(payload)
+            await _dispatch(temp_service, resolved_version=resolved_version, plan_payload=plan_payload)
         return
 
     local_service = service or build_task_service(session)
@@ -554,18 +600,7 @@ async def broadcast_plan(  # noqa: PLR0913 - broadcast requires optional collabo
         include_plan=include_plan,
         plan=plan,
     )
-
-    # agent-safe-task: same guarantee when a TaskService instance is provided by
-    # automation workflows.
-    payload: PlanBroadcastPayload = {"type": "plan_version"}
-    if resolved_version is not None:
-        payload["version"] = resolved_version
-    if plan_payload is not None:
-        payload["plan"] = plan_payload
-    if delta is not None:
-        payload["delta"] = delta
-
-    await PLAN_BROADCASTER.broadcast(payload)
+    await _dispatch(local_service, resolved_version=resolved_version, plan_payload=plan_payload)
 
 
 async def broadcast_system_state(state: SystemState) -> None:
@@ -615,6 +650,18 @@ async def list_tasks(
     service = _resolve_task_service(service, session)
     records = await service.list_tasks(status=status)
     return _records_to_out(records)
+
+
+@app.get("/api/tasks/analytics", response_model=TaskAnalyticsOut)
+async def read_task_analytics(
+    service: TaskService = Depends(get_task_service),
+    session: AsyncSession = Depends(get_session),
+) -> TaskAnalyticsOut:
+    """Return aggregated analytics describing task status and dependency health."""
+
+    resolved = _resolve_task_service(service, session)
+    analytics = await resolved.analytics()
+    return TaskAnalyticsOut.model_validate(analytics)
 
 
 @app.post("/api/tasks", response_model=TaskOut)

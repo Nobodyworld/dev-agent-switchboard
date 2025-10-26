@@ -16,6 +16,7 @@ Switchboard is a small, production‑leaning FastAPI service that:
 - Includes a **Python client** and a **local runner** for agent integrations alongside container packaging.
 - Surfaces a structured diagnostics snapshot (`/api/diagnostics`) and dashboard panel so operators can verify package versions, configuration, and feature toggles without leaving the app.
 - Exposes `/api/observability/telemetry` so operators and agents can check logging, metrics, tracing, and webhook status in one request.
+- Publishes task analytics as Prometheus gauges on every plan broadcast so dashboards and alerting systems can track ready/blocked backlogs without polling the API.
 - Documents the full stack layout in [docs/architecture.md](docs/architecture.md) and the new [documentation hub](docs/index.md).
 
 ## Why
@@ -27,7 +28,7 @@ Switchboard is a small, production‑leaning FastAPI service that:
 ## How
 
 - **Router & Schemas** – `server/app.py` and `server/schema.py` translate domain records from `TaskService` into immutable payloads returned by the API.
-- **Domain & Application Layers** – `server/domain/` defines immutable task and lease records, while `server/application/task_service.py` orchestrates lifecycle rules through repository interfaces.
+- **Domain & Application Layers** – `server/domain/` defines immutable task and lease records, while `server/application/task_service.py` orchestrates lifecycle rules through repository interfaces and triggers extension hooks (including plan observers).
 - **Infrastructure Adapters** – `server/infrastructure/repositories.py` implements the repository interfaces against SQLAlchemy models, batching dependency lookups so task checkout avoids N+1 queries.
 - **Health & Operations** – `/health/live` and `/health/ready` surface liveness and dependency status via the new `HealthStatus` schema; `docs/failure-modes.md` enumerates remediation steps.
 - **Agent Toolkit** – `client/python/switchboard_client.py` exposes a resilient HTTP client while `scripts/local_runner.py` offers an executable agent loop for local testing.
@@ -81,7 +82,7 @@ Switchboard follows a service-plus-client architecture:
 - **FastAPI application (`server/app.py`)** exposes REST endpoints, WebSocket plan broadcasts, and the static operator UI. Middleware hooks add rate limiting and observability.
 - **Domain logic (`server/domain/`, `server/application/`, `server/file_store.py`)** coordinates task lifecycle state, dependency enforcement, and content mirroring while keeping database access localized.
 - **Client toolkit (`client/python/`)** wraps the HTTP API for both interactive humans (`switchboard_cli.py`) and automated agents.
-- **Live files & ExecPlan registry** give agents durable documentation by persisting uploads to disk and serving digestible plan indexes.
+- **Live files & ExecPlan registry** give agents durable documentation by persisting uploads to disk and serving digestible plan indexes, while the builtin `plan_metrics` observer keeps Prometheus gauges aligned with the latest plan snapshot.
 
 Operators can trace how a request moves from CLI to FastAPI to persistence by reading the matching sections in [ARCHITECTURE.md](ARCHITECTURE.md) and the annotated source files referenced above.
 
@@ -96,6 +97,7 @@ Operators can trace how a request moves from CLI to FastAPI to persistence by re
 | `/api/tasks/{id}/heartbeat` | `POST` | Extend the active lease for the agent that checked out the task. |
 | `/api/tasks/{id}/complete` | `POST` | Mark a task complete and store optional notes. |
 | `/api/tasks/{id}/abandon` | `POST` | Release the lease without completion. |
+| `/api/tasks/analytics` | `GET` | Return aggregated task analytics including ready/blocked counts and dependency health. |
 | `/health/live` | `GET` | Liveness probe returning the `HealthStatus` payload with `process` checks. |
 | `/health/ready` | `GET` | Readiness probe that validates database and storage access; returns HTTP 503 when dependencies fail. |
 | `/api/settings` | `GET` | Inspect rate limit and lease configuration (used by the CLI). |
@@ -132,6 +134,7 @@ Switchboard includes a coordinated maintenance toggle that pauses new task check
 
 - **API:** `GET /api/system-state` returns the persisted flag, message, timestamp, and optimistic concurrency version. `PUT /api/system-state` updates the state and broadcasts the change to WebSocket listeners; set `SWITCHBOARD_ADMIN_TOKEN` to require `Authorization: Bearer <token>` for mutations.
 - **CLI:** `switchboard-cli maintenance --base <url> [--enable|--disable] [--message <text>] [--expected-version <n>] [--admin-token <token>]` inspects and toggles the state without writing bespoke scripts. The interactive `switchboard-cli run` command refuses to start when maintenance is active and surfaces the operator-provided message.
+- **Task analytics:** `switchboard-cli stats --base <url> [--json]` fetches aggregated ready/blocked counts and dependency health so operators can triage backlogs without opening the UI.
 - **UI:** The dashboard shows an amber banner whenever maintenance is enabled and includes a guarded toggle form that stores the admin token locally and uses optimistic concurrency.
 
 All channels share a single source of truth so operators can confidently pause checkouts during upgrades or incident response.

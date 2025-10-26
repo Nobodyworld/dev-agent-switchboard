@@ -37,6 +37,10 @@ with Switchboard safely and consistently.
   metadata and dependency status. Automation should cache this payload and
   invalidate when `runtime.metadata.observability` changes.
 - `GET /metrics` – Prometheus endpoint if `SWITCHBOARD_ENABLE_METRICS=1`.
+  When builtin extensions are enabled the `plan_metrics` observer publishes
+  gauges such as `switchboard_task_status_total` and
+  `switchboard_task_readiness_total` after every plan broadcast, so scrape
+  targets can alert on blocked work without polling the analytics API.
 
 ## Tooling
 
@@ -68,6 +72,10 @@ with Switchboard safely and consistently.
 - Observe `extensions.registered` values – if custom plugins (e.g., audit
   loggers) are active, ensure your agent supplies any expected metadata or
   headers documented by that plugin.
+- Watch for plan observer contract notes – new plan observers (including the
+  builtin `plan_metrics`) surface contract notes via `/api/settings` so agents
+  know when analytics gauges or downstream automations expect additional
+  context.
 - Use the incident response runbook (`docs/incident-response.md`) when tasks or
   health probes fail repeatedly. It captures common diagnostics (logs, metrics,
   extension states) that maintainers expect when triaging issues.

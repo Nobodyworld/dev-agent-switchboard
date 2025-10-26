@@ -3,6 +3,7 @@
 from client.python.switchboard_cli import (
     HEARTBEAT_SHUTDOWN_TIMEOUT,
     HeartbeatLoop,
+    analytics_command,
     build_parser,
     confirm_completion,
     format_task,
@@ -14,6 +15,7 @@ from client.python.switchboard_cli import (
 __all__ = [
     "HEARTBEAT_SHUTDOWN_TIMEOUT",
     "HeartbeatLoop",
+    "analytics_command",
     "build_parser",
     "confirm_completion",
     "format_task",

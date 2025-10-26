@@ -42,11 +42,12 @@ todo-check:
 
 coverage: venv
         mkdir -p reports
-        $(ACTIVATE) pytest --cov=server/extensions --cov=server/application/task_service.py --cov-report=term-missing --cov-report=json:reports/coverage.json
+        $(ACTIVATE) pytest --cov=server.extensions --cov=server.application.task_service --cov=server.observability.diagnostics --cov-report=term-missing --cov-report=json:reports/coverage.json
         $(ACTIVATE) python scripts/dev.py coverage-gate --json reports/coverage.json \
                 --module server/extensions/loader.py=85 \
                 --module server/extensions/runtime.py=85 \
                 --module server/extensions/builtin/task_metrics.py=85 \
+                --module server/extensions/builtin/plan_metrics.py=85 \
                 --module server/observability/diagnostics.py=80
 
 qa: fmt lint typecheck test security todo-check coverage

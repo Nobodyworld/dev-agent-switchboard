@@ -149,6 +149,13 @@ def test_task_lifecycle_with_feedback(app_server: str) -> None:  # noqa: PLR0915
             expect(page.locator('#planVersion')).not_to_have_text('—')
             expect(page.locator('#planUpdated')).not_to_have_text('—')
 
+            page.wait_for_function(
+                "() => document.querySelector('#analyticsSummary') && "
+                "document.querySelector('#analyticsSummary').textContent."
+                "includes('2 tasks')"
+            )
+            expect(page.locator('#analyticsCards')).to_contain_text('Ready')
+
             dep_chip = page.locator('tr:has-text("Task B") .tooltip-chip').first
             expect(dep_chip).to_be_visible()
             tooltip = dep_chip.get_attribute('data-tooltip')

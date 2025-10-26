@@ -1,19 +1,17 @@
-Switchboard targeted coverage summary
-Generated: 2025-10-26T03:17:21.766854
+pytest --cov=server.extensions --cov=server.application.task_service --cov=server.observability.diagnostics \
+  --cov-report=term-missing --cov-report=json:reports/coverage.json
 
-Module                                                       Covered   Total  Percent
------------------------------------------------------------- ------- ------- --------
-server/extensions/interfaces.py                                   58      62    93.55%
-server/extensions/loader.py                                       46      46   100.00%
-server/extensions/runtime.py                                      25      25   100.00%
-server/extensions/builtin/task_metrics.py                         25      27    92.59%
-server/observability/diagnostics.py                               97     122    79.51%
-
-Overall coverage: 88.03% (3801/4318 lines)
-
-Per-module thresholds (>=):
-- server/extensions/interfaces.py: 93.55% (threshold 85%) [PASS]
-- server/extensions/loader.py: 100.00% (threshold 85%) [PASS]
-- server/extensions/runtime.py: 100.00% (threshold 85%) [PASS]
-- server/extensions/builtin/task_metrics.py: 92.59% (threshold 85%) [PASS]
-- server/observability/diagnostics.py: 79.51% (threshold 80%) [FAIL]
+Name                                            Stmts   Miss  Cover   Missing
+-----------------------------------------------------------------------------
+server/application/task_service.py                177     32    82%   62, 90-92, 135-144, 154-156, 159-161, 177-179, 182-184, 220, 234, 250, 270, 312-313
+server/extensions/__init__.py                       5      0   100%
+server/extensions/builtin/__init__.py               3      0   100%
+server/extensions/builtin/plan_metrics.py          20      1    95%   33
+server/extensions/builtin/task_metrics.py          27      2    93%   163-167
+server/extensions/builtin/webhook_notifier.py      90     21    77%   49, 54, 64, 74, 94, 104, 115, 135-146, 184-185
+server/extensions/interfaces.py                    79      6    92%   118, 131, 135, 191-193
+server/extensions/loader.py                        47      0   100%
+server/extensions/runtime.py                       25      0   100%
+server/observability/diagnostics.py               122     25    80%   60-70, 95, 146, 150, 152, 186, 194-201, 210, 239-240, 248, 254-255
+-----------------------------------------------------------------------------
+TOTAL                                             595     87    85%

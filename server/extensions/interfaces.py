@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -25,11 +25,13 @@ else:  # pragma: no cover - runtime fallbacks keep optional dependencies optiona
     TaskRecord = Any
 
 
-EXTENSION_API_VERSION = "2025.1"
+EXTENSION_API_VERSION = "2025.2"
 
 TaskEventCoroutine = Awaitable[None]
 TaskEventCallable = Callable[..., TaskEventCoroutine | None]
 StartupHook = Callable[[FastAPI], Awaitable[None] | None]
+PlanEventCoroutine = Awaitable[None]
+PlanEventCallable = Callable[..., PlanEventCoroutine | None]
 
 
 @dataclass(frozen=True)
@@ -74,6 +76,20 @@ class SupportsTaskEvents(Protocol):
         ...
 
 
+class SupportsPlanEvents(Protocol):
+    """Protocol implemented by plan broadcast observers."""
+
+    async def on_plan_broadcast(
+        self,
+        *,
+        version: int | None,
+        plan: Mapping[str, Any] | None,
+        delta: Mapping[str, Any] | None,
+        analytics: Any | None,
+    ) -> None:  # pragma: no cover - protocol definition
+        ...
+
+
 @dataclass(frozen=True)
 class ExtensionDescriptor:
     """Metadata describing an extension for operator discovery."""
@@ -91,6 +107,7 @@ class ExtensionBundle:
 
     task_hooks: tuple[object, ...] = ()
     startup_hooks: tuple[StartupHook, ...] = ()
+    plan_observers: tuple[object, ...] = ()
     descriptors: tuple[ExtensionDescriptor, ...] = ()
     contract: ExtensionContract = field(default_factory=ExtensionContract)
 
@@ -101,6 +118,19 @@ class ExtensionBundle:
             return
         for hook in self.task_hooks:
             callback = getattr(hook, event, None)
+            if callback is None:
+                continue
+            result = callback(**payload)
+            if inspect.isawaitable(result):
+                await result
+
+    async def emit_plan_event(self, event: str, **payload: Any) -> None:
+        """Invoke ``event`` across registered plan observers."""
+
+        if not self.plan_observers:
+            return
+        for observer in self.plan_observers:
+            callback = getattr(observer, event, None)
             if callback is None:
                 continue
             result = callback(**payload)
@@ -131,6 +161,7 @@ class ExtensionRegistry:
     def __init__(self, contract: ExtensionContract | None = None) -> None:
         self._task_hooks: list[object] = []
         self._startup_hooks: list[StartupHook] = []
+        self._plan_observers: list[object] = []
         self._descriptors: list[ExtensionDescriptor] = []
         self._contract = contract or ExtensionContract()
 
@@ -143,6 +174,11 @@ class ExtensionRegistry:
         """Register a callable executed during FastAPI startup."""
 
         self._startup_hooks.append(hook)
+
+    def register_plan_observer(self, observer: object) -> None:
+        """Register an observer notified after plan broadcasts."""
+
+        self._plan_observers.append(observer)
 
     def register_extension(self, descriptor: ExtensionDescriptor) -> None:
         """Expose extension metadata for discovery endpoints."""
@@ -173,6 +209,7 @@ class ExtensionRegistry:
         return ExtensionBundle(
             task_hooks=tuple(self._task_hooks),
             startup_hooks=tuple(self._startup_hooks),
+            plan_observers=tuple(self._plan_observers),
             descriptors=tuple(self._descriptors),
             contract=self._contract,
         )

@@ -31,6 +31,7 @@ __all__ = [
     "HEARTBEAT_SHUTDOWN_TIMEOUT",
     "HeartbeatLoop",
     "RuntimeConfiguration",
+    "analytics_command",
     "build_parser",
     "compute_backoff_interval",
     "derive_runtime_configuration",
@@ -217,6 +218,51 @@ def display_runtime_configuration(config: RuntimeConfiguration) -> None:
     print("-" * (width + 25))
     for label, value in rows:
         print(f"{label:<{width}} : {value}")
+
+
+def analytics_command(args: argparse.Namespace) -> int:
+    """Fetch and display aggregated task analytics."""
+
+    try:
+        with SwitchboardClient(args.base, args.agent, auto_register=False) as client:
+            payload = client.get_task_analytics()
+    except requests.RequestException as exc:
+        print(f"Failed to fetch task analytics: {exc}", file=sys.stderr)
+        return 1
+
+    if getattr(args, "json", False):
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+
+    rows = [
+        ("Total tasks", payload.get("total_tasks", 0)),
+        ("Pending", payload.get("pending_tasks", 0)),
+        ("In progress", payload.get("in_progress_tasks", 0)),
+        ("Completed", payload.get("completed_tasks", 0)),
+        ("Ready", payload.get("ready_tasks", 0)),
+        ("Blocked", payload.get("blocked_tasks", 0)),
+        ("With dependencies", payload.get("with_dependencies", 0)),
+        ("Without dependencies", payload.get("without_dependencies", 0)),
+        ("Dependency edges", payload.get("dependency_edges", 0)),
+        (
+            "Average dependencies",
+            f"{payload.get('average_dependencies', 0.0):.2f}",
+        ),
+    ]
+
+    width = max(len(label) for label, _ in rows)
+    for label, value in rows:
+        print(f"{label:<{width}} : {value}")
+
+    missing_tasks = payload.get("missing_dependency_tasks", 0)
+    missing_edges = payload.get("missing_dependency_edges", 0)
+    if missing_tasks or missing_edges:
+        print(
+            "Warnings: tasks reference missing dependencies — "
+            f"{missing_tasks} tasks, {missing_edges} edges.",
+            file=sys.stderr,
+        )
+    return 0
 
 
 def confirm_completion(
@@ -461,6 +507,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--disable", action="store_true", help="Disable maintenance mode"
     )
     maintenance_parser.set_defaults(func=maintenance_command)
+
+    stats_parser = subparsers.add_parser(
+        "stats", help="Display aggregated task analytics"
+    )
+    stats_parser.add_argument(
+        "--base", required=True, help="Base URL of the Switchboard server"
+    )
+    stats_parser.add_argument(
+        "--agent",
+        default="analytics-cli",
+        help="Agent identifier used for analytics requests",
+    )
+    stats_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output the analytics payload as JSON",
+    )
+    stats_parser.set_defaults(func=analytics_command)
     return parser
 
 

@@ -116,6 +116,66 @@
   opacity: 1;
 }
 
+.analytics-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 768px) {
+  .analytics-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.analytics-card {
+  padding: 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid #e5e7eb;
+  background-color: #f9fafb;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.analytics-list {
+  display: grid;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: #374151;
+}
+
+.analytics-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.analytics-list dt {
+  font-weight: 600;
+}
+
+.analytics-list dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.analytics-list--compact {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: #4b5563;
+}
+
+.analytics-list--compact li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .toast {
     transition: none;

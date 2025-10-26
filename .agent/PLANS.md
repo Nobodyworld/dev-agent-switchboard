@@ -158,6 +158,113 @@ Improve the Switchboard operator UI so task data stays reliable and comprehensib
 - Toast utilities rely on DOM IDs inserted into `index.html`.
 - Playwright tests depend on `pytest` and `playwright.sync_api`.
 # Restore core server imports and datetime helpers
+# Observability-driven modular expansion for Stage 3
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Elevate Switchboard's long-term sustainability by tightening observability signals, extending the extension contract for modular growth, and equipping contributors (human or agentic) with scaffolding for future automation.
+
+- Capture task analytics as Prometheus gauges so operators can monitor backlog health without polling the API.
+- Introduce plan broadcast observers in the extension contract and supply a builtin analytics observer to demonstrate the pattern.
+- Thread lightweight tracing spans through broadcast pathways to improve distributed diagnostics.
+- Document the evolved architecture, automation handoffs, and extension workflows for future stewards.
+
+## Progress
+
+- [x] Initial state.
+- [x] Observability helpers designed and instrumented.
+- [x] Extension contract + builtin plan observer implemented.
+- [x] Developer docs/tooling refreshed for Stage 3.
+- [x] Validation complete (tests, coverage artifacts, docs updated).
+
+## Surprises & Discoveries
+
+- Observation: Enabling OpenTelemetry tracing during tests can trigger console
+  exporter writes after stdout closes; gating span creation behind
+  `SWITCHBOARD_ENABLE_TRACING` keeps test runs noise-free.
+
+## Decision Log
+
+- Decision: Introduced plan observers via `ExtensionBundle.emit_plan_event`
+  and added the builtin `plan_metrics` observer to keep analytics gauges in
+  sync with broadcasts.
+  Rationale: Reuses the extension contract while decoupling metrics from core
+  application logic.
+  Date/Author: 2025-02-17 / gpt-5-codex
+- Decision: Wrapped plan broadcasts in the new `span()` helper conditioned on
+  `SWITCHBOARD_ENABLE_TRACING` so tracing stays opt-in while tests remain
+  deterministic.
+  Rationale: Provides production observability without introducing noisy spans
+  during development.
+  Date/Author: 2025-02-17 / gpt-5-codex
+- Decision: Added analytics-aware coverage gates (plan metrics module) to the
+  CI workflow and developer tooling.
+  Rationale: Keeps the new observability surface from regressing silently.
+  Date/Author: 2025-02-17 / gpt-5-codex
+
+## Outcomes & Retrospective
+
+- Plan broadcasts now fan out analytics snapshots to Prometheus via the builtin
+  observer, keeping dashboards aligned with backlog health without extra API
+  calls.
+- Telemetry and documentation expose plan observer counts and analytics gauge
+  metadata, giving operators clearer insight into observability state.
+- Updated developer tooling (coverage gate, docs) codifies the new extension
+  contract and metrics expectations for future contributors.
+
+## Context and Orientation
+
+- `server/app.broadcast_plan` fans out plan payloads and is the natural insertion point for plan-level instrumentation.
+- `server/extensions` exposes a contract for task lifecycle hooks; plan broadcast notifications do not yet exist.
+- Observability bootstrap already toggles metrics/tracing via environment variables; analytics metrics should honour the same guardrails.
+- `scripts/dev.py` provides verification gates and TODO enforcement—stage deliverables must integrate without breaking these workflows.
+- Documentation set includes `ARCHITECTURE_OVERVIEW.md`, `AUTOMATION.md`, and `EXTENSION_GUIDE.md`; each needs updates to reflect new interfaces and monitoring guidance.
+
+## Plan of Work
+
+1. Author `server/observability/metrics.py` with gauge registration + helper to publish `TaskAnalytics` counts while gracefully degrading when Prometheus is unavailable.
+2. Extend `ExtensionRegistry`/`ExtensionBundle` to support plan observers and bump the extension API version. Surface telemetry metadata for plan observers.
+3. Implement a builtin `plan_metrics` extension that subscribes to plan broadcasts and updates gauges via the new observability helper.
+4. Instrument `broadcast_plan` with tracing spans, update telemetry to note plan observer enablement, and ensure plan analytics fetched once per broadcast when observers are present.
+5. Refresh docs (`ARCHITECTURE_OVERVIEW.md`, `AUTOMATION.md`, `EXTENSION_GUIDE.md`, `README.md`) plus changelog/release notes to describe observability upgrades. Add agent automation guidance as needed.
+6. Extend tests covering plan observer emission, analytics metric helper behaviour, and integration in `broadcast_plan`. Update tooling docs/scripts if thresholds change.
+7. Re-run verification suite (`pytest`, coverage gates) and update coverage/performance artifacts.
+
+## Concrete Steps
+
+1. Create observability helper + tests (new `server/tests/test_observability_metrics.py`).
+2. Modify extension interfaces, loader, builtin registration, and associated unit tests.
+3. Implement builtin plan metrics observer and wire plan broadcast instrumentation.
+4. Update docs (architecture overview, automation, extension guide, README) and release artefacts (CHANGELOG, RELEASE_NOTES, reports/coverage.json summary, reports/performance.md if needed).
+5. Run `pytest` suites including targeted modules; regenerate coverage artefacts via existing commands.
+6. Summarize decisions/outcomes in this ExecPlan before finalizing.
+
+## Validation and Acceptance
+
+- `pytest` (targeted plus coverage suite) succeeds locally.
+- Prometheus gauges update deterministically during plan broadcasts (asserted in tests) without requiring metrics dependency in minimal installs.
+- Documentation accurately reflects the new extension contract and observability flow.
+- Coverage artefacts updated and CI scripts remain valid.
+
+## Idempotence and Recovery
+
+- Observability helper gracefully skips when Prometheus unavailable; no runtime state persists beyond gauge updates.
+- Extension contract bump is additive; rollback entails reverting bundle changes and builtin registration, leaving previous hooks unaffected.
+- Plan broadcast instrumentation only enriches payload handling; removing it reverts to existing broadcast behaviour without schema changes.
+
+## Artifacts and Notes
+
+- `pytest` (180 passed, 2 skipped) covering new plan observer + metrics helpers.
+
+## Interfaces and Dependencies
+
+- `server/observability/metrics.record_task_analytics_metrics()` returns whether gauges updated.
+- `ExtensionRegistry.register_plan_observer()` / `ExtensionBundle.plan_observers` define the new observer contract (API version bumped accordingly).
+- Builtin `plan_metrics` observer requires `prometheus_client` (optional) and `TaskAnalytics` payloads from broadcasts.
 
 # Modernize dependencies and surface runtime diagnostics
 
@@ -1243,3 +1350,111 @@ endpoints) can consume when presenting runtime context.
   optional metadata environment variables are absent.
 - New observability module depends only on the standard library to remain
   lightweight.
+
+# Task analytics and operator insights
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises &
+Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to
+date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained
+in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Provide operators and agents with actionable insight into task flow by exposing
+aggregated analytics across the API, CLI, and dashboard UI. The goal is to make
+it trivial to understand how many tasks are blocked, ready, or missing
+dependencies while keeping implementations type-safe, documented, and tested.
+
+## Progress
+
+- [x] Initial scope captured and plan drafted.
+- [x] Domain and persistence analytics helpers implemented.
+- [x] REST/CLI/UI surfaces wired to the new analytics data.
+- [x] Documentation and tests updated.
+- [x] Validation commands executed.
+
+## Surprises & Discoveries
+
+- Foreign-key constraints ensured missing dependencies could not be reproduced
+  organically; analytics still track the metric for robustness but tests focus
+  on healthy dependency graphs.
+
+## Decision Log
+
+- Decision: Compute analytics in Python using repository-level dependency maps
+  instead of raw SQL aggregation.
+  Rationale: Reuses existing dependency-loading helpers, keeps calculations
+  understandable, and avoids complex joins for per-task readiness.
+  Date/Author: 2025-02-15 / gpt-5-codex
+
+## Outcomes & Retrospective
+
+- Analytics endpoint, CLI, and dashboard now surface ready/blocked counts and
+  dependency density, giving operators a single glance view of backlog health.
+- Automated tests cover repository calculations, client/CLI integrations, and
+  the UI card so regressions are caught quickly.
+
+## Context and Orientation
+
+- `server/domain/` and `server/infrastructure/repositories.py` own task
+  representations and queries.
+- `server/app.py` exposes REST endpoints consumed by clients and the UI.
+- `client/python/switchboard_client.py` plus `switchboard_cli.py` surface CLI
+  functionality.
+- `web/index.html` and `web/static/app.js` drive the dashboard; tests live under
+  `web/tests/`.
+- Documentation updates land in `docs/` and the README.
+
+## Plan of Work
+
+1. Introduce a domain-level analytics dataclass and repository method to collect
+   task metrics, including status counts and dependency health.
+2. Expose `/api/tasks/analytics` returning the new schema, update diagnostics to
+   reference the data where relevant, and cover the route with tests.
+3. Extend the Python client and CLI with a `stats` command that prints the
+   analytics summary in a tabular or JSON form for scripting.
+4. Add a dashboard insights card visualising blocked/ready counts and update the
+   UI tests to assert the new surface.
+5. Document the feature in README + docs and ensure full test / lint passes.
+
+## Concrete Steps
+
+1. Create `TaskAnalytics` dataclass in `server/domain/entities.py`, add a
+   `task_analytics()` method to repository/service layers, and implement the SQL
+   adapter logic.
+2. Define `TaskAnalyticsOut` in `server/schema.py`, add the FastAPI route and
+   tests under `server/tests/` validating blocked/ready calculations.
+3. Add `get_task_analytics()` to the Python client plus a new CLI subcommand that
+   formats the response for operators; add unit coverage.
+4. Update `web/index.html` and `web/static/app.js` to fetch and render analytics
+   with accessible markup; adjust Playwright tests accordingly.
+5. Refresh docs (README, docs/index, etc.) and run `pytest` along with any
+   formatting hooks.
+
+## Validation and Acceptance
+
+- `pytest` passes without regressions.
+- CLI command outputs analytics matching API results in tests.
+- Dashboard card renders analytics and UI tests cover the behaviour.
+- Documentation accurately reflects the new endpoint and tooling.
+
+## Idempotence and Recovery
+
+- Analytics computations rely on read-only queries; retries are safe and do not
+  mutate state.
+- CLI command degrades gracefully when the endpoint is unavailable by surfacing
+  clear error messages.
+- UI fetch failure surfaces a toast but leaves the page usable.
+
+## Artifacts and Notes
+
+- Validation: `pytest`
+
+## Interfaces and Dependencies
+
+- Analytics route depends on the task repository and lease policy metadata.
+- CLI relies on the Python client; ensure backwards compatibility for existing
+  scripts by defaulting to human-friendly output with optional JSON.
+- UI module reuses existing `apiFetchJson` helper for consistent error handling.

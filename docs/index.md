@@ -98,6 +98,18 @@ issues without juggling active agents:
 The admin token is optional in development but should be configured in
 production via `SWITCHBOARD_ADMIN_TOKEN`.
 
+## Task Analytics
+
+Track backlog health without scanning every task manually:
+
+- **API:** `GET /api/tasks/analytics` returns totals for pending, in-progress,
+  ready, and blocked tasks alongside dependency statistics.
+- **CLI:** `switchboard-cli stats --base http://localhost:8000` renders the
+  analytics table in the terminal; add `--json` to consume the raw payload in
+  scripts.
+- **UI:** The dashboard now includes a Task Analytics card summarising ready
+  versus blocked work and dependency density with live refresh controls.
+
 ## End-to-End Example
 
 Follow these steps to process a task locally:

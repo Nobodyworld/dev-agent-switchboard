@@ -43,6 +43,24 @@ class TaskRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class TaskAnalytics:
+    """Aggregated statistics describing the current task portfolio."""
+
+    total_tasks: int
+    pending_tasks: int
+    in_progress_tasks: int
+    completed_tasks: int
+    ready_tasks: int
+    blocked_tasks: int
+    with_dependencies: int
+    without_dependencies: int
+    dependency_edges: int
+    missing_dependency_tasks: int
+    missing_dependency_edges: int
+    average_dependencies: float
+
+
+@dataclass(frozen=True, slots=True)
 class LeaseRecord:
     """Domain representation of an active or historical lease."""
 

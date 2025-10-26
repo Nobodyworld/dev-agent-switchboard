@@ -14,12 +14,14 @@ writing new extensions.
      expose a `register_extension(registry)` callable.
 2. **Loading** – During startup `initialize_extensions(app)` imports each module
    and gives it an `ExtensionRegistry`. Extensions register lifecycle hooks,
-   FastAPI startup callbacks, and descriptive metadata. The registry now tracks a
-   versioned contract (`EXTENSION_API_VERSION`) so operators can confirm
-   compatibility via `/api/settings`.
+   plan observers, FastAPI startup callbacks, and descriptive metadata. The
+   registry now tracks a versioned contract (`EXTENSION_API_VERSION`) so
+   operators can confirm compatibility via `/api/settings`.
 3. **Emission** – `TaskService` calls `ExtensionBundle.emit(...)` after every
-   checkout, heartbeat, completion, abandonment, creation, and update. Hooks may
-   perform synchronous or asynchronous work.
+   checkout, heartbeat, completion, abandonment, creation, and update, and
+   `broadcast_plan` calls `ExtensionBundle.emit_plan_event(...)` before
+   delivering plan payloads. Hooks and observers may perform synchronous or
+   asynchronous work.
 4. **Observation** – `/api/settings` exposes the effective configuration,
    registered descriptors, and the contract version/notes. `/api/diagnostics` and
    `/api/observability/telemetry` surface the same metadata for automation.
@@ -59,6 +61,25 @@ def register_extension(registry: ExtensionRegistry) -> None:
         )
     )
     registry.register_task_hook(EmailHook())
+
+
+class AnalyticsExporter:
+    async def on_plan_broadcast(self, *, version, plan, delta, analytics) -> None:
+        if analytics is None:
+            return
+        publish_gauge("tasks_ready", analytics.ready_tasks)
+
+
+def register_extension(registry: ExtensionRegistry) -> None:
+    registry.register_extension(
+        ExtensionDescriptor(
+            name="email-alerts",
+            capabilities=("notifications", "plan_observer"),
+            description="Sends email when tasks complete successfully and exports plan analytics gauges.",
+        )
+    )
+    registry.register_task_hook(EmailHook())
+    registry.register_plan_observer(AnalyticsExporter())
 ```
 
 Then enable it via environment variables:
@@ -80,7 +101,8 @@ uvicorn server.app:app
 - **Idempotence** – Hooks may run more than once (e.g., retries). Ensure they
   can handle duplicate notifications.
 - **Failure handling** – Raise exceptions sparingly; `TaskService` awaits all
-  hooks sequentially. Prefer logging or circuit breaker logic inside the hook.
+  hooks sequentially, and plan observers run before WebSocket broadcasts.
+  Prefer logging or circuit breaker logic inside the hook.
 - **Metadata** – Populate `ExtensionDescriptor` so `/api/settings` conveys
   meaningful details to operators and automation agents. Use
   `registry.append_contract_note()` to record cross-cutting compatibility
@@ -94,7 +116,10 @@ The builtin `task_metrics` extension (`server/extensions/builtin/task_metrics.py
 illustrates a simple hook that increments Prometheus counters for each lifecycle
 transition. The companion `webhook_notifier`
 (`server/extensions/builtin/webhook_notifier.py`) demonstrates filtered event
-delivery with structured payloads via `httpx`. Use these as templates for other
-stateless integrations such as audit logging, Slack notifications, or bespoke
-webhooks. When deploying webhooks set `SWITCHBOARD_WEBHOOK_URL` (and optionally
+delivery with structured payloads via `httpx`, and the new
+`plan_metrics` observer (`server/extensions/builtin/plan_metrics.py`) shows how
+to react to plan broadcasts by updating analytics gauges. Use these as
+templates for other stateless integrations such as audit logging, Slack
+notifications, bespoke webhooks, or analytics exporters. When deploying
+webhooks set `SWITCHBOARD_WEBHOOK_URL` (and optionally
 `SWITCHBOARD_WEBHOOK_EVENTS`) so the builtin hook can broadcast lifecycle events.

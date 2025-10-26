@@ -14,6 +14,8 @@ const state = {
   diagnosticsVisible: false,
   diagnosticsLoading: false,
   diagnosticsFetchedAt: null,
+  taskAnalytics: null,
+  taskAnalyticsFetchedAt: null,
 };
 
 let ws;
@@ -187,6 +189,86 @@ function renderPlanMeta() {
     updatedEl.removeAttribute('dateTime');
   }
   meta.classList.remove('hidden');
+}
+
+
+function renderAnalytics() {
+  const summary = document.getElementById('analyticsSummary');
+  const cards = document.getElementById('analyticsCards');
+  const updatedWrapper = document.getElementById('analyticsUpdatedWrapper');
+  const updatedEl = document.getElementById('analyticsUpdated');
+  if (!summary || !cards) {
+    return;
+  }
+
+  const analytics = state.taskAnalytics;
+  if (!analytics) {
+    summary.textContent = 'Analytics unavailable. Try refreshing to load metrics.';
+    cards.innerHTML =
+      '<p class="text-sm text-gray-500">Task analytics are not available right now.</p>';
+    if (updatedWrapper && updatedEl) {
+      updatedWrapper.classList.add('hidden');
+      updatedEl.textContent = '—';
+      updatedEl.removeAttribute('dateTime');
+    }
+    return;
+  }
+
+  const { ready_tasks, blocked_tasks, total_tasks } = analytics;
+  summary.textContent = `${total_tasks} tasks — ${ready_tasks} ready, ${blocked_tasks} blocked.`;
+
+  if (updatedWrapper && updatedEl) {
+    const fetchedAt = state.taskAnalyticsFetchedAt
+      ? new Date(state.taskAnalyticsFetchedAt)
+      : null;
+    if (fetchedAt && !Number.isNaN(fetchedAt.valueOf())) {
+      updatedEl.textContent = fetchedAt.toLocaleTimeString();
+      updatedEl.dateTime = fetchedAt.toISOString();
+      updatedWrapper.classList.remove('hidden');
+    } else {
+      updatedWrapper.classList.add('hidden');
+      updatedEl.textContent = '—';
+      updatedEl.removeAttribute('dateTime');
+    }
+  }
+
+  const statusList = `
+    <dl class="analytics-list">
+      <div><dt>Pending</dt><dd>${analytics.pending_tasks}</dd></div>
+      <div><dt>In progress</dt><dd>${analytics.in_progress_tasks}</dd></div>
+      <div><dt>Completed</dt><dd>${analytics.completed_tasks}</dd></div>
+    </dl>
+  `;
+
+  const flowList = `
+    <dl class="analytics-list">
+      <div><dt>Ready</dt><dd>${analytics.ready_tasks}</dd></div>
+      <div><dt>Blocked</dt><dd>${analytics.blocked_tasks}</dd></div>
+      <div><dt>Average deps</dt><dd>${analytics.average_dependencies.toFixed(2)}</dd></div>
+    </dl>
+  `;
+
+  const dependencyNotes = [];
+  dependencyNotes.push(`<span>${analytics.with_dependencies} with dependencies</span>`);
+  dependencyNotes.push(`<span>${analytics.without_dependencies} without dependencies</span>`);
+  dependencyNotes.push(`<span>${analytics.dependency_edges} total edges</span>`);
+  if (analytics.missing_dependency_tasks || analytics.missing_dependency_edges) {
+    dependencyNotes.push(
+      `<span class="text-amber-700 font-medium">Warnings: ${analytics.missing_dependency_tasks} tasks reference ${analytics.missing_dependency_edges} missing edges</span>`
+    );
+  }
+
+  const dependencyList = `
+    <ul class="analytics-list analytics-list--compact">
+      ${dependencyNotes.map((item) => `<li>${item}</li>`).join('')}
+    </ul>
+  `;
+
+  cards.innerHTML = `
+    <article class="analytics-card" aria-label="Status distribution">${statusList}</article>
+    <article class="analytics-card" aria-label="Flow readiness">${flowList}</article>
+    <article class="analytics-card" aria-label="Dependency insights">${dependencyList}</article>
+  `;
 }
 
 function formatTimestamp(value) {
@@ -633,6 +715,7 @@ async function refreshPlan() {
     state.planUpdatedAt = plan.updated_at;
     renderPlanMeta();
     renderTaskList();
+    refreshAnalytics({ silent: true });
   } catch (error) {
     console.error('Failed to refresh plan', error);
     if (!state.tasks.length) {
@@ -640,6 +723,29 @@ async function refreshPlan() {
       if (container) {
         container.innerHTML = '<p class="text-sm text-red-600">Unable to load tasks. Please retry once the connection is restored.</p>';
       }
+    }
+  }
+}
+
+async function refreshAnalytics({ silent = false } = {}) {
+  if (!silent) {
+    const summary = document.getElementById('analyticsSummary');
+    if (summary) {
+      summary.textContent = 'Loading task analytics…';
+    }
+  }
+  try {
+    const payload = await apiFetchJson('/api/tasks/analytics');
+    state.taskAnalytics = payload;
+    state.taskAnalyticsFetchedAt = new Date().toISOString();
+    renderAnalytics();
+  } catch (error) {
+    console.error('Failed to load task analytics', error);
+    state.taskAnalytics = null;
+    state.taskAnalyticsFetchedAt = null;
+    renderAnalytics();
+    if (!silent) {
+      showToast('Unable to load task analytics at the moment.', 'error');
     }
   }
 }
@@ -936,6 +1042,14 @@ function initEventListeners() {
     });
   }
 
+  const analyticsRefresh = document.getElementById('refreshAnalytics');
+  if (analyticsRefresh) {
+    analyticsRefresh.addEventListener('click', (event) => {
+      event.preventDefault();
+      refreshAnalytics();
+    });
+  }
+
   const adminTokenInput = document.getElementById('adminTokenInput');
   if (adminTokenInput) {
     adminTokenInput.value = loadAdminToken();
@@ -966,9 +1080,11 @@ function initialize() {
   connectWS();
   renderMaintenanceState();
   renderDiagnostics();
+  renderAnalytics();
   refreshPlan();
   refreshSystemState();
   refreshDiagnostics({ silent: true });
+  refreshAnalytics({ silent: true });
 }
 
 document.addEventListener('DOMContentLoaded', initialize);

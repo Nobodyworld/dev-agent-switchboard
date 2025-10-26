@@ -4,7 +4,14 @@ import datetime as dt
 from collections.abc import Iterable, Sequence
 from typing import Protocol
 
-from .entities import Agent, LeaseRecord, PlanVersionSnapshot, SystemState, TaskRecord
+from .entities import (
+    Agent,
+    LeaseRecord,
+    PlanVersionSnapshot,
+    SystemState,
+    TaskAnalytics,
+    TaskRecord,
+)
 from .task_status import TaskStatus
 
 
@@ -51,6 +58,8 @@ class TaskRepository(Protocol):
     async def dependencies_completed(self, task_id: int) -> bool: ...
 
     async def existing_ids(self, task_ids: Iterable[int]) -> set[int]: ...
+
+    async def analytics(self) -> TaskAnalytics: ...
 
 
 class LeaseRepository(Protocol):

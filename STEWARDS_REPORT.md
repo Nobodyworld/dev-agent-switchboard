@@ -3,21 +3,23 @@
 ## Metrics Overview
 | Metric | Value | Notes |
 | --- | --- | --- |
-| Test coverage | 88.0% overall (`pytest --cov=server`) | `scripts/audit_metrics.py` records 3 801/4 318 covered lines in `reports/system_metrics.json`; diagnostics helpers remain the lowest module at 79.5%, so the coverage gate still flags it for follow-up.【F:reports/system_metrics.json†L1-L16】【F:coverage.txt†L1-L17】 |
-| Avg. cyclomatic complexity | A (2.57) across 528 blocks | Radon output confirms low complexity across server modules, leaving ample budget for future features.【F:reports/system_metrics.json†L1-L16】【F:reports/complexity.txt†L1-L20】 |
-| Internal dependency depth | Max depth 5, avg out-degree 1.51 across 70 modules | Static AST scan highlights a shallow graph anchored around `server.app`, preserving clean layering between API, application, and domain modules.【F:reports/system_metrics.json†L9-L16】 |
-| QA runtime | 39.5 s to run coverage suite | Full coverage execution remains under 40 s on the steward runner; automation can budget ~45 s for CI parity.【F:reports/system_metrics.json†L5-L11】 |
+| Test coverage | 89.94% overall (`pytest --cov=server`) | `scripts/audit_metrics.py` records 4 229/4 702 covered lines in `reports/system_metrics.json`; diagnostics helpers now meet 80% coverage but remain the lowest stack component.【F:reports/system_metrics.json†L1-L18】【F:coverage.txt†L1-L17】 |
+| Avg. cyclomatic complexity | A (2.58) across 568 blocks | Radon output confirms low complexity across server modules, leaving ample budget for future features.【F:reports/system_metrics.json†L1-L18】【F:reports/complexity.txt†L1-L20】 |
+| Internal dependency depth | Max depth 5, avg out-degree 1.6 across 75 modules | Static AST scan highlights a shallow graph anchored around `server.app`, preserving clean layering between API, application, and domain modules.【F:reports/system_metrics.json†L13-L18】 |
+| QA runtime | 51.8 s to run coverage suite | Full coverage execution remains under 52 s on the steward runner; automation can budget ~55 s for CI parity.【F:reports/system_metrics.json†L7-L11】 |
 | Bundle footprint | server: 1.4 MB · client: 280 KB · web: 88 KB | Repository stays lightweight for container builds and air-gapped mirroring.【65b0eb†L1-L2】 |
 | `/health/live` latency | Avg 4.38 ms · p95 4.86 ms over 30 requests | Loopback measurements show negligible overhead despite richer health metadata.【F:reports/perf_metrics.json†L1-L5】 |
 
 ## Key Findings
 - Transport payloads now exclusively rely on the Pydantic schemas in `server/schema.py`, eliminating the shadow `server/interfaces.py` dataclasses and removing a source of documentation drift.【F:server/schema.py†L1-L200】【F:docs/message-schema.md†L1-L120】
 - The new stewardship metrics CLI (`scripts/audit_metrics.py`) produces repeatable coverage, complexity, and dependency depth artifacts, enabling agents to reason about architectural health without rerunning full pipelines manually.【F:scripts/audit_metrics.py†L1-L220】【F:reports/system_metrics.json†L1-L16】
+- Prometheus analytics gauges are now registered from declarative specs, eliminating repetitive setup code and making the metrics surface self-documenting for future observers.【F:server/observability/metrics.py†L1-L200】
 - WebSocket plan broadcasts continue to serialize `PlanOut` snapshots via `_serialize_plan`, ensuring dashboard and agent consumers stay aligned with the plan schema after the interface cleanup.【F:server/app.py†L448-L520】
 
 ## Simplification Log
 - Removed the unused `server/interfaces.py` dataclasses and updated documentation to reference the canonical Pydantic models, reducing maintenance drag and eliminating zero-coverage modules from the suite.【F:docs/index.md†L4-L28】【F:docs/message-schema.md†L1-L120】
 - Regenerated stewardship assets (`reports/system_metrics.json`, `reports/complexity.txt`, `reports/perf_metrics.json`) via the new audit script so future runs have baselines committed in-repo.【F:reports/system_metrics.json†L1-L16】【F:reports/complexity.txt†L1-L20】【F:reports/perf_metrics.json†L1-L5】
+- Collapsed duplicate Prometheus gauge creation into `_GAUGE_SPECS`, shrinking boilerplate in `server/observability/metrics.py` and clarifying how analytics observers extend instrumentation.【F:server/observability/metrics.py†L1-L200】
 - Updated automation docs, Makefile coverage gates, and release guidance to point at the refreshed tooling and revised coverage thresholds, keeping human and agent workflows synchronized.【F:AUTOMATION.md†L35-L60】【F:Makefile†L37-L55】【F:RELEASE_NOTES.md†L1-L80】
 
 ## Knowledge & Automation Enhancements
@@ -27,7 +29,7 @@
 
 ## Future Roadmap
 ### Short Term (next iteration)
-- Raise `server/observability/diagnostics.py` above the 80% coverage threshold by adding failure-path tests for corrupted requirement manifests.【F:coverage.txt†L1-L17】
+- Increase `server/observability/diagnostics.py` margin above the 80% coverage threshold by adding failure-path tests for corrupted requirement manifests.【F:coverage.txt†L1-L17】
 - Document the steward metrics workflow in CI (`.github/workflows/ci.yml`) so artifacts such as `reports/system_metrics.json` are published automatically.【F:.github/workflows/ci.yml†L1-L80】
 
 ### Mid Term (1–2 sprints)
@@ -44,7 +46,7 @@
 - **Broadcast Guardian** – Exercises `broadcast_plan` under load tests and verifies websocket clients consume the `PlanOut` contract after each change.【F:server/app.py†L500-L580】
 
 ## Emerging Risks
-- Diagnostics coverage remains just below the 80% goal; leaving the gate in `FAIL` status acts as a reminder but requires action soon to avoid complacency.【F:coverage.txt†L1-L17】
+- Diagnostics coverage sits exactly at the 80% gate; without deeper negative-path tests, small refactors could dip the module back below policy.【F:coverage.txt†L1-L17】
 - Dependency depth analysis excludes non-Python assets; introduce complementary tooling for web/static bundles before adding significant frontend logic.【F:reports/system_metrics.json†L9-L16】
 - Health latency benchmarks use loopback measurements; distributed deployments should repeat the audit with networked workers to validate the ~5 ms expectations.【F:reports/perf_metrics.json†L1-L5】
 

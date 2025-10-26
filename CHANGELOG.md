@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- Regression tests covering task analytics ready/blocked calculations and
+  missing dependency detection to guard the new `/api/tasks/analytics` route.
+- JSON coverage artifact (`reports/coverage.json`) and refreshed
+  `coverage.txt` snapshot documenting module-level thresholds for the
+  analytics stack.
 - Telemetry bootstrap helper (`server/observability/telemetry.py`) powering the
   new `/api/observability/telemetry` endpoint and runtime metadata annotations.
 - Extension contract versioning (`EXTENSION_API_VERSION`), registry contract
@@ -20,6 +25,13 @@
   with coverage to support deterministic diagnostics testing.
 - Extension runtime under `server/extensions/` with builtin Prometheus task
   metrics hook and documentation in `EXTENSION_GUIDE.md`.
+- Plan observer contract with builtin `plan_metrics` extension and
+  `server/observability/metrics.py` helper emitting Prometheus gauges for
+  task analytics after each broadcast.
+- Lightweight tracing helper (`server/observability/tracing.py`) to annotate
+  plan broadcasts without requiring OpenTelemetry at import time.
+- Extension documentation updated with plan observer scaffolds and analytics
+  export examples; automation docs highlight the new gauges and contract notes.
 - `/api/settings` now surfaces extension configuration metadata (modules,
   builtin toggle, registered descriptors) for operators and agents.
 - `/api/diagnostics` aggregates runtime metadata, package versions, feature flags, and system state; the admin UI renders a diagnostics panel backed by the same payload.
@@ -49,12 +61,19 @@
   `/api/observability/telemetry` for instrumentation awareness.
 - CI quality matrix now runs a dedicated security stage; `make qa` and
   `scripts/dev.py verify` mirror the updated pipeline.
+- Prometheus analytics helper builds gauges from declarative specifications,
+  cutting duplicate setup logic and keeping the metrics surface consistent for
+  future extensions.
 - Builtin Prometheus metrics hook now honours strict type hints and optional
   dependency guards so Ruff and mypy run cleanly on extensions code.
 - `TaskOut` uses `ConfigDict(from_attributes=True)` to align with modern
   Pydantic configuration and remove deprecation warnings.
 - `TaskService` emits lifecycle events to extension bundles so plugins can react
   to checkouts, completions, and task mutations without altering core logic.
+- Extension contract bumped to **2025.2**; telemetry and diagnostics now expose
+  plan observer counts plus task analytics gauge metadata.
+- `broadcast_plan` gathers analytics once per dispatch, wraps observers in
+  tracing spans, and invokes plan observers before WebSocket fan-out.
 - Health endpoints now include uptime, start timestamps, and process metadata to
   simplify diagnostics without breaking existing probes.
 - CI adds a dedicated coverage job enforcing ≥85% coverage on the extension

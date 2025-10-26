@@ -16,6 +16,7 @@ from server.domain import (
     HeartbeatResult,
     LeasePolicy,
     PlanVersionSnapshot,
+    TaskAnalytics,
     TaskAvailabilityPolicy,
     TaskRecord,
 )
@@ -257,6 +258,11 @@ class TaskService:
         if status and status != "all":
             return [task for task in tasks if task.status == status]
         return tasks
+
+    async def analytics(self) -> TaskAnalytics:
+        """Return aggregated analytics describing task and dependency health."""
+
+        return await self._tasks.analytics()
 
     async def dependencies_of(self, task_id: int) -> tuple[int, ...]:
         """Return dependency identifiers for the task."""
