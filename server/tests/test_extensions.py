@@ -1,4 +1,3 @@
-import asyncio
 import sys
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -16,7 +15,12 @@ from server.extensions import (
     loader as extension_loader,
     set_extension_bundle,
 )
-from server.extensions.builtin import plan_metrics, task_metrics, webhook_notifier
+from server.extensions.builtin import (
+    activity_feed,
+    plan_metrics,
+    task_metrics,
+    webhook_notifier,
+)
 from server.extensions.interfaces import (
     ExtensionDescriptor,
     ExtensionLoadError,
@@ -39,32 +43,36 @@ class RecordingHook:
         self.events.append(("created", task.id))
 
     async def on_checkout(self, *, agent, result) -> None:
+        _ = agent
         self.events.append(("checkout", result.reason or "ok"))
 
     async def on_complete(self, *, agent_id, result) -> None:
+        _ = agent_id
         self.events.append(("complete", result.ok))
 
     async def on_task_updated(self, *, task) -> None:
         self.events.append(("updated", task.title))
 
 
-def test_task_service_emits_extension_events():
+@pytest.mark.asyncio
+async def test_task_service_emits_extension_events():
     hook = RecordingHook()
     original = set_extension_bundle(
         ExtensionBundle(task_hooks=(hook,), startup_hooks=(), descriptors=())
     )
-    async def scenario() -> None:
+    try:
         async with AsyncSessionLocal() as session:
             service = build_task_service(session)
-            created = await service.create_task(title="sample", description="", depends_on=())
+            created = await service.create_task(
+                title="sample",
+                description="",
+                depends_on=(),
+            )
             await session.commit()
             checkout = await service.checkout(Agent(agent_id="observer"))
             assert checkout.task is not None
             await service.complete("observer", checkout.task.id)
             await service.update_task(created.id, title="updated", description=None)
-
-    try:
-        asyncio.run(scenario())
     finally:
         set_extension_bundle(original)
     assert hook.events[0][0] == "created"
@@ -73,8 +81,12 @@ def test_task_service_emits_extension_events():
     assert any(event[0] == "updated" for event in hook.events)
 
 
-@pytest.mark.skipif(task_metrics.Counter is None, reason="prometheus_client not installed")
-def test_builtin_metrics_hook_increments_counters(monkeypatch):
+@pytest.mark.skipif(
+    task_metrics.Counter is None,
+    reason="prometheus_client not installed",
+)
+@pytest.mark.asyncio
+async def test_builtin_metrics_hook_increments_counters(monkeypatch):
     monkeypatch.setenv("SWITCHBOARD_ENABLE_BUILTIN_EXTENSIONS", "1")
     reload_extension_settings()
     metrics_hook = task_metrics.TaskMetricsHook()
@@ -94,16 +106,12 @@ def test_builtin_metrics_hook_increments_counters(monkeypatch):
         for sample in metric.samples
         if not sample.name.endswith("_created")
     }
-    asyncio.run(
-        metrics_hook.on_checkout(
-            agent=Agent(agent_id="x"),
-            result=SimpleNamespace(task=object(), reason=None),
-        )
+    await metrics_hook.on_checkout(
+        agent=Agent(agent_id="x"),
+        result=SimpleNamespace(task=object(), reason=None),
     )
-    asyncio.run(
-        metrics_hook.on_complete(
-            agent_id="x", result=SimpleNamespace(ok=True)
-        )
+    await metrics_hook.on_complete(
+        agent_id="x", result=SimpleNamespace(ok=True)
     )
     after_checkout = {
         sample.labels.get("outcome"): sample.value
@@ -128,7 +136,8 @@ def test_builtin_metrics_hook_increments_counters(monkeypatch):
     reload_extension_settings()
 
 
-def test_webhook_notifier_registers_and_emits(monkeypatch):
+@pytest.mark.asyncio
+async def test_webhook_notifier_registers_and_emits(monkeypatch):
     events: list[dict[str, Any]] = []
 
     class DummyClient:
@@ -154,24 +163,31 @@ def test_webhook_notifier_registers_and_emits(monkeypatch):
     bundle = registry.freeze()
 
     assert any(
-        descriptor.name == "builtin.webhook_notifier" for descriptor in bundle.descriptors
+        descriptor.name == "builtin.webhook_notifier"
+        for descriptor in bundle.descriptors
     )
     assert any("Webhook notifier" in note for note in bundle.contract.notes)
 
-    hook = next((hook for hook in bundle.task_hooks if isinstance(hook, webhook_notifier.WebhookNotifier)), None)
+    hook = next(
+        (
+            hook
+            for hook in bundle.task_hooks
+            if isinstance(hook, webhook_notifier.WebhookNotifier)
+        ),
+        None,
+    )
     assert hook is not None
 
-    asyncio.run(
-        hook.on_complete(
-            agent_id="agent-1",
-            result=SimpleNamespace(ok=True, task=SimpleNamespace(id=5)),
-        )
+    task_id = 5
+    await hook.on_complete(
+        agent_id="agent-1",
+        result=SimpleNamespace(ok=True, task=SimpleNamespace(id=task_id)),
     )
 
     assert events
     payload = events[0]["json"]
     assert payload["event"] == "on_complete"
-    assert payload["data"]["task_id"] == 5
+    assert payload["data"]["task_id"] == task_id
 
 
 def test_webhook_notifier_rejects_invalid_timeout(monkeypatch):
@@ -183,13 +199,33 @@ def test_webhook_notifier_rejects_invalid_timeout(monkeypatch):
         webhook_notifier.register(registry)
 
 
+def test_activity_feed_extension_registers_and_emits():
+    registry = ExtensionRegistry()
+    activity_feed.register(registry)
+    bundle = registry.freeze()
+
+    assert any(
+        descriptor.name == "builtin.activity_feed"
+        for descriptor in bundle.descriptors
+    )
+    assert any("Activity feed" in note for note in bundle.contract.notes)
+
 def test_load_extension_bundle_skips_missing_modules(monkeypatch, caplog):
     monkeypatch.setenv("SWITCHBOARD_EXTENSIONS", "does.not.exist")
     caplog.set_level("WARNING")
     bundle = load_extension_bundle()
-    assert any("Unable to import extension module" in record.message for record in caplog.records)
-    assert any(descriptor.name == "builtin.task_metrics" for descriptor in bundle.descriptors)
-    assert any(descriptor.name == "builtin.plan_metrics" for descriptor in bundle.descriptors)
+    assert any(
+        "Unable to import extension module" in record.message
+        for record in caplog.records
+    )
+    assert any(
+        descriptor.name == "builtin.task_metrics"
+        for descriptor in bundle.descriptors
+    )
+    assert any(
+        descriptor.name == "builtin.plan_metrics"
+        for descriptor in bundle.descriptors
+    )
 
 
 def test_extension_bundle_startup_hooks_execute():
@@ -224,7 +260,7 @@ def test_load_extension_bundle_with_explicit_modules(monkeypatch):
 
     def register_extension(registry):
         registry.register_extension(ExtensionDescriptor(name=module_name))
-        registry.register_startup_hook(lambda app: None)
+        registry.register_startup_hook(lambda _app: None)
 
     module = ModuleType(module_name)
     module.register_extension = register_extension
@@ -243,13 +279,16 @@ def test_load_extension_bundle_warns_without_registrar(monkeypatch, caplog):
     caplog.set_level("WARNING")
     bundle = load_extension_bundle(modules=(module_name,), enable_builtin=False)
     assert not bundle.descriptors
-    assert any("does not expose register_extension" in record.message for record in caplog.records)
+    assert any(
+        "does not expose register_extension" in record.message
+        for record in caplog.records
+    )
 
 
 def test_load_extension_bundle_propagates_extension_errors(monkeypatch):
     module_name = "ext.error"
 
-    def register_extension(registry):
+    def register_extension(_registry):
         raise ExtensionLoadError("boom")
 
     module = ModuleType(module_name)
@@ -262,7 +301,7 @@ def test_load_extension_bundle_propagates_extension_errors(monkeypatch):
 def test_load_extension_bundle_skips_generic_failures(monkeypatch, caplog):
     module_name = "ext.generic"
 
-    def register_extension(registry):
+    def register_extension(_registry):
         raise RuntimeError("explode")
 
     module = ModuleType(module_name)
@@ -270,8 +309,13 @@ def test_load_extension_bundle_skips_generic_failures(monkeypatch, caplog):
     monkeypatch.setitem(sys.modules, module_name, module)
     caplog.set_level("ERROR")
     bundle = load_extension_bundle(modules=(module_name,), enable_builtin=False)
-    assert not any(descriptor.name == module_name for descriptor in bundle.descriptors)
-    assert any("failed during registration" in record.message for record in caplog.records)
+    assert not any(
+        descriptor.name == module_name for descriptor in bundle.descriptors
+    )
+    assert any(
+        "failed during registration" in record.message
+        for record in caplog.records
+    )
 
 
 @pytest.mark.asyncio
@@ -295,7 +339,9 @@ async def test_extension_bundle_emit_awaits_coroutines():
 
 class RecordingPlanObserver:
     def __init__(self) -> None:
-        self.events: list[tuple[int | None, dict[str, Any] | None, Any | None]] = []
+        self.events: list[
+            tuple[int | None, dict[str, Any] | None, dict[str, Any] | None, Any | None]
+        ] = []
 
     async def on_plan_broadcast(
         self,
@@ -305,22 +351,21 @@ class RecordingPlanObserver:
         delta: dict[str, Any] | None,
         analytics: Any | None,
     ) -> None:
-        self.events.append((version, plan, analytics))
+        self.events.append((version, plan, delta, analytics))
 
 
-def test_extension_bundle_emits_plan_observers():
+@pytest.mark.asyncio
+async def test_extension_bundle_emits_plan_observers():
     observer = RecordingPlanObserver()
     bundle = ExtensionBundle(plan_observers=(observer,))
-    asyncio.run(
-        bundle.emit_plan_event(
-            "on_plan_broadcast",
-            version=5,
-            plan={"version": 5},
-            delta=None,
-            analytics=None,
-        )
+    await bundle.emit_plan_event(
+        "on_plan_broadcast",
+        version=5,
+        plan={"version": 5},
+        delta=None,
+        analytics=None,
     )
-    assert observer.events == [(5, {"version": 5}, None)]
+    assert observer.events == [(5, {"version": 5}, None, None)]
 
 
 @pytest.mark.anyio
@@ -336,6 +381,7 @@ async def test_broadcast_plan_notifies_plan_observers(monkeypatch):
             delta: dict[str, Any] | None,
             analytics: Any | None,
         ) -> None:
+            _ = (plan, delta)
             observer_calls.append((version, analytics))
 
     observer_bundle = ExtensionBundle(plan_observers=(Observer(),))
@@ -372,7 +418,9 @@ async def test_plan_metrics_observer_handles_keyword_arguments(monkeypatch):
         return True
 
     monkeypatch.setattr(
-        plan_metrics, "record_task_analytics_metrics", fake_record_task_analytics_metrics
+        plan_metrics,
+        "record_task_analytics_metrics",
+        fake_record_task_analytics_metrics,
     )
 
     sample_payload = {"ready": 2, "blocked": 1}

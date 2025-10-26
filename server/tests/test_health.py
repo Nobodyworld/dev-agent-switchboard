@@ -1,9 +1,11 @@
+import asyncio
 from http import HTTPStatus
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from server.app import app
+from server.observability import activity
 
 
 def test_health_live_returns_process_check():
@@ -17,6 +19,7 @@ def test_health_live_returns_process_check():
     assert "started_at" in payload
     assert payload["uptime_seconds"] >= 0
     assert payload["pid"] > 0
+    assert payload["observations"]
 
 
 def test_health_ready_reports_dependencies():
@@ -31,14 +34,46 @@ def test_health_ready_reports_dependencies():
     assert "started_at" in payload
     assert payload["uptime_seconds"] >= 0
     assert payload["pid"] > 0
+    assert any(obs["name"] == "database" for obs in payload["observations"])
 
 
 def test_health_ready_returns_503_when_storage_fails():
     client = TestClient(app)
-    with patch("server.app.ensure_root", side_effect=Exception("boom")):
+    with patch(
+        "server.observability.health.ensure_root",
+        side_effect=Exception("boom"),
+    ):
         response = client.get("/health/ready")
     assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
     payload = response.json()
     assert payload["ok"] is False
     assert payload["checks"]["storage"] is False
     assert payload["uptime_seconds"] >= 0
+    failing = next(
+        (obs for obs in payload["observations"] if obs["name"] == "storage"),
+        None,
+    )
+    assert failing is not None
+    assert failing["ok"] is False
+
+
+def test_observability_health_endpoint_returns_combined_payload():
+    client = TestClient(app)
+    response = client.get("/api/observability/health")
+    assert response.status_code == HTTPStatus.OK
+    payload = response.json()
+    assert payload["liveness"]["checks"]["process"] is True
+    assert payload["readiness"]["checks"]["database"] is True
+    assert payload["telemetry"]
+    assert payload["probes"]
+
+
+def test_activity_feed_endpoint_reports_events():
+    activity.reset_activity_feed(limit=32)
+    client = TestClient(app)
+    asyncio.run(activity.record_event("test.event", payload={"example": True}))
+    response = client.get("/api/observability/audit-feed")
+    assert response.status_code == HTTPStatus.OK
+    payload = response.json()
+    assert payload["events"]
+    assert payload["events"][0]["kind"] == "test.event"

@@ -185,7 +185,12 @@ class ExtensionRegistry:
 
         self._descriptors.append(descriptor)
 
-    def set_contract(self, *, api_version: str | None = None, notes: tuple[str, ...] | None = None) -> None:
+    def set_contract(
+        self,
+        *,
+        api_version: str | None = None,
+        notes: tuple[str, ...] | None = None,
+    ) -> None:
         """Adjust the declared contract metadata for downstream consumers."""
 
         if api_version is None and notes is None:
@@ -200,7 +205,7 @@ class ExtensionRegistry:
 
         self._contract = ExtensionContract(
             api_version=self._contract.api_version,
-            notes=self._contract.notes + (note,),
+            notes=(*self._contract.notes, note),
         )
 
     def freeze(self) -> ExtensionBundle:

@@ -231,7 +231,11 @@ class SqlAlchemyTaskRepository(TaskRepository):
         status_counter: Counter[TaskStatus] = Counter()
         status_lookup: dict[int, TaskStatus] = {}
         for task in tasks:
-            status = task.status if isinstance(task.status, TaskStatus) else TaskStatus(task.status)
+            status = (
+                task.status
+                if isinstance(task.status, TaskStatus)
+                else TaskStatus(task.status)
+            )
             status_counter[status] += 1
             status_lookup[task.id] = status
 

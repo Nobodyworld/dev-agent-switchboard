@@ -12,6 +12,7 @@ import os
 import warnings
 from collections.abc import Mapping, Sequence
 from contextlib import asynccontextmanager, suppress
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
@@ -34,7 +35,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
-from sqlalchemy import inspect as sa_inspect, select, text
+from sqlalchemy import inspect as sa_inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from yaml import safe_dump
 
@@ -58,12 +59,16 @@ from .file_store import ensure_root, full_path, put_file
 from .middleware import RateLimitMiddleware
 from .observability import (
     bootstrap_observability,
+    build_liveness_payload,
+    build_readiness_payload,
     collect_diagnostics,
-    get_runtime_snapshot,
+    collect_observability_health,
     get_telemetry_report,
     span,
 )
+from .observability.activity import get_activity_feed_snapshot
 from .schema import (
+    ActivityFeedOut,
     AgentIn,
     AgentRegistrationResponse,
     CheckoutFailureReason,
@@ -77,6 +82,7 @@ from .schema import (
     FileUploadResponse,
     HealthStatus,
     LeaseSettingsOut,
+    ObservabilityHealthOut,
     PlanOut,
     RateLimitSettingsOut,
     RuntimeInfoOut,
@@ -590,7 +596,11 @@ async def broadcast_plan(  # noqa: PLR0913 - broadcast requires optional collabo
                 include_plan=include_plan,
                 plan=plan,
             )
-            await _dispatch(temp_service, resolved_version=resolved_version, plan_payload=plan_payload)
+            await _dispatch(
+                temp_service,
+                resolved_version=resolved_version,
+                plan_payload=plan_payload,
+            )
         return
 
     local_service = service or build_task_service(session)
@@ -600,7 +610,11 @@ async def broadcast_plan(  # noqa: PLR0913 - broadcast requires optional collabo
         include_plan=include_plan,
         plan=plan,
     )
-    await _dispatch(local_service, resolved_version=resolved_version, plan_payload=plan_payload)
+    await _dispatch(
+        local_service,
+        resolved_version=resolved_version,
+        plan_payload=plan_payload,
+    )
 
 
 async def broadcast_system_state(state: SystemState) -> None:
@@ -1022,10 +1036,7 @@ async def health_live() -> dict[str, object]:
         Serialized :class:`HealthStatus` payload indicating process health.
     """
 
-    snapshot = get_runtime_snapshot(version=app.version)
-    payload: dict[str, object] = {"ok": True, "checks": {"process": True}}
-    payload.update(snapshot.model_dump())
-    return payload
+    return build_liveness_payload(version=app.version)
 
 
 @app.get("/health/ready", response_model=HealthStatus)
@@ -1043,27 +1054,8 @@ async def health_ready(session: AsyncSession = Depends(get_session)):
         Aggregated readiness payload; returns HTTP 503 when dependencies fail.
     """
 
-    checks: dict[str, bool] = {}
-    overall_ok = True
-
-    try:
-        await session.execute(select(1))
-        checks["database"] = True
-    except Exception:  # pragma: no cover - surfaced via readiness response
-        checks["database"] = False
-        overall_ok = False
-
-    try:
-        ensure_root()
-        checks["storage"] = True
-    except Exception:
-        checks["storage"] = False
-        overall_ok = False
-
-    snapshot = get_runtime_snapshot(version=app.version)
-    payload: dict[str, object] = {"ok": overall_ok, "checks": checks}
-    payload.update(snapshot.model_dump())
-    if not overall_ok:
+    payload = await build_readiness_payload(session, version=app.version)
+    if not payload["ok"]:
         return JSONResponse(status_code=503, content=payload)
     return payload
 
@@ -1073,4 +1065,35 @@ async def health():
     """Return a simple OK response for legacy health checks."""
 
     return "OK"
+
+
+@app.get(
+    "/api/observability/health",
+    response_model=ObservabilityHealthOut,
+    dependencies=[Depends(require_admin_token)],
+)
+async def read_observability_health(
+    session: AsyncSession = Depends(get_session),
+) -> ObservabilityHealthOut:
+    """Return combined liveness, readiness, and telemetry data."""
+
+    payload = await collect_observability_health(session, version=app.version)
+    return payload
+
+
+@app.get(
+    "/api/observability/audit-feed",
+    response_model=ActivityFeedOut,
+    dependencies=[Depends(require_admin_token)],
+)
+async def read_activity_feed(
+    limit: int = Query(50, ge=1, le=200),
+) -> ActivityFeedOut:
+    """Return a bounded snapshot of recent task and plan activity."""
+
+    events = await get_activity_feed_snapshot(limit=limit)
+    return {
+        "generated_at": datetime.now(timezone.utc),
+        "events": events,
+    }
 

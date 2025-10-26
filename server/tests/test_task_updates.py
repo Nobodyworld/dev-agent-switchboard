@@ -1,4 +1,3 @@
-import asyncio
 import datetime as dt
 from http import HTTPStatus
 
@@ -14,194 +13,181 @@ from server.schema import TaskIn, TaskUpdate
 from server.task_status import TaskStatus
 from server.time_utils import utcnow_naive
 
+pytestmark = pytest.mark.asyncio
 
-def test_update_task_successful_edit_and_dependency_replacement():
-    async def scenario():
-        async with AsyncSessionLocal() as session:
-            service = build_task_service(session)
-            first_dep = await create_task(
-                TaskIn(title="prep", description="", depends_on=[]),
-                service=service,
-                session=session,
-            )
-            original = await create_task(
-                TaskIn(title="initial", description="", depends_on=[first_dep.id]),
-                service=service,
-                session=session,
-            )
-            second_dep = await create_task(
-                TaskIn(title="follow", description="", depends_on=[]),
-                service=service,
-                session=session,
-            )
-            await session.commit()
 
-            before_version = await service.plan_version()
+async def test_update_task_successful_edit_and_dependency_replacement():
+    async with AsyncSessionLocal() as session:
+        service = build_task_service(session)
+        first_dep = await create_task(
+            TaskIn(title="prep", description="", depends_on=[]),
+            service=service,
+            session=session,
+        )
+        original = await create_task(
+            TaskIn(title="initial", description="", depends_on=[first_dep.id]),
+            service=service,
+            session=session,
+        )
+        second_dep = await create_task(
+            TaskIn(title="follow", description="", depends_on=[]),
+            service=service,
+            session=session,
+        )
+        await session.commit()
 
-            result = await update_task(
-                original.id,
-                TaskUpdate(
-                    title="updated",
-                    description="new description",
-                    depends_on=[second_dep.id],
-                ),
-                service=service,
-                session=session,
-            )
+        before_version = await service.plan_version()
 
-            assert result.title == "updated"
-            assert result.description == "new description"
-            assert result.depends_on == [second_dep.id]
+        result = await update_task(
+            original.id,
+            TaskUpdate(
+                title="updated",
+                description="new description",
+                depends_on=[second_dep.id],
+            ),
+            service=service,
+            session=session,
+        )
 
-            after_version = await service.plan_version()
-            assert after_version == before_version + 1
+        assert result.title == "updated"
+        assert result.description == "new description"
+        assert result.depends_on == [second_dep.id]
 
-            deps = (
-                (
-                    await session.execute(
-                        select(TaskDependency.depends_on_task_id).where(
-                            TaskDependency.task_id == original.id
-                        )
+        after_version = await service.plan_version()
+        assert after_version == before_version + 1
+
+        deps = (
+            (
+                await session.execute(
+                    select(TaskDependency.depends_on_task_id).where(
+                        TaskDependency.task_id == original.id
                     )
                 )
-                .scalars()
-                .all()
             )
-            assert deps == [second_dep.id]
-
-    asyncio.run(scenario())
-
-
-def test_update_task_missing_dependency_validation():
-    async def scenario():
-        async with AsyncSessionLocal() as session:
-            service = build_task_service(session)
-            task = await create_task(
-                TaskIn(title="needs", description="", depends_on=[]),
-                service=service,
-                session=session,
-            )
-            await session.commit()
-
-            with pytest.raises(HTTPException) as exc:
-                await update_task(
-                    task.id,
-                    TaskUpdate(depends_on=[9999]),
-                    service=service,
-                    session=session,
-                )
-            assert exc.value.status_code == HTTPStatus.BAD_REQUEST
-
-            await session.rollback()
-
-    asyncio.run(scenario())
+            .scalars()
+            .all()
+        )
+        assert deps == [second_dep.id]
 
 
-def test_update_task_self_dependency_validation():
-    async def scenario():
-        async with AsyncSessionLocal() as session:
-            service = build_task_service(session)
-            task = await create_task(
-                TaskIn(title="solo", description="", depends_on=[]),
-                service=service,
-                session=session,
-            )
-            await session.commit()
+async def test_update_task_missing_dependency_validation():
+    async with AsyncSessionLocal() as session:
+        service = build_task_service(session)
+        task = await create_task(
+            TaskIn(title="needs", description="", depends_on=[]),
+            service=service,
+            session=session,
+        )
+        await session.commit()
 
-            with pytest.raises(HTTPException) as exc:
-                await update_task(
-                    task.id,
-                    TaskUpdate(depends_on=[task.id]),
-                    service=service,
-                    session=session,
-                )
-            assert exc.value.status_code == HTTPStatus.BAD_REQUEST
-
-            await session.rollback()
-
-    asyncio.run(scenario())
-
-
-def test_update_task_status_resetting_leases_to_pending():
-    async def scenario():
-        async with AsyncSessionLocal() as session:
-            service = build_task_service(session)
-            created = await create_task(
-                TaskIn(title="leased", description="", depends_on=[]),
-                service=service,
-                session=session,
-            )
-            await session.commit()
-
-            task = await session.get(Task, created.id)
-            assert task is not None
-            task.status = TaskStatus.IN_PROGRESS
-            await session.flush()
-
-            session.add(
-                Lease(
-                    task_id=task.id,
-                    agent_id="agent-a",
-                    expires_at=utcnow_naive() + dt.timedelta(minutes=5),
-                )
-            )
-            await session.commit()
-
-            result = await update_task(
+        with pytest.raises(HTTPException) as exc:
+            await update_task(
                 task.id,
-                TaskUpdate(status=TaskStatus.PENDING),
+                TaskUpdate(depends_on=[9999]),
                 service=service,
                 session=session,
             )
+        assert exc.value.status_code == HTTPStatus.BAD_REQUEST
 
-            assert result.status == TaskStatus.PENDING
-            leases = (
-                (await session.execute(select(Lease).where(Lease.task_id == task.id)))
-                .scalars()
-                .all()
-            )
-            assert leases == []
-
-    asyncio.run(scenario())
+        await session.rollback()
 
 
-def test_update_task_status_resetting_leases_to_completed():
-    async def scenario():
-        async with AsyncSessionLocal() as session:
-            service = build_task_service(session)
-            created = await create_task(
-                TaskIn(title="finishing", description="", depends_on=[]),
-                service=service,
-                session=session,
-            )
-            await session.commit()
+async def test_update_task_self_dependency_validation():
+    async with AsyncSessionLocal() as session:
+        service = build_task_service(session)
+        task = await create_task(
+            TaskIn(title="solo", description="", depends_on=[]),
+            service=service,
+            session=session,
+        )
+        await session.commit()
 
-            task = await session.get(Task, created.id)
-            assert task is not None
-            task.status = TaskStatus.IN_PROGRESS
-            await session.flush()
-
-            session.add(
-                Lease(
-                    task_id=task.id,
-                    agent_id="agent-b",
-                    expires_at=utcnow_naive() + dt.timedelta(minutes=5),
-                )
-            )
-            await session.commit()
-
-            result = await update_task(
+        with pytest.raises(HTTPException) as exc:
+            await update_task(
                 task.id,
-                TaskUpdate(status=TaskStatus.COMPLETED),
+                TaskUpdate(depends_on=[task.id]),
+                service=service,
                 session=session,
             )
+        assert exc.value.status_code == HTTPStatus.BAD_REQUEST
 
-            assert result.status == TaskStatus.COMPLETED
-            leases = (
-                (await session.execute(select(Lease).where(Lease.task_id == task.id)))
-                .scalars()
-                .all()
+        await session.rollback()
+
+
+async def test_update_task_status_resetting_leases_to_pending():
+    async with AsyncSessionLocal() as session:
+        service = build_task_service(session)
+        created = await create_task(
+            TaskIn(title="leased", description="", depends_on=[]),
+            service=service,
+            session=session,
+        )
+        await session.commit()
+
+        task = await session.get(Task, created.id)
+        assert task is not None
+        task.status = TaskStatus.IN_PROGRESS
+        await session.flush()
+
+        session.add(
+            Lease(
+                task_id=task.id,
+                agent_id="agent-a",
+                expires_at=utcnow_naive() + dt.timedelta(minutes=5),
             )
-            assert leases == []
+        )
+        await session.commit()
 
-    asyncio.run(scenario())
+        result = await update_task(
+            task.id,
+            TaskUpdate(status=TaskStatus.PENDING),
+            service=service,
+            session=session,
+        )
+
+        assert result.status == TaskStatus.PENDING
+        leases = (
+            (await session.execute(select(Lease).where(Lease.task_id == task.id)))
+            .scalars()
+            .all()
+        )
+        assert leases == []
+
+
+async def test_update_task_status_resetting_leases_to_completed():
+    async with AsyncSessionLocal() as session:
+        service = build_task_service(session)
+        created = await create_task(
+            TaskIn(title="finishing", description="", depends_on=[]),
+            service=service,
+            session=session,
+        )
+        await session.commit()
+
+        task = await session.get(Task, created.id)
+        assert task is not None
+        task.status = TaskStatus.IN_PROGRESS
+        await session.flush()
+
+        session.add(
+            Lease(
+                task_id=task.id,
+                agent_id="agent-b",
+                expires_at=utcnow_naive() + dt.timedelta(minutes=5),
+            )
+        )
+        await session.commit()
+
+        result = await update_task(
+            task.id,
+            TaskUpdate(status=TaskStatus.COMPLETED),
+            session=session,
+        )
+
+        assert result.status == TaskStatus.COMPLETED
+        leases = (
+            (await session.execute(select(Lease).where(Lease.task_id == task.id)))
+            .scalars()
+            .all()
+        )
+        assert leases == []

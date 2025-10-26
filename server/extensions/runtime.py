@@ -11,16 +11,26 @@ from .interfaces import ExtensionBundle
 from .loader import load_extension_bundle
 
 LOGGER = logging.getLogger(__name__)
-_BUNDLE: ExtensionBundle | None = None
+
+
+class _BundleCache:
+    """Simple cache holder for the loaded extension bundle."""
+
+    __slots__ = ("bundle",)
+
+    def __init__(self) -> None:
+        self.bundle: ExtensionBundle | None = None
+
+
+_CACHE = _BundleCache()
 
 
 def get_extension_bundle() -> ExtensionBundle:
     """Return the cached :class:`ExtensionBundle`, loading it if necessary."""
 
-    global _BUNDLE
-    if _BUNDLE is None:
-        _BUNDLE = load_extension_bundle()
-    return _BUNDLE
+    if _CACHE.bundle is None:
+        _CACHE.bundle = load_extension_bundle()
+    return _CACHE.bundle
 
 
 def initialize_extensions(app: FastAPI) -> ExtensionBundle:
@@ -40,15 +50,13 @@ def initialize_extensions(app: FastAPI) -> ExtensionBundle:
 def reload_extensions(*, modules: Sequence[str] | None = None) -> ExtensionBundle:
     """Force a reload of the extension bundle (for tests)."""
 
-    global _BUNDLE
-    _BUNDLE = load_extension_bundle(modules=modules)
-    return _BUNDLE
+    _CACHE.bundle = load_extension_bundle(modules=modules)
+    return _CACHE.bundle
 
 
 def set_extension_bundle(bundle: ExtensionBundle | None) -> ExtensionBundle | None:
     """Override the cached bundle. Intended for testing."""
 
-    global _BUNDLE
-    previous = _BUNDLE
-    _BUNDLE = bundle
+    previous = _CACHE.bundle
+    _CACHE.bundle = bundle
     return previous

@@ -9,12 +9,23 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Iterable
-from datetime import date
+from collections.abc import Iterable, Mapping, Sequence
+from datetime import datetime, timezone
 from pathlib import Path
+from shutil import which
 from textwrap import dedent
+from typing import Any, cast
 
 TODO_PATTERN = re.compile(r"\b(?:TODO|FIXME)\(P[1-3],\s*[^)]+\)")
+
+
+TRUSTED_EXECUTABLES = {
+    "bandit",
+    "mypy",
+    "pip-audit",
+    "pytest",
+    "ruff",
+}
 
 
 def _resolve_executable(bin_name: str, venv_path: Path) -> Path:
@@ -25,32 +36,71 @@ def _resolve_executable(bin_name: str, venv_path: Path) -> Path:
     return candidate
 
 
+def _assert_trusted_command(command: Sequence[str]) -> None:
+    """Ensure subprocess commands originate from trusted sources."""
+
+    if not command:
+        raise SystemExit("Refusing to execute empty command")
+    executable = command[0]
+    if executable == sys.executable:
+        return
+    if executable in TRUSTED_EXECUTABLES:
+        return
+    if os.path.isabs(executable):
+        return
+    raise SystemExit(f"Refusing to execute untrusted command: {' '.join(command)}")
+
+
+def _run_command(command: Sequence[str]) -> None:
+    """Execute a pre-validated subprocess command with strict checking."""
+
+    _assert_trusted_command(command)
+    subprocess.run(command, check=True)  # noqa: S603
+
+
 def cmd_bootstrap(args: argparse.Namespace) -> None:
     """Create a virtualenv and install development dependencies."""
 
     venv_path = Path(args.venv).resolve()
     if not venv_path.exists():
-        subprocess.check_call([sys.executable, "-m", "venv", str(venv_path)])
+        _run_command([sys.executable, "-m", "venv", str(venv_path)])
     pip_executable = _resolve_executable("pip", venv_path)
-    subprocess.check_call([str(pip_executable), "install", "-r", "server/requirements-dev.txt"])
-    subprocess.check_call([str(pip_executable), "install", "pre-commit"])
+    _run_command(
+        [str(pip_executable), "install", "-r", "server/requirements-dev.txt"]
+    )
+    _run_command([str(pip_executable), "install", "pre-commit"])
     python_executable = _resolve_executable("python", venv_path)
-    subprocess.check_call([str(python_executable), "-m", "pre_commit", "install", "--install-hooks"])
+    _run_command(
+        [str(python_executable), "-m", "pre_commit", "install", "--install-hooks"]
+    )
     print(f"Development environment ready in {venv_path}")
 
 
-def _load_coverage(path: Path) -> dict:
+def _load_coverage(path: Path) -> dict[str, Any]:
     with path.open(encoding="utf-8") as fh:
-        return json.load(fh)
+        loaded = json.load(fh)
+    if not isinstance(loaded, dict):
+        raise SystemExit("Coverage JSON must contain a top-level object")
+    return cast(dict[str, Any], loaded)
 
 
-def _extract_coverage(data: dict, target: str) -> float | None:
+def _extract_coverage(data: Mapping[str, Any], target: str) -> float | None:
     files = data.get("files", {})
+    if not isinstance(files, Mapping):
+        return None
     for file_path, info in files.items():
+        if not isinstance(info, Mapping):
+            continue
         normalized = str(Path(file_path).as_posix())
         if normalized.endswith(target):
             summary = info.get("summary", {})
-            return float(summary.get("percent_covered", 0.0))
+            if not isinstance(summary, Mapping):
+                continue
+            percent = summary.get("percent_covered", 0.0)
+            try:
+                return float(percent)
+            except (TypeError, ValueError):
+                return None
     return None
 
 
@@ -61,19 +111,24 @@ def cmd_coverage_gate(args: argparse.Namespace) -> None:
     failures: list[str] = []
     for module_spec in args.module:
         if "=" not in module_spec:
-            raise SystemExit(f"Invalid module spec {module_spec!r}; expected path=threshold")
+            raise SystemExit(
+                f"Invalid module spec {module_spec!r}; expected path=threshold"
+            )
         module_path, threshold_raw = module_spec.split("=", 1)
         try:
             threshold = float(threshold_raw)
         except ValueError as exc:  # pragma: no cover - user error
-            raise SystemExit(f"Invalid threshold {threshold_raw!r} for {module_path}") from exc
+            raise SystemExit(
+                f"Invalid threshold {threshold_raw!r} for {module_path}"
+            ) from exc
         coverage = _extract_coverage(data, module_path)
         if coverage is None:
             failures.append(f"Missing coverage data for {module_path}")
             continue
         if coverage + 1e-6 < threshold:
             failures.append(
-                f"{module_path} coverage {coverage:.2f}% below threshold {threshold:.2f}%"
+                f"{module_path} coverage {coverage:.2f}% "
+                f"below threshold {threshold:.2f}%"
             )
     if failures:
         for failure in failures:
@@ -92,7 +147,7 @@ def cmd_verify(args: argparse.Namespace) -> None:
     coverage_json = Path(args.coverage_json).resolve()
     coverage_json.parent.mkdir(parents=True, exist_ok=True)
 
-    commands = [
+    commands: list[list[str]] = [
         ["ruff", "check", "."],
         [
             "mypy",
@@ -110,6 +165,8 @@ def cmd_verify(args: argparse.Namespace) -> None:
             "--cov=server.extensions",
             "--cov=server.application.task_service",
             "--cov=server.observability.diagnostics",
+            "--cov=server.observability.health",
+            "--cov=server.observability.activity",
             "--cov-report=term-missing",
             f"--cov-report=json:{coverage_json}",
         ],
@@ -117,7 +174,7 @@ def cmd_verify(args: argparse.Namespace) -> None:
 
     for command in commands:
         print(f"→ {' '.join(str(part) for part in command)}")
-        subprocess.check_call(command)
+        _run_command(command)
 
     gate_args = argparse.Namespace(
         json=str(coverage_json),
@@ -126,14 +183,22 @@ def cmd_verify(args: argparse.Namespace) -> None:
             "server/extensions/runtime.py=85",
             "server/extensions/builtin/task_metrics.py=85",
             "server/extensions/builtin/plan_metrics.py=85",
+            "server/extensions/builtin/activity_feed.py=85",
             "server/observability/diagnostics.py=80",
+            "server/observability/health.py=85",
+            "server/observability/activity.py=80",
         ],
     )
     cmd_coverage_gate(gate_args)
 
     if not args.skip_audit:
         print("→ pip-audit")
-        subprocess.check_call(["pip-audit", "--progress-spinner=off"])
+        pip_audit = which("pip-audit")
+        if pip_audit is None:
+            raise SystemExit(
+                "pip-audit not found on PATH; install it or pass --skip-audit"
+            )
+        _run_command([pip_audit, "--progress-spinner=off"])
 
 
 def cmd_check_todos(args: argparse.Namespace) -> None:
@@ -243,7 +308,7 @@ def _update_app_version(app_path: Path, new_version: str) -> None:
 
 
 def _ensure_changelog_entry(path: Path, new_version: str) -> None:
-    today = date.today().isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
     marker = f"## v{new_version}"
     content = path.read_text(encoding="utf-8")
     if marker in content:
@@ -267,7 +332,7 @@ def _ensure_changelog_entry(path: Path, new_version: str) -> None:
 
 
 def _ensure_release_notes_entry(path: Path, new_version: str) -> None:
-    today = date.today().isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
     marker = f"## v{new_version}"
     content = path.read_text(encoding="utf-8")
     if marker in content:
@@ -290,11 +355,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Switchboard developer utilities")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    bootstrap = subparsers.add_parser("bootstrap", help="Create a venv and install tooling")
+    bootstrap = subparsers.add_parser(
+        "bootstrap", help="Create a venv and install tooling"
+    )
     bootstrap.add_argument("--venv", default=".venv", help="Virtualenv directory")
     bootstrap.set_defaults(func=cmd_bootstrap)
 
-    coverage = subparsers.add_parser("coverage-gate", help="Enforce coverage thresholds")
+    coverage = subparsers.add_parser(
+        "coverage-gate", help="Enforce coverage thresholds"
+    )
     coverage.add_argument("--json", required=True, help="Path to coverage JSON report")
     coverage.add_argument(
         "--module",
@@ -341,7 +410,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     scaffold.set_defaults(func=cmd_scaffold_extension)
 
-    bump = subparsers.add_parser("bump-version", help="Bump server version and changelog stubs")
+    bump = subparsers.add_parser(
+        "bump-version", help="Bump server version and changelog stubs"
+    )
     bump.add_argument("--part", choices=["major", "minor", "patch"], default="patch")
     bump.add_argument("--version", help="Explicit semantic version override")
     bump.set_defaults(func=cmd_bump_version)

@@ -11,7 +11,11 @@ from typing import Any
 
 import httpx
 
-from ..interfaces import ExtensionDescriptor, ExtensionLoadError, ExtensionRegistry
+from server.extensions.interfaces import (
+    ExtensionDescriptor,
+    ExtensionLoadError,
+    ExtensionRegistry,
+)
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_EVENTS: tuple[str, ...] = (
@@ -50,7 +54,7 @@ class WebhookNotifier:
         envelope = {"event": event, "data": dict(payload)}
         await self._send(envelope)
 
-    async def on_task_created(self, *, task) -> None:
+    async def on_task_created(self, *, task: Any) -> None:
         await self._dispatch(
             "on_task_created",
             {
@@ -60,7 +64,7 @@ class WebhookNotifier:
             },
         )
 
-    async def on_task_updated(self, *, task) -> None:
+    async def on_task_updated(self, *, task: Any) -> None:
         await self._dispatch(
             "on_task_updated",
             {
@@ -70,7 +74,7 @@ class WebhookNotifier:
             },
         )
 
-    async def on_checkout(self, *, agent, result) -> None:
+    async def on_checkout(self, *, agent: Any, result: Any) -> None:
         await self._dispatch(
             "on_checkout",
             {
@@ -80,7 +84,7 @@ class WebhookNotifier:
             },
         )
 
-    async def on_complete(self, *, agent_id: str, result) -> None:
+    async def on_complete(self, *, agent_id: str, result: Any) -> None:
         await self._dispatch(
             "on_complete",
             {
@@ -90,7 +94,7 @@ class WebhookNotifier:
             },
         )
 
-    async def on_heartbeat(self, *, agent_id: str, result) -> None:
+    async def on_heartbeat(self, *, agent_id: str, result: Any) -> None:
         await self._dispatch(
             "on_heartbeat",
             {
@@ -100,7 +104,7 @@ class WebhookNotifier:
             },
         )
 
-    async def on_abandon(self, *, agent_id: str, result) -> None:
+    async def on_abandon(self, *, agent_id: str, result: Any) -> None:
         await self._dispatch(
             "on_abandon",
             {
@@ -173,7 +177,8 @@ def register(registry: ExtensionRegistry) -> None:
     )
 
     registry.append_contract_note(
-        "Webhook notifier publishes task lifecycle updates when SWITCHBOARD_WEBHOOK_URL is set."
+        "Webhook notifier publishes task lifecycle updates when "
+        "SWITCHBOARD_WEBHOOK_URL is set."
     )
 
     if not url:
@@ -184,7 +189,12 @@ def register(registry: ExtensionRegistry) -> None:
         LOGGER.info("Builtin extensions disabled; webhook notifier skipped")
         return
 
-    LOGGER.info("Registering webhook notifier for %s with events %s", url, ", ".join(events))
+    formatted_events = ", ".join(events)
+    LOGGER.info(
+        "Registering webhook notifier for %s with events %s",
+        url,
+        formatted_events,
+    )
     registry.register_task_hook(
         WebhookNotifier(url=url, events=events, headers=headers, timeout=timeout)
     )

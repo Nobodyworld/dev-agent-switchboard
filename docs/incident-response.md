@@ -14,14 +14,19 @@ incidents affecting Switchboard.
 ## First Response Checklist
 
 1. **Capture context**
-   - Request ID from the failing response headers.
+   - Request/trace identifiers (`X-Request-ID`, `X-Trace-ID`) from the failing
+     response headers.
    - `/api/settings` payload (rate limits, lease duration, extensions).
-   - `/health/live`, `/health/ready`, and `/api/observability/telemetry` JSON
-     payloads (instrumentation status and request ID header guidance).
+   - `/health/live`, `/health/ready`, `/api/observability/health`, and
+     `/api/observability/telemetry` JSON payloads (instrumentation status,
+     request header guidance, probe observations).
+   - `/api/observability/audit-feed` snapshot (confirms which lifecycle events
+     the builtin `activity_feed` observed around the incident window).
 2. **Check telemetry**
    - `/metrics` (if enabled) – focus on `switchboard_task_*` counters to identify
      spikes in checkout/heartbeat failures.
-   - Application logs filtered by `request_id` using the structured JSON output.
+   - Application logs filtered by `request_id` or `trace_id` using the structured
+     JSON output.
    - Database connectivity: run `SELECT 1` using the same credentials as the app.
 3. **Stabilise**
    - Toggle maintenance mode via `POST /api/system-state` if agents must be

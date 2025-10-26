@@ -75,7 +75,17 @@ class TelemetryState:
         }
 
 
-_STATE: TelemetryState | None = None
+
+class _TelemetryStateCache:
+    """Container for the most recently captured telemetry state."""
+
+    __slots__ = ("state",)
+
+    def __init__(self) -> None:
+        self.state: TelemetryState | None = None
+
+
+_STATE_CACHE = _TelemetryStateCache()
 
 
 def _truthy_env(name: str) -> bool:
@@ -104,7 +114,10 @@ def bootstrap_observability(app: FastAPI) -> TelemetryState:
 
     configured_logging = configure_logging()
 
-    request_id_header = os.getenv("SWITCHBOARD_REQUEST_ID_HEADER", DEFAULT_REQUEST_ID_HEADER)
+    request_id_header = os.getenv(
+        "SWITCHBOARD_REQUEST_ID_HEADER",
+        DEFAULT_REQUEST_ID_HEADER,
+    )
     request_id_enabled = setup_logging(app, header_name=request_id_header)
 
     metrics_path = os.getenv("SWITCHBOARD_METRICS_PATH", "/metrics")
@@ -120,6 +133,8 @@ def bootstrap_observability(app: FastAPI) -> TelemetryState:
 
     tracing_enabled = setup_tracing(app)
     tracing_configured = tracing_enabled and _truthy_env("SWITCHBOARD_ENABLE_TRACING")
+
+    metrics_headers = dict(_parse_headers(os.getenv("SWITCHBOARD_METRICS_HEADERS")))
 
     state = TelemetryState(
         generated_at=datetime.now(timezone.utc),
@@ -137,7 +152,10 @@ def bootstrap_observability(app: FastAPI) -> TelemetryState:
                 for warning in [
                     None
                     if configured_logging or request_id_enabled
-                    else "Logging left at Python defaults; install SWITCHBOARD_ENABLE_STRUCTURED_LOGGING to improve parity."
+                    else (
+                        "Logging left at Python defaults; install "
+                        "SWITCHBOARD_ENABLE_STRUCTURED_LOGGING to improve parity."
+                    )
                 ]
                 if warning
             ),
@@ -147,7 +165,7 @@ def bootstrap_observability(app: FastAPI) -> TelemetryState:
             configured=metrics_configured,
             details={
                 "endpoint": metrics_path,
-                "headers": dict(_parse_headers(os.getenv("SWITCHBOARD_METRICS_HEADERS"))),
+                "headers": metrics_headers,
                 "plan_observers": plan_observer_count,
                 "task_analytics": analytics_summary,
             },
@@ -156,7 +174,10 @@ def bootstrap_observability(app: FastAPI) -> TelemetryState:
                 for warning in [
                     None
                     if metrics_enabled
-                    else "Prometheus instrumentation disabled; set SWITCHBOARD_ENABLE_METRICS=1 to expose /metrics."
+                    else (
+                        "Prometheus instrumentation disabled; set "
+                        "SWITCHBOARD_ENABLE_METRICS=1 to expose /metrics."
+                    )
                 ]
                 if warning
             ),
@@ -173,7 +194,10 @@ def bootstrap_observability(app: FastAPI) -> TelemetryState:
                 for warning in [
                     None
                     if tracing_enabled
-                    else "OpenTelemetry instrumentation disabled; set SWITCHBOARD_ENABLE_TRACING=1 for distributed tracing."
+                    else (
+                        "OpenTelemetry instrumentation disabled; set "
+                        "SWITCHBOARD_ENABLE_TRACING=1 for distributed tracing."
+                    )
                 ]
                 if warning
             ),
@@ -200,17 +224,17 @@ def bootstrap_observability(app: FastAPI) -> TelemetryState:
         }
     )
 
-    global _STATE
-    _STATE = state
+    _STATE_CACHE.state = state
     return state
 
 
 def get_telemetry_state() -> TelemetryState:
     """Return the last recorded telemetry state."""
 
-    if _STATE is None:  # pragma: no cover - guarded by bootstrap_observability()
+    if _STATE_CACHE.state is None:
+        # pragma: no cover - guarded by bootstrap_observability()
         raise RuntimeError("Observability has not been bootstrapped")
-    return _STATE
+    return _STATE_CACHE.state
 
 
 def get_telemetry_report(

@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 
+from server.extensions.runtime import reload_extensions
+
 
 class RateLimitConfigurationError(ValueError):
     """Raised when rate limit environment variables are invalid."""
@@ -194,8 +196,6 @@ def reload_extension_settings() -> ExtensionSettings:
     get_extension_settings.cache_clear()
     settings = get_extension_settings()
     # Ensure the runtime extension bundle stays in sync with the refreshed settings.
-    from server.extensions.runtime import reload_extensions
-
     reload_extensions(modules=settings.modules)
     reload_settings_bundle()
     return settings

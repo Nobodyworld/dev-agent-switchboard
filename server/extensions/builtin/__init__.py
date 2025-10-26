@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from . import plan_metrics, task_metrics, webhook_notifier
+from . import activity_feed, plan_metrics, task_metrics, webhook_notifier
 
-__all__ = ["plan_metrics", "task_metrics", "webhook_notifier"]
+__all__ = ["activity_feed", "plan_metrics", "task_metrics", "webhook_notifier"]

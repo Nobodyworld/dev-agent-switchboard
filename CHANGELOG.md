@@ -3,6 +3,15 @@
 ## Unreleased
 
 ### Added
+- Centralised health probe orchestration (`server/observability/health.py`) with
+  enriched `/health/*` responses and the new `/api/observability/health`
+  endpoint combining telemetry, liveness, and readiness data.
+- Builtin `activity_feed` extension and `/api/observability/audit-feed`
+  endpoint capturing recent task lifecycle events with correlated request/trace
+  identifiers.
+- Observability playbook and documentation updates covering trace propagation,
+  audit feed usage, and operational guidance for automation and incident
+  response workflows.
 - Regression tests covering task analytics ready/blocked calculations and
   missing dependency detection to guard the new `/api/tasks/analytics` route.
 - JSON coverage artifact (`reports/coverage.json`) and refreshed
@@ -55,6 +64,15 @@
 - Coverage workflow captured in `coverage.txt` to document current package-level coverage baselines.
 
 ### Changed
+- `scripts/dev.py` validates trusted subprocess invocations, resolves
+  `pip-audit` via `PATH`, and hardens coverage-gate parsing with typed JSON
+  handling to keep developer automation reproducible across environments.
+- Extension runtime caching now relies on an explicit holder object and builtin
+  modules are imported via module paths so reloads avoid global mutation and
+  circular imports.
+- Telemetry state caching and metrics header parsing in
+  `server/observability/telemetry.py` now normalise environment overrides and
+  eliminate direct global reassignment.
 - `/api/settings` includes extension contract version/notes so operators can
   audit plugin compatibility.
 - Observability documentation and health guidance highlight
@@ -100,6 +118,9 @@
 - Deprecated `server/interfaces.py` dataclasses in favour of the canonical Pydantic schemas in `server/schema.py`.
 
 ### Fixed
+- Observability telemetry tests install stubbed instrumentation helpers that
+  accept the same keyword arguments as production setup routines, restoring
+  compatibility with stricter Ruff rules.
 - Diagnostics package status parsing reuses the cached requirements metadata,
   avoiding repeated filesystem reads across requests and tests.
 - Restored missing imports in `server/tests/conftest.py` so database reset fixtures execute reliably during test runs.

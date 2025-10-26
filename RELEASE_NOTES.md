@@ -1,6 +1,9 @@
 # Release Notes
 
 ## Upgrade Considerations
+- Allow `/api/observability/health` and `/api/observability/audit-feed` through
+  load balancers or API gateways; configure `SWITCHBOARD_ACTIVITY_FEED_SIZE`
+  where larger audit buffers are desired.
 - Install the `pytest-cov` and `coverage` extras (now required to reproduce the documented coverage workflow).
 - Expose the new `/api/tasks/analytics` endpoint through any reverse proxies or
   service meshes so operators and the CLI can reach the backlog metrics feed.
@@ -17,11 +20,17 @@
   bootstrap`) to ensure the same interpreter layout as CI.
 - Install `pip-audit` (now listed in `server/requirements-dev.txt`) so
   `python scripts/dev.py verify` runs the same supply-chain scan as CI.
+- The developer CLI now resolves `pip-audit` via the environment `PATH`; ensure
+  the binary is available or invoke `python scripts/dev.py verify --skip-audit`
+  in sandboxes without the tool.
 
 ## Breaking Changes
 - None. Interfaces and HTTP contracts remain unchanged.
 
 ## Operational Notes
+- Extension reload helpers now rely on an internal cache container and import
+  builtin modules by path; no operator action is required, but custom
+  automation should continue using the public `reload_extensions` API.
 - Diagnostics helpers cache requirement metadata; call
   `server.observability.diagnostics.clear_required_versions_cache()` after
   mutating dependency pins in a long-running process to refresh diagnostics
@@ -34,6 +43,12 @@
 - `/api/observability/telemetry` surfaces instrumentation status (logging,
   metrics, tracing, webhook) alongside the request ID header; update dashboards
   or agents to poll this endpoint before making assumptions about observability.
+- HTTP responses now include `X-Trace-ID`; propagate the header when chaining
+  requests or forwarding telemetry so audit feed and structured logs correlate
+  across services.
+- The builtin `activity_feed` extension records recent lifecycle activity in
+  memory; scrape `/api/observability/audit-feed` during incident response to
+  confirm which events reached Switchboard.
 - `/api/settings.extensions` now includes `contract_version` and
   `contract_notes`; automation consuming this payload should ignore unrecognised
   keys to remain forward compatible.

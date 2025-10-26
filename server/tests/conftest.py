@@ -58,7 +58,11 @@ def pytest_pyfunc_call(pyfuncitem: pytest.Function) -> bool | None:
         name
         for name, parameter in signature.parameters.items()
         if parameter.default is inspect._empty
-        and parameter.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+        and parameter.kind
+        in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
         and name not in kwargs
     ]
     if missing_required:

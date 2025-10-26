@@ -116,10 +116,12 @@ The builtin `task_metrics` extension (`server/extensions/builtin/task_metrics.py
 illustrates a simple hook that increments Prometheus counters for each lifecycle
 transition. The companion `webhook_notifier`
 (`server/extensions/builtin/webhook_notifier.py`) demonstrates filtered event
-delivery with structured payloads via `httpx`, and the new
-`plan_metrics` observer (`server/extensions/builtin/plan_metrics.py`) shows how
-to react to plan broadcasts by updating analytics gauges. Use these as
-templates for other stateless integrations such as audit logging, Slack
-notifications, bespoke webhooks, or analytics exporters. When deploying
-webhooks set `SWITCHBOARD_WEBHOOK_URL` (and optionally
-`SWITCHBOARD_WEBHOOK_EVENTS`) so the builtin hook can broadcast lifecycle events.
+delivery with structured payloads via `httpx`. The `plan_metrics` observer
+(`server/extensions/builtin/plan_metrics.py`) shows how to react to plan
+broadcasts by updating analytics gauges, and the new `activity_feed` extension
+(`server/extensions/builtin/activity_feed.py`) records a rolling audit trail
+surfaced at `/api/observability/audit-feed`. Use these as templates for other
+stateless integrations such as Slack notifications, bespoke webhooks, or
+analytics exporters. When deploying webhooks set `SWITCHBOARD_WEBHOOK_URL` (and
+optionally `SWITCHBOARD_WEBHOOK_EVENTS`) so the builtin hook can broadcast
+lifecycle events.

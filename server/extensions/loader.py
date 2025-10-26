@@ -44,11 +44,23 @@ def load_extension_bundle(
 
     if include_builtin:
         try:
-            from .builtin import plan_metrics, task_metrics, webhook_notifier
+            task_metrics = importlib.import_module(
+                "server.extensions.builtin.task_metrics"
+            )
+            webhook_notifier = importlib.import_module(
+                "server.extensions.builtin.webhook_notifier"
+            )
+            plan_metrics = importlib.import_module(
+                "server.extensions.builtin.plan_metrics"
+            )
+            activity_feed = importlib.import_module(
+                "server.extensions.builtin.activity_feed"
+            )
 
             task_metrics.register(registry)
             webhook_notifier.register(registry)
             plan_metrics.register(registry)
+            activity_feed.register(registry)
         except Exception:  # pragma: no cover - builtin registration should succeed
             LOGGER.exception("Failed to register builtin extensions")
 
@@ -62,7 +74,7 @@ def load_extension_bundle(
     for module_path in configured_modules:
         try:
             module = importlib.import_module(module_path)
-        except Exception as exc:  # pragma: no cover - import failure logged for operators
+        except Exception as exc:  # pragma: no cover - import failure logged
             LOGGER.warning("Unable to import extension module %s: %s", module_path, exc)
             continue
 

@@ -77,6 +77,12 @@ Operational concerns—from database outages to lease contention—are captured 
 [Failure Modes](failure-modes.md). Each scenario includes detection guidance and
 recommended remediation steps.
 
+## Observability
+
+Review the [Observability Playbook](observability.md) for guidance on enabling
+metrics, tracing, and the audit feed. The playbook documents health endpoint
+semantics, header propagation, and operational checklists for automation.
+
 ## Maintenance Mode
 
 Maintenance mode pauses new checkouts so you can apply migrations or debug
