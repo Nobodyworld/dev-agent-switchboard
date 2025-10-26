@@ -6,6 +6,11 @@ from .diagnostics import (
     clear_required_versions_cache,
     collect_diagnostics,
 )
+from .health import (
+    build_liveness_payload,
+    build_readiness_payload,
+    collect_observability_health,
+)
 from .metrics import describe_task_metrics, record_task_analytics_metrics
 from .runtime import RuntimeSnapshot, get_runtime_snapshot, register_runtime_metadata
 from .telemetry import (
@@ -24,8 +29,11 @@ __all__ = [
     "TelemetryState",
     "TelemetrySubsystemState",
     "bootstrap_observability",
+    "build_liveness_payload",
+    "build_readiness_payload",
     "clear_required_versions_cache",
     "collect_diagnostics",
+    "collect_observability_health",
     "describe_task_metrics",
     "get_runtime_snapshot",
     "get_telemetry_report",

@@ -9,6 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from .task_status import TaskStatus
 
 __all__ = [
+    "ActivityEventOut",
+    "ActivityFeedOut",
     "AgentIn",
     "AgentRegistrationResponse",
     "CheckoutFailureReason",
@@ -25,8 +27,10 @@ __all__ = [
     "ExtensionDescriptorOut",
     "ExtensionSettingsOut",
     "FileUploadResponse",
+    "HealthObservation",
     "HealthStatus",
     "LeaseSettingsOut",
+    "ObservabilityHealthOut",
     "OkResponse",
     "PlanOut",
     "RateLimitSettingsOut",
@@ -190,6 +194,17 @@ class FileUploadResponse(StatusResponse):
     url: str
 
 
+class HealthObservation(BaseModel):
+    """Structured representation of an individual probe result."""
+
+    name: str
+    ok: bool
+    critical: bool
+    observed_at: dt.datetime
+    duration_ms: float = Field(ge=0)
+    detail: str | None = None
+
+
 class HealthStatus(StatusResponse):
     """Payload describing aggregated health-check information."""
 
@@ -201,6 +216,7 @@ class HealthStatus(StatusResponse):
     commit_sha: str | None = None
     pid: int | None = Field(default=None, ge=0)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    observations: list[HealthObservation] = Field(default_factory=list)
 
 
 class RuntimeInfoOut(BaseModel):
@@ -284,6 +300,35 @@ class TelemetryReportOut(BaseModel):
     health_endpoints: list[str] = Field(default_factory=list)
     runtime: RuntimeInfoOut
     diagnostics: DiagnosticsReportOut | None = None
+
+
+class ActivityEventOut(BaseModel):
+    """Serialized activity event captured by the builtin audit feed."""
+
+    kind: str
+    occurred_at: dt.datetime
+    agent_id: str | None = None
+    task_id: int | str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    request_id: str | None = None
+    trace_id: str | None = None
+
+
+class ActivityFeedOut(BaseModel):
+    """Container for the activity feed endpoint."""
+
+    generated_at: dt.datetime
+    events: list[ActivityEventOut] = Field(default_factory=list)
+
+
+class ObservabilityHealthOut(BaseModel):
+    """Aggregate observability payload combining health and telemetry."""
+
+    generated_at: dt.datetime
+    liveness: HealthStatus
+    readiness: HealthStatus
+    telemetry: dict[str, Any]
+    probes: list[HealthObservation] = Field(default_factory=list)
 
 
 class ExecPlanOwner(BaseModel):

@@ -69,18 +69,23 @@
 ## Observability Flow
 
 1. `RequestIdMiddleware` (configured in `server/instrumentation/logging.py`)
-   injects `X-Request-ID` headers and logging context.
+   injects `X-Request-ID` headers, derives a stable `X-Trace-ID`, and shares
+   both through logging context so structured logs, telemetry, and audit feeds
+   can be correlated.
 2. Builtin extensions register Prometheus counters. When `TaskService`
    transitions a task, the metrics hook increments labeled counters.
-3. Health endpoints (`/health/live`, `/health/ready`) include service version,
-   uptime, start timestamp, and storage/database status. `/api/observability/telemetry`
-   summarises whether logging, metrics, tracing, and builtin webhooks are active
-   so operators can correlate events quickly. The incident response guide
-   explains how to react to failures and what telemetry to capture.
-4. CI's coverage job produces `reports/coverage.json` and gates critical
-  modules at ≥85% coverage to keep the observability and extension layer
-  trustworthy. `scripts/audit_metrics.py` expands this with complexity and
-  dependency depth metrics for stewardship reviews.
+3. `server/observability/health.py` centralises probe definitions so
+   `/health/live` and `/health/ready` emit consistent observations while the new
+   `/api/observability/health` endpoint combines liveness, readiness, and
+   telemetry state for dashboards or automation.
+4. The builtin `activity_feed` extension persists a rolling in-memory audit log
+   via `server/observability/activity.py`, surfaced at
+   `/api/observability/audit-feed`. Agents and incident responders can review
+   recent lifecycle events without tailing logs.
+5. CI's coverage job produces `reports/coverage.json` and gates critical
+   modules at ≥85% coverage to keep the observability and extension layer
+   trustworthy. `scripts/audit_metrics.py` expands this with complexity and
+   dependency depth metrics for stewardship reviews.
 
 ## Extension Lifecycle
 

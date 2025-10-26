@@ -83,6 +83,7 @@ Switchboard follows a service-plus-client architecture:
 - **Domain logic (`server/domain/`, `server/application/`, `server/file_store.py`)** coordinates task lifecycle state, dependency enforcement, and content mirroring while keeping database access localized.
 - **Client toolkit (`client/python/`)** wraps the HTTP API for both interactive humans (`switchboard_cli.py`) and automated agents.
 - **Live files & ExecPlan registry** give agents durable documentation by persisting uploads to disk and serving digestible plan indexes, while the builtin `plan_metrics` observer keeps Prometheus gauges aligned with the latest plan snapshot.
+- **Observability suite (`server/observability/health.py`, `server/observability/activity.py`)** orchestrates health probes, telemetry aggregation, and the rolling audit feed so operators can diagnose issues using correlated request and trace identifiers.
 
 Operators can trace how a request moves from CLI to FastAPI to persistence by reading the matching sections in [ARCHITECTURE.md](ARCHITECTURE.md) and the annotated source files referenced above.
 
@@ -98,8 +99,10 @@ Operators can trace how a request moves from CLI to FastAPI to persistence by re
 | `/api/tasks/{id}/complete` | `POST` | Mark a task complete and store optional notes. |
 | `/api/tasks/{id}/abandon` | `POST` | Release the lease without completion. |
 | `/api/tasks/analytics` | `GET` | Return aggregated task analytics including ready/blocked counts and dependency health. |
-| `/health/live` | `GET` | Liveness probe returning the `HealthStatus` payload with `process` checks. |
-| `/health/ready` | `GET` | Readiness probe that validates database and storage access; returns HTTP 503 when dependencies fail. |
+| `/health/live` | `GET` | Liveness probe returning the `HealthStatus` payload with `process` checks and probe observations. |
+| `/health/ready` | `GET` | Readiness probe that validates database and storage access; returns HTTP 503 when dependencies fail and includes probe metadata for root-cause analysis. |
+| `/api/observability/health` | `GET` | Aggregates liveness, readiness, and telemetry state into a single payload (requires admin token when configured). |
+| `/api/observability/audit-feed` | `GET` | Returns the rolling in-memory audit feed captured by the builtin `activity_feed` extension (requires admin token when configured). |
 | `/api/settings` | `GET` | Inspect rate limit and lease configuration (used by the CLI). |
 | `/api/diagnostics` | `GET` | Retrieve runtime metadata, package versions, feature toggles, and system state for operators and UI diagnostics. |
 | `/api/system-state` | `GET`, `PUT` | Inspect or toggle global maintenance mode. `PUT` requires the admin token when `SWITCHBOARD_ADMIN_TOKEN` is set. |
@@ -398,6 +401,7 @@ See [AUTOMATION.md](AUTOMATION.md) for agent workflows and
 - [Architecture Overview](ARCHITECTURE_OVERVIEW.md)
 - [Extension Guide](EXTENSION_GUIDE.md)
 - [Automation Handbook](AUTOMATION.md)
+- [Observability Playbook](docs/observability.md)
 
 ## Observability (Logging, Metrics, Tracing)
 

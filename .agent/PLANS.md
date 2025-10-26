@@ -1458,3 +1458,94 @@ dependencies while keeping implementations type-safe, documented, and tested.
 - CLI relies on the Python client; ensure backwards compatibility for existing
   scripts by defaulting to human-friendly output with optional JSON.
 - UI module reuses existing `apiFetchJson` helper for consistent error handling.
+
+# Modernise asyncio test harness and logging integration
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Replace bespoke `asyncio.run` patterns in server tests with idiomatic `@pytest.mark.asyncio` coverage backed by a repository-owned plugin, silence pytest warnings about unknown asyncio configuration, and resolve the python-json-logger deprecation so CI logs remain stable. The outcome is a cleaner asynchronous test harness, reduced duplication, and a warning-free test run.
+
+## Progress
+
+- [x] Initial repository scan and pytest baseline recorded.
+- [x] Asyncio test harness updated to support native coroutine tests without manual runners.
+- [x] Affected tests migrated from inline `asyncio.run` calls to coroutine bodies using pytest markers.
+- [x] Logging import paths refreshed and configuration verified.
+- [x] Documentation and validation notes updated.
+
+## Surprises & Discoveries
+
+- Observation: Converting `server/tests/test_leases.py` required swapping `TestClient` for `httpx.AsyncClient` because the
+  synchronous client could not be reused inside async pytest functions.
+  Evidence: Initial async refactor failed due to lacking event loop re-entry; adopting `ASGITransport` resolved the constraint.
+
+## Decision Log
+
+- Decision: Register the asyncio config option in `tests/conftest.py` so pytest accepts the setting even when `pytest-asyncio`
+  is not installed.
+  Rationale: Prevents config warnings while keeping optional dependency lightweight.
+  Date/Author: 2025-02-17 / gpt-5-codex
+- Decision: Rewrite lease API tests to run via `httpx.AsyncClient` to avoid manual event loop bridging and ensure request/DB
+  state stays isolated per coroutine.
+  Rationale: Enables idiomatic async tests without reintroducing helper wrappers.
+  Date/Author: 2025-02-17 / gpt-5-codex
+- Decision: Prefer `pythonjsonlogger.json.JsonFormatter` while retaining a fallback to the legacy module to silence deprecation
+  warnings without breaking environments pinned to older releases.
+  Rationale: Aligns with upstream migration guidance and keeps structured logging opt-in resilient.
+  Date/Author: 2025-02-17 / gpt-5-codex
+
+## Outcomes & Retrospective
+
+- Server test suite now runs as native async coroutines with reusable helpers, eliminating the repetitive `asyncio.run` wrappers.
+- Lease lifecycle, analytics, execplan, and instrumentation tests gained clearer flow and no longer depend on synchronous
+  HTTP clients.
+- Pytest configuration and logging no longer emit warnings, keeping CI output clean.
+- Documentation required no content changes beyond recording validation commands in this plan.
+
+## Context and Orientation
+
+- Server async tests live under `server/tests/` and currently wrap coroutine scenarios with `asyncio.run`.
+- `server/tests/conftest.py` already defines a minimal asyncio marker hook that can be expanded to handle configuration needs.
+- Pytest reads configuration from `pyproject.toml`, where `asyncio_default_fixture_loop_scope` currently triggers warnings because `pytest-asyncio` is optional.
+- Logging utilities in `server/instrumentation/logging.py` and `ops/logging.ini` import `pythonjsonlogger.jsonlogger`, which emits a deprecation warning suggesting `pythonjsonlogger.json`.
+
+## Plan of Work
+
+1. Extend the repository pytest plugin to register asyncio-related configuration and provide helper fixtures/utilities for coroutine tests.
+2. Update targeted server test modules to declare `async def` tests decorated with `@pytest.mark.asyncio`, inlining scenario bodies and removing manual `asyncio.run` usage.
+3. Adjust supporting helpers (e.g., lease utilities) so they expose awaitable APIs rather than synchronous wrappers.
+4. Switch `pythonjsonlogger` imports/config references to `pythonjsonlogger.json` and ensure fallbacks continue to work when the dependency is absent.
+5. Document the new testing approach and rerun the full pytest suite to confirm a clean, warning-free run.
+
+## Concrete Steps
+
+1. Modify `server/tests/conftest.py` (and shared `tests/conftest.py` if required) to register the asyncio config option and provide shared async session helpers.
+2. Incrementally refactor `server/tests/test_tasks.py`, `server/tests/test_task_service.py`, `server/tests/test_task_updates.py`, `server/tests/test_plan_version.py`, `server/tests/test_task_analytics.py`, `server/tests/test_execplan_index.py`, and other modules that rely on inline `asyncio.run` wrappers.
+3. Update any helper functions (`server/tests/test_leases.py`, instrumentation tests, extension tests) to expose awaitables consumed by the new async tests.
+4. Switch `pythonjsonlogger` imports/config references to `pythonjsonlogger.json` and ensure fallbacks continue to work when the dependency is absent.
+5. Run `pytest -q` and capture output for validation, updating docs (`docs/testing_report.md`) if material changes occur.
+
+## Validation and Acceptance
+
+- `pytest -q` completes without warnings about unknown pytest config options or python-json-logger deprecations.
+- Converted tests execute as async coroutines with clearer stack traces on failure.
+- Documentation reflects the modernised testing guidance.
+
+## Idempotence and Recovery
+
+- Async test conversions retain the original assertions, so re-running the suite validates behavior both before and after refactor.
+- Logging import changes are additive and can be reverted independently if compatibility issues surface.
+
+## Artifacts and Notes
+
+- Pytest transcript demonstrating warning-free execution (`pytest -q`).
+- Diff snippets showcasing async test bodies and plugin adjustments.
+
+## Interfaces and Dependencies
+
+- `pytest` core hooks (notably `pytest_pyfunc_call`) continue to orchestrate coroutine execution.
+- Optional dependency on `pythonjsonlogger` remains guarded for deployments that omit the package.

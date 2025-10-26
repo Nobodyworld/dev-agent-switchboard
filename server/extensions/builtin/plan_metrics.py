@@ -52,7 +52,8 @@ def register(registry: ExtensionRegistry) -> None:
         )
     )
     registry.append_contract_note(
-        "Plan metrics observer emits Prometheus gauges when SWITCHBOARD_ENABLE_METRICS=1."
+        "Plan metrics observer emits Prometheus gauges when "
+        "SWITCHBOARD_ENABLE_METRICS=1."
     )
     registry.register_plan_observer(PlanMetricsObserver())
 

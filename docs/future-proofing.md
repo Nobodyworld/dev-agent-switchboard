@@ -21,6 +21,14 @@ integrations.
 - `/api/observability/telemetry` reports whether logging, metrics, tracing, and
   the builtin webhook are active. Export this payload to your monitoring stack to
   alert on instrumentation drift.
+- `/api/observability/health` consolidates probe output with telemetry. Prefer
+  this endpoint for synthetic monitoring so incident responders have a single
+  JSON payload to inspect.
+- The builtin `activity_feed` exposes recent lifecycle events via
+  `/api/observability/audit-feed`. Scrape it during audits to confirm agents and
+  extensions observed task transitions.
+- Propagate both `X-Request-ID` and `X-Trace-ID` headers when chaining requests
+  to preserve correlation between logs, telemetry, and audit feeds.
 - `scripts/dev.py verify` exercises the same pipeline as CI; run it as a
   pre-deployment gate to catch regressions before rollout.
 - Promote Prometheus and OpenTelemetry endpoints into your platform dashboards;

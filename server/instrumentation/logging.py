@@ -20,12 +20,18 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
 try:  # pragma: no cover - optional dependency may be absent
-    from pythonjsonlogger import jsonlogger  # type: ignore
+    from pythonjsonlogger.json import JsonFormatter  # type: ignore
 except Exception:  # pragma: no cover - optional dependency
-    jsonlogger = None  # type: ignore[assignment]
+    try:
+        from pythonjsonlogger import jsonlogger as _legacy_jsonlogger  # type: ignore
+    except Exception:  # pragma: no cover - optional dependency
+        JsonFormatter = None  # type: ignore[assignment]
+    else:
+        JsonFormatter = _legacy_jsonlogger.JsonFormatter  # type: ignore[assignment]
 
 _INSTRUMENTED_APPS: WeakSet[FastAPI] = WeakSet()
 _REQUEST_ID_CTX: ContextVar[str] = ContextVar("switchboard_request_id", default="-")
+_TRACE_ID_CTX: ContextVar[str] = ContextVar("switchboard_trace_id", default="-")
 
 
 class _LoggingState:
@@ -38,7 +44,29 @@ class _LoggingState:
 _STATE = _LoggingState()
 
 DEFAULT_REQUEST_ID_HEADER = "X-Request-ID"
-STRUCTURED_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s %(request_id)s"
+STRUCTURED_LOG_FORMAT = (
+    "%(asctime)s %(levelname)s %(name)s %(message)s %(request_id)s %(trace_id)s"
+)
+
+TRACE_ID_LENGTH = 32
+TRACEPARENT_PART_MIN = 2
+TRACE_ID_ALPHABET = "0123456789abcdef"
+
+
+def _extract_trace_id(raw_header: str | None) -> str:
+    """Return a 32-character trace identifier."""
+
+    if not raw_header:
+        return uuid.uuid4().hex
+    parts = [part for part in raw_header.split("-") if part]
+    if len(parts) >= TRACEPARENT_PART_MIN and len(parts[1]) == TRACE_ID_LENGTH:
+        return parts[1]
+    candidate = raw_header.strip()
+    if len(candidate) == TRACE_ID_LENGTH and all(
+        char in TRACE_ID_ALPHABET for char in candidate.lower()
+    ):
+        return candidate
+    return uuid.uuid4().hex
 
 
 def _truthy_env(name: str, default: bool = False) -> bool:
@@ -59,13 +87,17 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):  # type: ignore[override]
         request_id = request.headers.get(self.header_name) or str(uuid.uuid4())
-        token = _REQUEST_ID_CTX.set(request_id)
+        request_token = _REQUEST_ID_CTX.set(request_id)
+        trace_id = _extract_trace_id(request.headers.get("traceparent"))
+        trace_token = _TRACE_ID_CTX.set(trace_id)
         try:
             request.state.request_id = request_id
             response = await call_next(request)
         finally:
-            _REQUEST_ID_CTX.reset(token)
+            _REQUEST_ID_CTX.reset(request_token)
+            _TRACE_ID_CTX.reset(trace_token)
         response.headers.setdefault(self.header_name, request_id)
+        response.headers.setdefault("X-Trace-ID", trace_id)
         return response
 
 
@@ -74,6 +106,7 @@ class RequestIdFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:  # pragma: no cover - trivial
         record.request_id = _REQUEST_ID_CTX.get("-")
+        record.trace_id = _TRACE_ID_CTX.get("-")
         return True
 
 
@@ -115,13 +148,13 @@ def configure_logging() -> bool:
             )
 
     if _truthy_env("SWITCHBOARD_ENABLE_STRUCTURED_LOGGING"):
-        if jsonlogger is None:
+        if JsonFormatter is None:
             logging.getLogger(__name__).warning(
                 "Structured logging requested but python-json-logger is unavailable."
             )
         else:
             handler = logging.StreamHandler()
-            formatter = jsonlogger.JsonFormatter(STRUCTURED_LOG_FORMAT)
+            formatter = JsonFormatter(STRUCTURED_LOG_FORMAT)
             handler.setFormatter(formatter)
             root = logging.getLogger()
             if not configured:
@@ -173,3 +206,9 @@ def get_request_id() -> str:
     """Return the current request ID for logging context."""
 
     return _REQUEST_ID_CTX.get("-")
+
+
+def get_trace_id() -> str:
+    """Return the current trace identifier for logging context."""
+
+    return _TRACE_ID_CTX.get("-")

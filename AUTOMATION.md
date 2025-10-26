@@ -11,8 +11,9 @@ with Switchboard safely and consistently.
    and registered extensions so agents can adapt behaviour dynamically.
 3. **Idempotence** – All task lifecycle endpoints tolerate retries. Prefer
    sending the same request again rather than attempting manual recovery.
-4. **Observability** – Use `X-Request-ID` headers (returned by the API) when
-   logging or reporting incidents so maintainers can correlate traces and logs.
+4. **Observability** – Use `X-Request-ID` and `X-Trace-ID` headers (returned by
+   the API) when logging or reporting incidents so maintainers can correlate
+   traces, audit feeds, and logs.
 
 ## Recommended Workflow
 
@@ -30,9 +31,16 @@ with Switchboard safely and consistently.
 ## Observability Signals
 
 - `GET /api/observability/telemetry` – Summarises whether logging, metrics, and
-  tracing are currently active and which request ID header to propagate. This is
-  the canonical way for agents to detect feature flags before emitting extra
-  headers or scraping `/metrics`.
+  tracing are currently active and which request/trace headers to propagate.
+  This is the canonical way for agents to detect feature flags before emitting
+  extra headers or scraping `/metrics`.
+- `GET /api/observability/health` – Combines liveness, readiness, and telemetry
+  state with structured probe observations. Ideal for alerting pipelines that
+  want a single JSON document instead of scraping multiple endpoints.
+- `GET /api/observability/audit-feed` – Returns the rolling in-memory audit
+  trail captured by the builtin `activity_feed` extension. Useful when agents
+  need to confirm whether lifecycle webhooks or external automations observed a
+  state transition.
 - `GET /api/diagnostics` – Rich runtime snapshot including extension contract
   metadata and dependency status. Automation should cache this payload and
   invalidate when `runtime.metadata.observability` changes.
@@ -72,6 +80,9 @@ with Switchboard safely and consistently.
 - Observe `extensions.registered` values – if custom plugins (e.g., audit
   loggers) are active, ensure your agent supplies any expected metadata or
   headers documented by that plugin.
+- Review `GET /api/observability/audit-feed` when debugging automation – the
+  feed mirrors recent lifecycle events alongside request and trace identifiers
+  without scraping logs.
 - Watch for plan observer contract notes – new plan observers (including the
   builtin `plan_metrics`) surface contract notes via `/api/settings` so agents
   know when analytics gauges or downstream automations expect additional

@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import sys
@@ -107,7 +106,8 @@ def test_instrumentation_smoke(monkeypatch):
     assert ping_response.headers["X-Request-ID"] == request_id
 
 
-def test_instrumentation_does_not_break_event_loop(monkeypatch):
+@pytest.mark.asyncio
+async def test_instrumentation_does_not_break_event_loop(monkeypatch):
     pytest.importorskip(
         "prometheus_fastapi_instrumentator",
         reason="Prometheus instrumentation is not installed",
@@ -117,17 +117,12 @@ def test_instrumentation_does_not_break_event_loop(monkeypatch):
     app = FastAPI()
     setup_metrics(app)
 
-    async def call_metrics():
-        httpx = pytest.importorskip("httpx")
+    httpx = pytest.importorskip("httpx")
 
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://test"
-        ) as client:
-            response = await client.get("/metrics")
-            assert response.status_code == HTTPStatus.OK
-
-    asyncio.run(call_metrics())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/metrics")
+        assert response.status_code == HTTPStatus.OK
 
 
 def test_configure_logging_accepts_dict(monkeypatch):
@@ -155,14 +150,16 @@ def test_configure_logging_accepts_dict(monkeypatch):
 
 def test_configure_logging_retries_when_dependencies_arrive(monkeypatch):
     monkeypatch.setenv("SWITCHBOARD_ENABLE_STRUCTURED_LOGGING", "1")
-    monkeypatch.setattr(logging_module, "jsonlogger", None, raising=False)
+    monkeypatch.setattr(logging_module, "JsonFormatter", None, raising=False)
 
     first = configure_logging()
     assert first is True  # Request ID filter installation counts as configuration.
     assert logging_module._STATE.configured is False  # type: ignore[attr-defined]
 
-    dummy = SimpleNamespace(JsonFormatter=lambda fmt: logging.Formatter(fmt))
-    monkeypatch.setattr(logging_module, "jsonlogger", dummy, raising=False)
+    def dummy_formatter(fmt: str) -> logging.Formatter:
+        return logging.Formatter(fmt)
+
+    monkeypatch.setattr(logging_module, "JsonFormatter", dummy_formatter, raising=False)
 
     second = configure_logging()
     assert second is True
