@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from yaml import safe_dump
 
 from .application import (
+    ConfigurationService,
     SystemStateUpdate,
     TaskService,
     build_system_state_service,
@@ -63,31 +64,38 @@ from .observability import (
     build_readiness_payload,
     collect_diagnostics,
     collect_observability_health,
+    collect_observability_overview,
     get_telemetry_report,
     span,
 )
 from .observability.activity import get_activity_feed_snapshot
 from .schema import (
     ActivityFeedOut,
+    AdminSettingsOut,
     AgentIn,
     AgentRegistrationResponse,
     CheckoutFailureReason,
     CheckoutOut,
     CompleteIn,
     CompleteResponse,
+    ConfigurationResponse,
+    DatabaseSettingsOut,
     DiagnosticsPackageOut,
     DiagnosticsReportOut,
+    EnvironmentVariableOut,
     ExtensionDescriptorOut,
     ExtensionSettingsOut,
     FileUploadResponse,
     HealthStatus,
     LeaseSettingsOut,
     ObservabilityHealthOut,
+    ObservabilityOverviewOut,
     PlanOut,
     RateLimitSettingsOut,
     RuntimeInfoOut,
     SettingsResponse,
     StatusResponse,
+    StorageInfoOut,
     SystemStateOut,
     SystemStateUpdateIn,
     TaskAnalyticsOut,
@@ -257,6 +265,47 @@ async def read_settings() -> SettingsResponse:
     """Return the current rate limit and lease configuration."""
 
     return _build_settings_response()
+
+
+@app.get("/api/configuration", response_model=ConfigurationResponse)
+async def read_configuration() -> ConfigurationResponse:
+    """Return a rich configuration snapshot for operators and agents."""
+
+    service = ConfigurationService(version=app.version)
+    snapshot = service.snapshot()
+    settings_response = _build_settings_response(
+        snapshot.settings, snapshot.extension_bundle
+    )
+    runtime_info = RuntimeInfoOut(**snapshot.runtime.model_dump())
+    storage = snapshot.storage
+    storage_out = StorageInfoOut(
+        root=str(storage.root),
+        exists=storage.exists,
+        writable=storage.writable,
+        total_bytes=storage.total_bytes,
+        free_bytes=storage.free_bytes,
+    )
+    environment = [
+        EnvironmentVariableOut(name=entry.name, value=entry.value, source=entry.source)
+        for entry in snapshot.environment
+    ]
+    database = snapshot.database
+    database_out = DatabaseSettingsOut(
+        url=database.url,
+        driver=database.driver,
+        configured_via_env=database.configured_via_env,
+        engine_options=dict(database.engine_options),
+    )
+    admin_out = AdminSettingsOut(configured=snapshot.admin.configured)
+    return ConfigurationResponse(
+        settings=settings_response,
+        admin=admin_out,
+        storage=storage_out,
+        database=database_out,
+        runtime=runtime_info,
+        environment=environment,
+        warnings=list(snapshot.warnings),
+    )
 
 
 @app.get("/api/diagnostics", response_model=DiagnosticsReportOut)
@@ -1079,6 +1128,20 @@ async def read_observability_health(
 
     payload = await collect_observability_health(session, version=app.version)
     return payload
+
+
+@app.get(
+    "/api/observability/overview",
+    response_model=ObservabilityOverviewOut,
+    dependencies=[Depends(require_admin_token)],
+)
+async def read_observability_overview(
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, object]:
+    """Return a consolidated observability snapshot for operators."""
+
+    overview = await collect_observability_overview(session, app_version=app.version)
+    return overview.as_payload()
 
 
 @app.get(

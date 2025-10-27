@@ -63,6 +63,9 @@
 - **`server/observability/telemetry.py`** – Centralises instrumentation
   bootstrap, exposes `/api/observability/telemetry`, and annotates runtime
   metadata with logging/metrics/tracing status.
+- **`server/observability/overview.py`** – Aggregates runtime, health,
+  diagnostics, and extension metadata to drive the `/api/observability/overview`
+  endpoint and developer CLI snapshot command.
 - **`scripts/dev.py`** – Developer CLI for bootstrapping, coverage enforcement,
   todo auditing, extension scaffolding, and version bump automation.
 
@@ -75,14 +78,18 @@
 2. Builtin extensions register Prometheus counters. When `TaskService`
    transitions a task, the metrics hook increments labeled counters.
 3. `server/observability/health.py` centralises probe definitions so
-   `/health/live` and `/health/ready` emit consistent observations while the new
-   `/api/observability/health` endpoint combines liveness, readiness, and
-   telemetry state for dashboards or automation.
-4. The builtin `activity_feed` extension persists a rolling in-memory audit log
+   `/health/live` and `/health/ready` emit consistent observations while
+   `/api/observability/health` combines liveness, readiness, and telemetry state
+   for dashboards or automation.
+4. `/api/observability/overview` (and the matching `scripts/dev.py`
+   `observability-overview` command) synthesise health probes, telemetry,
+   diagnostics, and registered observability hooks—including extension-provided
+   metrics—to give responders a single payload for incident triage.
+5. The builtin `activity_feed` extension persists a rolling in-memory audit log
    via `server/observability/activity.py`, surfaced at
    `/api/observability/audit-feed`. Agents and incident responders can review
    recent lifecycle events without tailing logs.
-5. CI's coverage job produces `reports/coverage.json` and gates critical
+6. CI's coverage job produces `reports/coverage.json` and gates critical
    modules at ≥85% coverage to keep the observability and extension layer
    trustworthy. `scripts/audit_metrics.py` expands this with complexity and
    dependency depth metrics for stewardship reviews.
@@ -106,6 +113,10 @@
   `RELEASE_NOTES.md`, ensuring release automation stays in sync with the runtime
   version.
 - Observability components remain optional via environment toggles (e.g.,
-  `SWITCHBOARD_ENABLE_METRICS`, `SWITCHBOARD_ENABLE_BUILTIN_EXTENSIONS`), and
-  when enabled the builtin `plan_metrics` observer keeps Prometheus gauges in
-  sync with the latest task analytics.
+  `SWITCHBOARD_ENABLE_METRICS`, `SWITCHBOARD_ENABLE_BUILTIN_EXTENSIONS`). When
+  metrics are enabled the builtin `plan_metrics` and `plan_latency` observers
+  update analytics gauges and interval histograms so operators can spot stale
+  plans quickly.
+- Operators can capture real-time telemetry snapshots by running
+  `python scripts/dev.py observability-overview --pretty`, which mirrors the
+  `/api/observability/overview` payload consumed by dashboards and automation.

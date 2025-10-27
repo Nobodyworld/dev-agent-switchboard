@@ -1,17 +1,20 @@
-pytest --cov=server.extensions --cov=server.application.task_service --cov=server.observability.diagnostics \
-  --cov-report=term-missing --cov-report=json:reports/coverage.json
+pytest --cov=server.extensions --cov=server.application.task_service --cov=server.application.configuration_service --cov=server.observability.diagnostics --cov=server.observability.health --cov=server.observability.activity --cov-report=term-missing --cov-report=json:reports/coverage.json
 
 Name                                            Stmts   Miss  Cover   Missing
 -----------------------------------------------------------------------------
+server/application/configuration_service.py       137     15    89%   120-122, 133-134, 138-139, 185, 208-209, 213-214, 239, 250, 273
 server/application/task_service.py                177     32    82%   62, 90-92, 135-144, 154-156, 159-161, 177-179, 182-184, 220, 234, 250, 270, 312-313
 server/extensions/__init__.py                       5      0   100%
 server/extensions/builtin/__init__.py               3      0   100%
+server/extensions/builtin/activity_feed.py         38      1    97%   117
 server/extensions/builtin/plan_metrics.py          20      1    95%   33
 server/extensions/builtin/task_metrics.py          27      2    93%   163-167
-server/extensions/builtin/webhook_notifier.py      90     21    77%   49, 54, 64, 74, 94, 104, 115, 135-146, 184-185
-server/extensions/interfaces.py                    79      6    92%   118, 131, 135, 191-193
-server/extensions/loader.py                        47      0   100%
-server/extensions/runtime.py                       25      0   100%
+server/extensions/builtin/webhook_notifier.py      91     21    77%   53, 58, 68, 78, 98, 108, 119, 139-150, 189-190
+server/extensions/interfaces.py                    79      6    92%   118, 131, 135, 196-198
+server/extensions/loader.py                        51      0   100%
+server/extensions/runtime.py                       29      0   100%
+server/observability/activity.py                   58      3    95%   23-24, 61
 server/observability/diagnostics.py               122     25    80%   60-70, 95, 146, 150, 152, 186, 194-201, 210, 239-240, 248, 254-255
+server/observability/health.py                     83      9    89%   78, 91, 151-152, 158-159, 170-172
 -----------------------------------------------------------------------------
-TOTAL                                             595     87    85%
+TOTAL                                             920    115    88%

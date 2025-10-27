@@ -49,6 +49,11 @@ with Switchboard safely and consistently.
   gauges such as `switchboard_task_status_total` and
   `switchboard_task_readiness_total` after every plan broadcast, so scrape
   targets can alert on blocked work without polling the analytics API.
+- `GET /api/observability/overview` – Consolidated JSON snapshot combining
+  liveness, readiness, telemetry, diagnostics, and extension observability
+  registrations. Mirrors the output of
+  `python scripts/dev.py observability-overview` and is ideal for runbooks or
+  on-call dashboards.
 
 ## Tooling
 
@@ -62,6 +67,9 @@ with Switchboard safely and consistently.
   effort metadata.
 - `scripts/dev.py scaffold-extension` – Generate a starter module pre-populated
   with contract metadata and TODO placeholders.
+- `scripts/dev.py observability-overview` – Emit the same payload as
+  `/api/observability/overview`, useful for capturing point-in-time telemetry
+  snapshots in incident reports.
 - `scripts/dev.py bump-version` – Update runtime version metadata and create new
   changelog/release note stubs.
 - `scripts/audit_metrics.py` – Produce coverage, cyclomatic complexity, and dependency depth summaries in `reports/system_metrics.json` for stewardship reporting.

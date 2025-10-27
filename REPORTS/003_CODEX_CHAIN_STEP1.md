@@ -50,7 +50,7 @@
 - **Runtime Migration:** `server/app.py` performs an inline schema migration for `completed_notes`; needs formal Alembic revision to eliminate startup DDL.
 - **Security Hardening:** CORS currently allows all origins; production deployment must restrict once domains finalize.
 - **WebSocket Monitoring:** TODO to record connection metadata and simulate slow consumers (`server/app.py`, `server/tests/test_plan_broadcaster_unit.py`).
-- **Repository Tests:** Legacy tests rely on `asyncio.run` and shared filesystem state; TODOs indicate migration to pytest-asyncio and temp directories.
+- **Repository Tests:** Legacy tests relied on `asyncio.run` and shared filesystem state; TODOs indicated migration to pytest-asyncio and temp directories (resolved — the suite now runs coroutine tests natively and isolates live file storage per test).
 - **UI Responsiveness:** `web/static/styles.css` notes mobile layout TODO; `web/static/app.js` highlights planned performance/backoff improvements.
 - **Backlog Items:** Queue prioritization, Prometheus health metrics, and improved runner abandonment workflow remain open in `docs/TODO-ISSUES.md`.
 

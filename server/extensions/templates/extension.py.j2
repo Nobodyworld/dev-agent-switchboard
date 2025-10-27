@@ -1,0 +1,44 @@
+"""{{module_doc}}"""
+
+from __future__ import annotations
+
+from server.extensions.interfaces import ExtensionDescriptor, ExtensionRegistry
+from server.extensions.observability import ObservabilityRegistration
+
+
+class {{class_name}}:
+    """Lifecycle hooks for the ``{{descriptor_name}}`` extension."""
+
+    # TODO(P3, 2d) - Implement lifecycle callbacks (on_checkout, on_complete, etc.).
+
+
+def _register_observability(_app, _state) -> ObservabilityRegistration | None:
+    """Return observability metadata once instrumentation is available."""
+
+    # TODO(P3, 1d) - Emit ObservabilityRegistration with metrics/traces/log details.
+    return None
+
+
+def register_extension(registry: ExtensionRegistry) -> None:
+    """Register the ``{{extension_module}}`` extension with Switchboard."""
+
+    registry.append_contract_note(
+        "{{descriptor_name}} extension requires deployment-specific configuration."
+    )
+    registry.register_extension(
+        ExtensionDescriptor(
+            name="{{descriptor_name}}",
+            capabilities=("sample",),
+            version="0.1.0",
+            description="Describe what this extension does.",
+            config={"enabled": False},
+        )
+    )
+    registry.register_observability_hook(
+        "{{descriptor_name}}",
+        _register_observability,
+        description="TODO(P3, 1d) - Summarise observability outputs for operators.",
+        capabilities=("sample",),
+        outputs=(),
+    )
+    # TODO(P3, 1d) - Register lifecycle hooks, e.g. ``registry.register_task_hook({{class_name}}())``.

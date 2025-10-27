@@ -12,6 +12,7 @@ from .health import (
     collect_observability_health,
 )
 from .metrics import describe_task_metrics, record_task_analytics_metrics
+from .overview import ObservabilityOverview, collect_observability_overview
 from .runtime import RuntimeSnapshot, get_runtime_snapshot, register_runtime_metadata
 from .telemetry import (
     TelemetryState,
@@ -24,6 +25,7 @@ from .tracing import span
 
 __all__ = [
     "DiagnosticsReport",
+    "ObservabilityOverview",
     "PackageStatus",
     "RuntimeSnapshot",
     "TelemetryState",
@@ -34,6 +36,7 @@ __all__ = [
     "clear_required_versions_cache",
     "collect_diagnostics",
     "collect_observability_health",
+    "collect_observability_overview",
     "describe_task_metrics",
     "get_runtime_snapshot",
     "get_telemetry_report",

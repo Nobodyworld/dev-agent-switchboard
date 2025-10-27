@@ -5,7 +5,7 @@ import json
 import sys
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Optional, cast
 
 import requests
@@ -21,6 +21,7 @@ from .runtime_config import (
     sanitize_heartbeat_interval,
 )
 
+BYTE_SCALE = 1024.0
 HEARTBEAT_SHUTDOWN_TIMEOUT = 5.0
 
 TaskPayload = dict[str, Any]
@@ -34,6 +35,7 @@ __all__ = [
     "analytics_command",
     "build_parser",
     "compute_backoff_interval",
+    "configuration_command",
     "derive_runtime_configuration",
     "display_runtime_configuration",
     "extract_lease_duration",
@@ -44,6 +46,185 @@ __all__ = [
     "run_command",
     "sanitize_heartbeat_interval",
 ]
+
+
+def _format_bytes(value: float | int | None) -> str:
+    """Return a human-readable string for ``value`` bytes."""
+
+    if value is None:
+        return "unknown"
+    number = float(value)
+    units = ["B", "KiB", "MiB", "GiB", "TiB"]
+    for unit in units:
+        if number < BYTE_SCALE or unit == units[-1]:
+            if unit == "B":
+                return f"{int(number)} {unit}"
+            return f"{number:.1f} {unit}"
+        number /= BYTE_SCALE
+    return f"{number:.1f} TiB"
+
+
+def _append_section(lines: list[str], section: Sequence[str]) -> None:
+    """Append ``section`` to ``lines`` separated by a blank line."""
+
+    if not section:
+        return
+    if lines and lines[-1] != "":
+        lines.append("")
+    lines.extend(section)
+
+
+def _render_rate_limit_section(
+    rate: Mapping[str, Any],
+    lease: Mapping[str, Any],
+    admin: Mapping[str, Any],
+) -> list[str]:
+    enabled = "enabled" if rate.get("enabled") else "disabled"
+    requests = rate.get("requests", "n/a")
+    window = rate.get("window_seconds", "n/a")
+    lines = [
+        "Switchboard configuration",
+        "------------------------",
+        f"Rate limit: {requests} requests / {window}s ({enabled})",
+    ]
+
+    bypass = [str(value) for value in rate.get("trusted_bypass") or []]
+    if bypass:
+        lines.append(f"  Trusted bypass: {', '.join(bypass)}")
+
+    proxies = [str(value) for value in rate.get("trusted_proxies") or []]
+    if proxies:
+        lines.append(f"  Trusted proxies: {', '.join(proxies)}")
+
+    duration = lease.get("duration_seconds")
+    if duration is None:
+        lines.append("Lease duration: n/a")
+    else:
+        lines.append(f"Lease duration: {duration} seconds")
+
+    configured = "yes" if admin.get("configured") else "no"
+    lines.append(f"Admin token configured: {configured}")
+    return lines
+
+
+def _render_storage_section(storage: Mapping[str, Any]) -> list[str]:
+    root = storage.get("root", "<unknown>")
+    exists = storage.get("exists")
+    writable = storage.get("writable")
+    free_bytes = _format_bytes(storage.get("free_bytes"))
+    total_bytes = _format_bytes(storage.get("total_bytes"))
+    return [
+        (
+            "Storage root: "
+            f"{root} (exists: {exists}, writable: {writable})"
+        ),
+        f"Storage free: {free_bytes} / {total_bytes}",
+    ]
+
+
+def _render_database_section(database: Mapping[str, Any]) -> list[str]:
+    url = database.get("url", "<unknown>")
+    driver = database.get("driver", "n/a")
+    configured_via_env = database.get("configured_via_env")
+    source = (
+        "DATABASE_URL environment variable"
+        if configured_via_env
+        else "default configuration"
+    )
+    lines = [
+        f"Database URL: {url} (driver: {driver})",
+        f"  Source: {source}",
+    ]
+
+    options = database.get("engine_options") or {}
+    if options:
+        rendered = ", ".join(
+            f"{key}={value}" for key, value in sorted(options.items())
+        )
+        lines.append(f"  Engine options: {rendered}")
+    return lines
+
+
+def _render_extensions_section(extensions: Mapping[str, Any]) -> list[str]:
+    modules = [str(module) for module in extensions.get("modules") or []]
+    registered = [
+        descriptor.get("name", "<unknown>")
+        for descriptor in extensions.get("registered") or []
+    ]
+    builtin = extensions.get("builtin_enabled")
+    contract_version = extensions.get("contract_version")
+    contract_notes = [
+        str(note).strip()
+        for note in extensions.get("contract_notes") or []
+        if str(note).strip()
+    ]
+
+    lines = [
+        f"Extensions: {len(modules)} configured, {len(registered)} active",
+    ]
+    if builtin is not None:
+        enabled = "yes" if builtin else "no"
+        lines.append(f"  Builtin extensions enabled: {enabled}")
+    if modules:
+        lines.append(f"  Modules: {', '.join(modules)}")
+    if registered:
+        lines.append(f"  Registered: {', '.join(registered)}")
+    if contract_version:
+        lines.append(f"  Contract version: {contract_version}")
+    if contract_notes:
+        lines.append("  Contract notes:")
+        lines.extend(f"    - {note}" for note in contract_notes)
+    return lines
+
+
+def _render_runtime_section(runtime: Mapping[str, Any]) -> list[str]:
+    lines: list[str] = []
+    started_at = runtime.get("started_at")
+    if started_at:
+        lines.append(f"Runtime started: {started_at}")
+    uptime = runtime.get("uptime_seconds")
+    if isinstance(uptime, (int, float)):
+        lines.append(f"Runtime uptime: {uptime:.1f}s")
+    version = runtime.get("version")
+    if version:
+        lines.append(f"Runtime version: {version}")
+    environment = runtime.get("environment")
+    if environment:
+        lines.append(f"Runtime environment: {environment}")
+    commit = runtime.get("commit_sha")
+    if commit:
+        lines.append(f"Runtime commit: {commit}")
+    metadata = runtime.get("metadata") or {}
+    if metadata:
+        lines.append("Runtime metadata:")
+        lines.extend(
+            f"  - {key}: {value}" for key, value in sorted(metadata.items())
+        )
+    return lines
+
+
+def _render_warnings_section(warnings: Sequence[str]) -> list[str]:
+    cleaned = [warning for warning in warnings if warning]
+    if not cleaned:
+        return []
+    lines = ["Warnings:"]
+    lines.extend(f"  - {warning}" for warning in cleaned)
+    return lines
+
+
+def _render_environment_section(
+    environment: Sequence[Mapping[str, Any]]
+) -> list[str]:
+    if not environment:
+        return []
+    sorted_entries = sorted(environment, key=lambda item: item.get("name", ""))
+    lines = ["Environment variables:"]
+    for entry in sorted_entries:
+        name = entry.get("name", "<unknown>")
+        value = entry.get("value", "")
+        source = entry.get("source", "environment")
+        lines.append(f"  {name} = {value} ({source})")
+    return lines
 
 
 class HeartbeatLoop(threading.Thread):
@@ -263,6 +444,49 @@ def analytics_command(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
     return 0
+
+
+def configuration_command(args: argparse.Namespace) -> int:
+    """Fetch and display the server configuration snapshot."""
+
+    try:
+        with SwitchboardClient(args.base, args.agent, auto_register=False) as client:
+            payload = client.get_configuration()
+    except requests.RequestException as exc:
+        print(f"Failed to fetch configuration: {exc}", file=sys.stderr)
+        return 1
+
+    if getattr(args, "json", False):
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+
+    settings = payload.get("settings", {})
+    sections: list[str] = []
+    _append_section(
+        sections,
+        _render_rate_limit_section(
+            settings.get("rate_limit", {}),
+            settings.get("lease", {}),
+            payload.get("admin", {}),
+        ),
+    )
+    _append_section(sections, _render_storage_section(payload.get("storage", {})))
+    _append_section(sections, _render_database_section(payload.get("database", {})))
+    _append_section(
+        sections, _render_extensions_section(settings.get("extensions", {}))
+    )
+    _append_section(sections, _render_runtime_section(payload.get("runtime", {})))
+    _append_section(sections, _render_warnings_section(payload.get("warnings", [])))
+    _append_section(
+        sections,
+        _render_environment_section(payload.get("environment", [])),
+    )
+
+    for line in sections:
+        print(line)
+
+    return 0
+
 
 
 def confirm_completion(
@@ -507,6 +731,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--disable", action="store_true", help="Disable maintenance mode"
     )
     maintenance_parser.set_defaults(func=maintenance_command)
+
+    config_parser = subparsers.add_parser(
+        "config", help="Display runtime configuration snapshot"
+    )
+    config_parser.add_argument(
+        "--base", required=True, help="Base URL of the Switchboard server"
+    )
+    config_parser.add_argument(
+        "--agent",
+        default="config-cli",
+        help="Agent identifier used for configuration requests",
+    )
+    config_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output the configuration payload as JSON",
+    )
+    config_parser.set_defaults(func=configuration_command)
 
     stats_parser = subparsers.add_parser(
         "stats", help="Display aggregated task analytics"

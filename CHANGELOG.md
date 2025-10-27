@@ -3,6 +3,18 @@
 ## Unreleased
 
 ### Added
+- Observability overview collector (`server/observability/overview.py`),
+  `/api/observability/overview` endpoint, and `scripts/dev.py`
+  `observability-overview` command delivering a single snapshot of runtime
+  health, telemetry, diagnostics, and extension instrumentation.
+- Builtin `plan_latency` extension and shared observability registry helpers so
+  extensions can register metrics/tracing outputs alongside lifecycle hooks.
+- Extension scaffolding template (`server/extensions/templates/extension.py.j2`)
+  that generates contract metadata and observability stubs for new modules.
+- Configuration snapshot service (`server/application/configuration_service.py`),
+  `/api/configuration` endpoint, CLI `switchboard-cli config` command, Makefile
+  `make config` helper, and dashboard panel summarising rate limits, storage
+  health, database provenance, warnings, and sanitised environment metadata.
 - Centralised health probe orchestration (`server/observability/health.py`) with
   enriched `/health/*` responses and the new `/api/observability/health`
   endpoint combining telemetry, liveness, and readiness data.
@@ -64,6 +76,9 @@
 - Coverage workflow captured in `coverage.txt` to document current package-level coverage baselines.
 
 ### Changed
+- Extension registry now tracks observability hook metadata and documentation
+  has been refreshed to highlight plan latency metrics and the consolidated
+  observability overview payload.
 - `scripts/dev.py` validates trusted subprocess invocations, resolves
   `pip-audit` via `PATH`, and hardens coverage-gate parsing with typed JSON
   handling to keep developer automation reproducible across environments.
@@ -75,6 +90,12 @@
   eliminate direct global reassignment.
 - `/api/settings` includes extension contract version/notes so operators can
   audit plugin compatibility.
+- Operator UI now renders a configuration dashboard card with environment
+  metadata, storage health, and copy-to-clipboard tooling aligned with the new
+  backend snapshot.
+- `switchboard-cli config` now renders grouped sections, reports engine option
+  metadata, and shares formatting helpers with tests to keep output readable
+  for operators and automation.
 - Observability documentation and health guidance highlight
   `/api/observability/telemetry` for instrumentation awareness.
 - CI quality matrix now runs a dedicated security stage; `make qa` and
@@ -96,6 +117,8 @@
   simplify diagnostics without breaking existing probes.
 - CI adds a dedicated coverage job enforcing ≥85% coverage on the extension
   modules via `scripts/dev.py coverage-gate` (mirrored by `make coverage`).
+- Coverage automation now gates `server/application/configuration_service.py`
+  so configuration diagnostics remain exercised by tests.
 - Makefile quality targets bootstrap a project-local virtual environment before
   executing linting, testing, or coverage so local runs mirror CI dependency
   resolution.
@@ -121,6 +144,12 @@
 - Observability telemetry tests install stubbed instrumentation helpers that
   accept the same keyword arguments as production setup routines, restoring
   compatibility with stricter Ruff rules.
+- Live file tests and fixtures now allocate temporary directories per test run,
+  ensuring CI no longer mutates the shared `storage/files` tree and preventing
+  cross-test leakage.
+- Configuration snapshots warn when disk usage inspection fails or the storage
+  parent directory is unwritable, helping operators remediate filesystem
+  issues before uploads fail.
 - Diagnostics package status parsing reuses the cached requirements metadata,
   avoiding repeated filesystem reads across requests and tests.
 - Restored missing imports in `server/tests/conftest.py` so database reset fixtures execute reliably during test runs.

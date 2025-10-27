@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import re
@@ -13,7 +14,6 @@ from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from shutil import which
-from textwrap import dedent
 from typing import Any, cast
 
 TODO_PATTERN = re.compile(r"\b(?:TODO|FIXME)\(P[1-3],\s*[^)]+\)")
@@ -56,6 +56,19 @@ def _run_command(command: Sequence[str]) -> None:
 
     _assert_trusted_command(command)
     subprocess.run(command, check=True)  # noqa: S603
+
+
+def _render_template(template: str, context: Mapping[str, str]) -> str:
+    rendered = template
+    for key, value in context.items():
+        rendered = rendered.replace(f"{{{{{key}}}}}", value)
+    return rendered
+
+
+def _json_default(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
 
 
 def cmd_bootstrap(args: argparse.Namespace) -> None:
@@ -164,6 +177,7 @@ def cmd_verify(args: argparse.Namespace) -> None:
             "pytest",
             "--cov=server.extensions",
             "--cov=server.application.task_service",
+            "--cov=server.application.configuration_service",
             "--cov=server.observability.diagnostics",
             "--cov=server.observability.health",
             "--cov=server.observability.activity",
@@ -183,10 +197,14 @@ def cmd_verify(args: argparse.Namespace) -> None:
             "server/extensions/runtime.py=85",
             "server/extensions/builtin/task_metrics.py=85",
             "server/extensions/builtin/plan_metrics.py=85",
+            "server/extensions/builtin/plan_latency.py=80",
+            "server/extensions/observability.py=80",
             "server/extensions/builtin/activity_feed.py=85",
             "server/observability/diagnostics.py=80",
             "server/observability/health.py=85",
             "server/observability/activity.py=80",
+            "server/observability/overview.py=85",
+            "server/application/configuration_service.py=85",
         ],
     )
     cmd_coverage_gate(gate_args)
@@ -237,41 +255,69 @@ def cmd_scaffold_extension(args: argparse.Namespace) -> None:
     """Generate a starter extension module with contract metadata."""
 
     directory = Path(args.directory).resolve()
-    directory.mkdir(parents=True, exist_ok=True)
-    module_path = directory / f"{args.name}.py"
+    template_path = Path("server/extensions/templates/extension.py.j2")
+    if not template_path.exists():
+        raise SystemExit(
+            f"Template {template_path} is missing; reinstall the repository"
+        )
+
+    normalized = args.name.strip().replace("-", "_")
+    if not normalized:
+        raise SystemExit("Extension name must be non-empty")
+
+    module_parts = [part for part in normalized.split(".") if part]
+    module_dir = (
+        directory.joinpath(*module_parts[:-1]) if len(module_parts) > 1 else directory
+    )
+    module_dir.mkdir(parents=True, exist_ok=True)
+    module_filename = f"{module_parts[-1]}.py"
+    module_path = module_dir / module_filename
     if module_path.exists() and not args.force:
         raise SystemExit(f"{module_path} already exists; pass --force to overwrite")
 
-    template = dedent(
-        """
-        \"\"\"Extension stub for `{name}`.\"\"\"
+    descriptor_name = f"custom.{'.'.join(module_parts)}"
+    class_name = "".join(piece.title() for piece in module_parts) + "Extension"
 
-        from __future__ import annotations
+    template_text = template_path.read_text(encoding="utf-8")
+    rendered = _render_template(
+        template_text,
+        {
+            "module_doc": f"Extension stub for `{descriptor_name}`.",
+            "descriptor_name": descriptor_name,
+            "class_name": class_name,
+            "module_basename": module_parts[-1],
+            "extension_module": ".".join(module_parts),
+        },
+    ).strip()
 
-        from server.extensions.interfaces import ExtensionDescriptor, ExtensionRegistry
-
-
-        def register_extension(registry: ExtensionRegistry) -> None:
-            \"\"\"Register the {name} extension with Switchboard.\"\"\"
-
-            registry.append_contract_note(
-                "{name} extension depends on deployment-specific configuration."
-            )
-            registry.register_extension(
-                ExtensionDescriptor(
-                    name="custom.{name}",
-                    capabilities=("sample",),
-                    version="0.1.0",
-                    description="Describe what this extension does.",
-                    config={{"enabled": False}},
-                )
-            )
-            # TODO(P3, 1d) - Implement lifecycle hooks for this extension.
-        """
-    ).format(name=args.name).strip()
-
-    module_path.write_text(template + "\n", encoding="utf-8")
+    module_path.write_text(rendered + "\n", encoding="utf-8")
     print(f"Extension scaffold written to {module_path}")
+
+
+def cmd_observability_overview(args: argparse.Namespace) -> None:
+    """Emit a consolidated observability snapshot."""
+
+    async def _collect() -> dict[str, Any]:
+        from server.app import app  # noqa: PLC0415
+        from server.db import AsyncSessionLocal  # noqa: PLC0415
+        from server.observability.overview import (  # noqa: PLC0415
+            collect_observability_overview,
+        )
+
+        async with AsyncSessionLocal() as session:
+            overview = await collect_observability_overview(
+                session, app_version=app.version
+            )
+        return overview.as_payload()
+
+    payload = asyncio.run(_collect())
+    text = json.dumps(payload, indent=2 if args.pretty else None, default=_json_default)
+    if args.output:
+        output_path = Path(args.output)
+        output_path.write_text(text + "\n", encoding="utf-8")
+        print(f"Observability overview written to {output_path}")
+    else:
+        print(text)
 
 
 _VERSION_RE = re.compile(r'version="(?P<version>\d+\.\d+\.\d+)"')
@@ -409,6 +455,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Overwrite existing module files",
     )
     scaffold.set_defaults(func=cmd_scaffold_extension)
+
+    overview = subparsers.add_parser(
+        "observability-overview",
+        help="Print an aggregated observability snapshot",
+    )
+    overview.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print the JSON payload",
+    )
+    overview.add_argument(
+        "--output",
+        help="Optional path to write the JSON payload",
+    )
+    overview.set_defaults(func=cmd_observability_overview)
 
     bump = subparsers.add_parser(
         "bump-version", help="Bump server version and changelog stubs"

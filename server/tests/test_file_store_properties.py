@@ -11,7 +11,6 @@ import pytest
 from fastapi import HTTPException
 
 from server import file_store
-from server.file_store import FILES_ROOT, full_path
 
 
 def _candidate_paths(rng: random.Random, *, count: int) -> Iterable[str]:
@@ -25,11 +24,11 @@ def test_full_path_never_escapes_storage_root() -> None:
     rng = random.Random(1337)  # noqa: S311 - deterministic fuzzing for tests
     for candidate in _candidate_paths(rng, count=200):
         try:
-            resolved = full_path(candidate)
+            resolved = file_store.full_path(candidate)
         except HTTPException:
             continue
 
-        assert Path(resolved).is_relative_to(Path(FILES_ROOT)), candidate
+        assert Path(resolved).is_relative_to(Path(file_store.FILES_ROOT)), candidate
         assert not str(resolved).startswith(".."), candidate
 
 
@@ -46,7 +45,7 @@ def test_full_path_never_escapes_storage_root() -> None:
 )
 def test_full_path_rejects_malicious_paths(malicious: str) -> None:
     with pytest.raises(HTTPException):
-        full_path(malicious)
+        file_store.full_path(malicious)
 
 
 def test_ensure_root_detects_unwritable(monkeypatch, tmp_path):

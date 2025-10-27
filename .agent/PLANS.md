@@ -150,7 +150,10 @@ Improve the Switchboard operator UI so task data stays reliable and comprehensib
 
 ## Artifacts and Notes
 
-- Pending.
+- `server/tests/test_observability_overview.py` exercises the overview collector,
+  API endpoint, and CLI command end to end.
+- `scripts/dev.py observability-overview` writes snapshots to disk; docs link to
+  the workflow for on-call responders.
 
 ## Interfaces and Dependencies
 
@@ -158,6 +161,103 @@ Improve the Switchboard operator UI so task data stays reliable and comprehensib
 - Toast utilities rely on DOM IDs inserted into `index.html`.
 - Playwright tests depend on `pytest` and `playwright.sync_api`.
 # Restore core server imports and datetime helpers
+
+# Stage 3 observability and extension stewardship
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Strengthen Switchboard's long-term health by tying observability, extension ergonomics, and developer tooling together. Deliver a consolidated observability overview endpoint, trace/metric hooks that extensions can use without bespoke plumbing, and scaffolding utilities that keep new modules aligned with the core architecture. Document the new surfaces so future agents can plug in quickly and operate safely.
+
+## Progress
+
+- [x] Initial state.
+- [x] Observability overview and instrumentation glue drafted.
+- [x] Extension scaffolding and reference plugin implemented.
+- [x] Developer tooling and docs updated.
+- [x] Validation complete.
+
+## Surprises & Discoveries
+
+- Observation: Prometheus histograms expose their bucket configuration only via
+  private attributes; reusing the constant passed to the constructor keeps the
+  plan latency observability metadata deterministic.
+  Evidence: Implementation of `_ensure_histogram` in
+  `server/extensions/builtin/plan_latency.py` captures the bucket tuple for reuse.
+
+## Decision Log
+
+- Decision: Store observability hook registrations on the extension registry and
+  reuse the telemetry bootstrap path to execute them synchronously.
+  Rationale: Keeps instrumentation optional (no async awaiting) while surfacing
+  metadata to both the API and CLI snapshot.
+  Date/Author: 2024-05-13 / gpt-5-codex
+
+- Decision: Introduce a CLI template driven by
+  `server/extensions/templates/extension.py.j2` to keep new modules aligned with
+  observability expectations.
+  Rationale: Reduces drift between documentation and generated scaffolds and
+  avoids string formatting pitfalls in the script itself.
+  Date/Author: 2024-05-13 / gpt-5-codex
+
+## Outcomes & Retrospective
+
+- `/api/observability/overview` and the `scripts/dev.py observability-overview`
+  command now provide a single payload covering health, telemetry, diagnostics,
+  and extension instrumentation.
+- Builtin plan latency metrics demonstrate the new observability hook surface
+  while remaining optional when Prometheus is disabled.
+- Extension scaffolding outputs observability-aware templates and docs explain
+  how to wire metrics/tracing hooks, keeping future modules consistent.
+
+## Context and Orientation
+
+- `server/observability` already exposes diagnostics, telemetry, and metrics helpers but lacks a unified aggregation surface for operators and scripts.
+- `server/extensions` exposes a registry for task and plan hooks; we will extend the contract to include observability integrations and provide a builtin showcase.
+- `scripts/dev.py` contains developer utilities (lint, coverage, etc.) and will gain an observability report command plus extension scaffolding helper.
+- Documentation such as `EXTENSION_GUIDE.md`, `ARCHITECTURE_OVERVIEW.md`, and `AUTOMATION.md` will be refreshed to describe the new capabilities and workflows.
+
+## Plan of Work
+
+1. Add an observability overview module combining runtime, health, telemetry, and metrics metadata with correlation identifiers. Expose it via `/api/observability/overview` and a CLI helper.
+2. Extend the extension contract with observability hooks (metrics/tracing registration), implement helper adapters, and add a reference builtin extension that records plan broadcast latencies.
+3. Enhance developer tooling with `scripts/dev.py` commands for generating extension skeletons and printing observability snapshots, including templates under `server/extensions/templates/`.
+4. Update docs (architecture overview, extension guide, automation notes, release artifacts) with the new flows and safeguards. Tag new TODOs with priority.
+5. Expand automated tests covering the overview endpoint, registry additions, and CLI scaffolding behavior.
+
+## Concrete Steps
+
+1. Implement `server/observability/overview.py` returning a structured `ObservabilityOverview` dataclass built from existing observability helpers, including new correlation IDs and metrics descriptors.
+2. Wire `/api/observability/overview` into `server/app.py`, add schema models, and provide a `scripts/dev.py observability-overview` command.
+3. Extend `ExtensionContract` and `ExtensionRegistry` with observability registration APIs, add instrumentation wrappers (e.g., decorators that create spans and Prometheus gauges), and build a `plan_latency` reference extension.
+4. Create `scripts/dev.py scaffold-extension` command backed by Jinja templates, generating files under `extensions/custom/` with ready-to-fill hooks.
+5. Write unit tests for the new overview aggregator, CLI utilities, and extension scaffolding, plus docs verifying instructions; update docs and release notes accordingly.
+
+## Validation and Acceptance
+
+- `pytest -q` including new tests should pass.
+- `python scripts/dev.py observability-overview` should emit a JSON summary when the API is running (tests will simulate via dependency injection).
+- Generated extension scaffolds should match the documented template and register via the extension loader without runtime errors.
+- Updated docs should outline incident response ties, extension development flow, and automation touchpoints.
+
+## Idempotence and Recovery
+
+- Observability overview uses read-only queries; repeated calls are safe and cacheable.
+- Extension scaffolding writes new files only when the destination path is empty; scripts warn before overwriting to prevent data loss.
+- CLI commands exit non-zero on failure, keeping automation pipelines aware of misconfigurations.
+
+## Artifacts and Notes
+
+- Pending.
+
+## Interfaces and Dependencies
+
+- New schema `ObservabilityOverviewOut` exported from `server/schema.py`.
+- `ExtensionRegistry.register_observability_hook` enabling extension-provided instrumentation.
+- Templates under `server/extensions/templates/` consumed by `scripts/dev.py scaffold-extension`.
 # Observability-driven modular expansion for Stage 3
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
@@ -1549,3 +1649,98 @@ Replace bespoke `asyncio.run` patterns in server tests with idiomatic `@pytest.m
 
 - `pytest` core hooks (notably `pytest_pyfunc_call`) continue to orchestrate coroutine execution.
 - Optional dependency on `pythonjsonlogger` remains guarded for deployments that omit the package.
+
+# Elevate configuration transparency and developer ergonomics
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Expose Switchboard's runtime configuration in a first-class, type-safe way across the API, CLI, and operator UI while delivering companion tooling that makes the new insights actionable. The goal is to harden configuration validation, surface sanitized environment context, and give both humans and agents immediate visibility into rate limits, lease durations, extension wiring, and deployment metadata without scraping logs or database tables.
+
+## Progress
+
+- [x] Repository baseline and configuration entry points reviewed.
+- [x] Backend configuration service implemented and wired to FastAPI routes.
+- [x] Client/CLI extended with a configuration inspection command.
+- [x] Operator UI updated to visualise configuration data.
+- [x] Tests and documentation refreshed to reflect the new surfaces.
+- [x] Tooling/automation hooks added for config audits.
+
+## Surprises & Discoveries
+
+- Observation: `/api/settings` returns rate limit and lease data but omits extension toggles, admin token status, and file-store diagnostics, leading to CLI/UI duplication.
+  Evidence: `server/app.py::get_settings` assembles a `SettingsResponse` limited to existing dataclasses.
+- Observation: There is no structured summary of environment metadata (build SHA, config sources) despite existing observability helpers that could supply it.
+  Evidence: `server/observability.runtime` exposes runtime info used only by diagnostics endpoints.
+
+## Decision Log
+
+- Decision: Introduce a dedicated `ConfigurationService` that consolidates settings, runtime metadata, and storage health, decoupling API schema from environment lookups.
+  Rationale: Centralising the logic allows typed responses, caching, and future validation while reusing the service from tests and CLI utilities.
+  Date/Author: 2025-02-17 / gpt-5-codex
+- Decision: Extend the CLI with a `config` subcommand that reuses client plumbing to fetch the new endpoint and print actionable summaries.
+  Rationale: Agents need symmetry between web console visibility and terminal workflows.
+  Date/Author: 2025-02-17 / gpt-5-codex
+- Decision: Render configuration data in the web UI using an accessible, collapsible panel with copy-ready tokens and provenance metadata.
+  Rationale: Operators should be able to audit toggles without leaving the dashboard.
+  Date/Author: 2025-02-17 / gpt-5-codex
+
+## Outcomes & Retrospective
+
+- `/api/configuration` ships with typed schemas, CLI/Makefile integration, and a dashboard card that surfaces storage health and environment metadata without exposing secrets.
+- Added regression coverage for the service, endpoint, and CLI command; documentation now directs operators to the new workflow.
+
+## Context and Orientation
+
+- Backend configuration currently lives in `server/settings.py` with free functions caching environment parsing.
+- `/api/settings` uses `SettingsBundle` but the schema omits extension module lists and diagnostics.
+- CLI runtime configuration derivation is spread across `client/python/runtime_config.py` and `client/python/switchboard_cli.py` with manual formatting.
+- The operator UI (`web/static/app.js`) has no configuration panel; surfacing data will require new state/actions.
+- Existing documentation mentions rate limits in `docs/` and `README.md` but lacks a single configuration reference.
+
+## Plan of Work
+
+1. Create a backend configuration service that aggregates rate limits, leases, extensions, environment metadata, and file-store health; expose it via a new `/api/configuration` endpoint and reuse existing schemas where practical.
+2. Expand `SettingsResponse` models (or introduce new schema models) to represent the richer configuration payload with clear typing and documented fields.
+3. Update the CLI and Python client with a new method/command to fetch and display configuration summaries, including optional JSON output for automation.
+4. Extend the web UI state machine to load configuration on start, provide manual refresh, and render a dedicated configuration card with copyable fields.
+5. Add unit/integration tests covering the service, endpoint, CLI command, and UI data parsing; ensure fixtures handle the new endpoint.
+6. Document the configuration workflow in README/docs, update CHANGELOG/RELEASE_NOTES, and add tooling (e.g., Make targets or scripts) to audit configuration from the command line.
+
+## Concrete Steps
+
+1. Implement `server/application/configuration_service.py` with typed dataclasses aggregating settings, runtime info, and storage health; add tests under `server/tests` validating parsing and caching.
+2. Add `ConfigurationResponse` models to `server/schema.py`, wire `/api/configuration` into `server/app.py`, and ensure admin-token handling redacts sensitive values.
+3. Extend `client/python/switchboard_client.py` with `get_configuration`, update CLI argument parser to add a `config` subcommand supporting `--json`, and print formatted output.
+4. Update `web/static/app.js` and `index.html` to fetch configuration during bootstrap, offer a refresh button, and render sanitized fields with accessible markup and copy buttons.
+5. Write server endpoint tests, client method tests (with mocked responses), CLI command tests, and UI parsing tests; refresh fixtures to expose the new API path.
+6. Update README/docs with configuration reference, document the new command in CLI docs, note changes in CHANGELOG/RELEASE_NOTES, and add a Makefile target or script helper to fetch configuration for audits.
+
+## Validation and Acceptance
+
+- `pytest -q` passes, including new backend and CLI tests.
+- Web unit tests verify configuration rendering logic.
+- CLI `config` command outputs the expected summary locally using mocked responses.
+- Documentation changes explain configuration surfaces and reference the new tooling.
+- CHANGELOG and RELEASE_NOTES capture the shipped improvements.
+
+## Idempotence and Recovery
+
+- Configuration service caches rely on environment variables; cache invalidation utilities mirror existing reload helpers.
+- CLI/web fetchers degrade gracefully when the endpoint is unavailable by showing actionable errors without breaking existing flows.
+- Tooling commands perform read-only operations and can be rerun without side effects.
+
+## Artifacts and Notes
+
+- Pytest transcript including new tests (`pytest -q`).
+- CLI transcript for `switchboard-cli config --json` captured in docs/tests.
+- Screenshot or UI test artifact demonstrating the configuration panel (if applicable).
+
+## Interfaces and Dependencies
+
+- Reuses `server.settings` functions, `server.observability.runtime`, and `server.file_store.ensure_root` for data gathering.
+- CLI additions depend on `client/python/switchboard_client.py` and `argparse` integration.
+- Web UI updates rely on existing fetch helpers (`apiFetchJson`) and DOM structure defined in `web/index.html` and `web/static/styles.css`.
