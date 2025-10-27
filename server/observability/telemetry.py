@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+import logging
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -10,7 +12,11 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from server.extensions import get_extension_bundle
+from server.extensions import (
+    get_extension_bundle,
+    record_observability_registration,
+    reset_observability_registrations,
+)
 from server.instrumentation import (
     configure_logging,
     setup_logging,
@@ -22,6 +28,8 @@ from server.instrumentation.logging import DEFAULT_REQUEST_ID_HEADER
 from .diagnostics import DiagnosticsReport, collect_diagnostics
 from .metrics import describe_task_metrics
 from .runtime import get_runtime_snapshot, register_runtime_metadata
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -223,6 +231,25 @@ def bootstrap_observability(app: FastAPI) -> TelemetryState:
             },
         }
     )
+
+    reset_observability_registrations()
+    for hook in bundle.observability_hooks:
+        try:
+            result = hook.callback(app, state)
+        except Exception:  # pragma: no cover - surfaced via logs
+            LOGGER.exception(
+                "Observability hook %s failed during bootstrap", hook.extension
+            )
+            continue
+        if inspect.isawaitable(result):  # pragma: no cover - defensive
+            LOGGER.warning(
+                "Observability hook %s yielded awaitable result; ignoring",
+                hook.extension,
+            )
+            continue
+        if result is None:
+            continue
+        record_observability_registration(hook.extension, result)
 
     _STATE_CACHE.state = state
     return state

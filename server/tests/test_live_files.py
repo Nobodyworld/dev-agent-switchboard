@@ -1,34 +1,12 @@
 from __future__ import annotations
 
 import hashlib
-import shutil
 from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
 
 from server.app import app
-from server.file_store import FILES_ROOT as CONFIGURED_FILES_ROOT
-
-STATIC_ROOT = Path(__file__).resolve().parents[2] / "web" / "static"
-STATIC_ROOT.mkdir(parents=True, exist_ok=True)
-
-FILES_ROOT = Path(CONFIGURED_FILES_ROOT)
-# TODO(P2, 1d) - Use TemporaryDirectory fixtures so tests never touch shared filesystem
-# state between runs.
-
-
-@pytest.fixture(autouse=True)
-def clean_filesystem():
-    """Ensure the live file store is empty before and after each test."""
-    if FILES_ROOT.exists():
-        shutil.rmtree(FILES_ROOT)
-    FILES_ROOT.mkdir(parents=True, exist_ok=True)
-    try:
-        yield
-    finally:
-        if FILES_ROOT.exists():
-            shutil.rmtree(FILES_ROOT)
 
 
 @pytest.fixture
@@ -93,12 +71,12 @@ def collect_response(
 
 
 @pytest.mark.anyio
-async def test_live_file_includes_sha256_etag():
+async def test_live_file_includes_sha256_etag(files_root: Path):
     path = "tests/etag.txt"
     content = b"etag-me"
     expected_sha = hashlib.sha256(content).hexdigest()
 
-    full_path = FILES_ROOT / path
+    full_path = files_root / path
     full_path.parent.mkdir(parents=True, exist_ok=True)
     with full_path.open("wb") as handle:
         handle.write(content)
@@ -113,12 +91,12 @@ async def test_live_file_includes_sha256_etag():
 
 
 @pytest.mark.anyio
-async def test_live_file_returns_304_on_matching_if_none_match():
+async def test_live_file_returns_304_on_matching_if_none_match(files_root: Path):
     path = "tests/if-none-match.txt"
     content = b"conditional"
     expected_sha = hashlib.sha256(content).hexdigest()
 
-    full_path = FILES_ROOT / path
+    full_path = files_root / path
     full_path.parent.mkdir(parents=True, exist_ok=True)
     with full_path.open("wb") as handle:
         handle.write(content)

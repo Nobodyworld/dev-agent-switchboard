@@ -28,14 +28,17 @@ writing new extensions.
 
 ## Writing an Extension
 
-Use the scaffolding helper to generate a starter module with contract metadata:
+Use the scaffolding helper to generate a starter module with contract metadata
+and observability stubs:
 
 ```bash
 python scripts/dev.py scaffold-extension audit_logger
 ```
 
-Then flesh out the generated file or create a module from scratch that registers
-hooks with the provided registry:
+The template registers descriptor metadata, appends a contract note, and wires a
+placeholder observability hook that returns an `ObservabilityRegistration` once
+instrumentation is implemented. Flesh out the generated file or create a module
+from scratch that registers hooks with the provided registry:
 
 ```python
 # myproject/switchboard_ext/email_alerts.py
@@ -118,7 +121,9 @@ transition. The companion `webhook_notifier`
 (`server/extensions/builtin/webhook_notifier.py`) demonstrates filtered event
 delivery with structured payloads via `httpx`. The `plan_metrics` observer
 (`server/extensions/builtin/plan_metrics.py`) shows how to react to plan
-broadcasts by updating analytics gauges, and the new `activity_feed` extension
+broadcasts by updating analytics gauges, `plan_latency`
+(`server/extensions/builtin/plan_latency.py`) records histogram buckets for the
+time between broadcasts, and the `activity_feed` extension
 (`server/extensions/builtin/activity_feed.py`) records a rolling audit trail
 surfaced at `/api/observability/audit-feed`. Use these as templates for other
 stateless integrations such as Slack notifications, bespoke webhooks, or

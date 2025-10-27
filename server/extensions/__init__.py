@@ -8,8 +8,17 @@ from .interfaces import (
     ExtensionDescriptor,
     ExtensionLoadError,
     ExtensionRegistry,
+    ObservabilityHookRegistration,
 )
 from .loader import load_extension_bundle
+from .observability import (
+    ObservabilityHook,
+    ObservabilityRegistration,
+    ObservabilitySnapshot,
+    get_observability_registrations,
+    record_observability_registration,
+    reset_observability_registrations,
+)
 from .runtime import (
     get_extension_bundle,
     initialize_extensions,
@@ -23,9 +32,16 @@ __all__ = [
     "ExtensionDescriptor",
     "ExtensionLoadError",
     "ExtensionRegistry",
+    "ObservabilityHook",
+    "ObservabilityHookRegistration",
+    "ObservabilityRegistration",
+    "ObservabilitySnapshot",
     "get_extension_bundle",
+    "get_observability_registrations",
     "initialize_extensions",
     "load_extension_bundle",
+    "record_observability_registration",
     "reload_extensions",
+    "reset_observability_registrations",
     "set_extension_bundle",
 ]

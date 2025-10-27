@@ -10,6 +10,9 @@ const state = {
     updated_at: null,
     version: null,
   },
+  configuration: null,
+  configurationFetchedAt: null,
+  configurationLoading: false,
   diagnostics: null,
   diagnosticsVisible: false,
   diagnosticsLoading: false,
@@ -44,6 +47,24 @@ function escapeHtml(value) {
 function formatStatusLabel(status) {
   if (!status) return '';
   return status.replace(/_/g, ' ');
+}
+
+function formatBytes(value) {
+  if (value == null || Number.isNaN(Number(value))) {
+    return 'unknown';
+  }
+  let number = Number(value);
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  for (const unit of units) {
+    if (number < 1024 || unit === units[units.length - 1]) {
+      if (unit === 'B') {
+        return `${Math.round(number)} ${unit}`;
+      }
+      return `${number.toFixed(1)} ${unit}`;
+    }
+    number /= 1024;
+  }
+  return `${number.toFixed(1)} TiB`;
 }
 
 function showToast(message, variant = 'error') {
@@ -163,6 +184,29 @@ async function apiFetchJson(url, options = {}) {
   }
 }
 
+async function copyToClipboard(value, label) {
+  if (!value) return;
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      await navigator.clipboard.writeText(value);
+    } else {
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'absolute';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+    showToast(`${label} copied to clipboard.`, 'success');
+  } catch (error) {
+    console.error('Failed to copy value', error);
+    showToast(`Unable to copy ${label.toLowerCase()}.`, 'error');
+  }
+}
+
 function renderPlanMeta() {
   const meta = document.getElementById('planMeta');
   if (!meta) return;
@@ -269,6 +313,199 @@ function renderAnalytics() {
     <article class="analytics-card" aria-label="Flow readiness">${flowList}</article>
     <article class="analytics-card" aria-label="Dependency insights">${dependencyList}</article>
   `;
+}
+
+function renderConfiguration() {
+  const summary = document.getElementById('configurationSummary');
+  const rateList = document.getElementById('configurationRate');
+  const storageList = document.getElementById('configurationStorage');
+  const databaseList = document.getElementById('configurationDatabase');
+  const envTable = document.getElementById('configurationEnvironment');
+  const warningsWrapper = document.getElementById('configurationWarningsWrapper');
+  const warningsList = document.getElementById('configurationWarnings');
+  const updatedWrapper = document.getElementById('configurationUpdatedWrapper');
+  const updatedEl = document.getElementById('configurationUpdated');
+  const refresh = document.getElementById('refreshConfiguration');
+  if (
+    !summary ||
+    !rateList ||
+    !storageList ||
+    !databaseList ||
+    !envTable ||
+    !refresh
+  ) {
+    return;
+  }
+
+  if (state.configurationLoading) {
+    refresh.disabled = true;
+    refresh.textContent = 'Refreshing…';
+  } else {
+    refresh.disabled = false;
+    refresh.textContent = 'Refresh';
+  }
+
+  const snapshot = state.configuration;
+  if (!snapshot) {
+    summary.textContent = 'Configuration has not been loaded yet.';
+    rateList.innerHTML = '<p class="text-xs text-gray-500">No data available.</p>';
+    storageList.innerHTML = '<p class="text-xs text-gray-500">No data available.</p>';
+    databaseList.innerHTML = '<p class="text-xs text-gray-500">No data available.</p>';
+    envTable.innerHTML =
+      '<tr><td colspan="3" class="border px-2 py-2 text-sm text-gray-500">No environment data loaded.</td></tr>';
+    if (warningsWrapper && warningsList) {
+      warningsWrapper.classList.add('hidden');
+      warningsList.innerHTML = '';
+    }
+    if (updatedWrapper && updatedEl) {
+      updatedWrapper.classList.add('hidden');
+      updatedEl.textContent = '—';
+      updatedEl.removeAttribute('dateTime');
+    }
+    return;
+  }
+
+  const settings = snapshot.settings || {};
+  const rate = settings.rate_limit || {};
+  const lease = settings.lease || {};
+  const extensions = settings.extensions || {};
+  const storage = snapshot.storage || {};
+  const database = snapshot.database || {};
+  const admin = snapshot.admin || {};
+
+  const rateStatus = rate.enabled ? 'enabled' : 'disabled';
+  const leaseSeconds =
+    typeof lease.duration_seconds === 'number'
+      ? `${lease.duration_seconds}s`
+      : 'unknown';
+  let storageDescriptor = 'unavailable';
+  if (storage.writable === true) {
+    storageDescriptor = 'writable';
+  } else if (storage.writable === false) {
+    storageDescriptor = 'read-only';
+  }
+
+  summary.textContent = `Rate limiter ${rateStatus}; lease ${leaseSeconds}; storage ${storageDescriptor}.`;
+
+  if (updatedWrapper && updatedEl) {
+    const fetchedAt = state.configurationFetchedAt
+      ? new Date(state.configurationFetchedAt)
+      : null;
+    if (fetchedAt && !Number.isNaN(fetchedAt.valueOf())) {
+      updatedEl.textContent = fetchedAt.toLocaleTimeString();
+      updatedEl.dateTime = fetchedAt.toISOString();
+      updatedWrapper.classList.remove('hidden');
+    } else {
+      updatedWrapper.classList.add('hidden');
+      updatedEl.textContent = '—';
+      updatedEl.removeAttribute('dateTime');
+    }
+  }
+
+  const trustedBypass = Array.isArray(rate.trusted_bypass) && rate.trusted_bypass.length
+    ? rate.trusted_bypass.map((value) => escapeHtml(String(value))).join(', ')
+    : '—';
+  const trustedProxies = Array.isArray(rate.trusted_proxies) && rate.trusted_proxies.length
+    ? rate.trusted_proxies.map((value) => escapeHtml(String(value))).join(', ')
+    : '—';
+
+  rateList.innerHTML = `
+    <div><dt>Status</dt><dd>${rateStatus}</dd></div>
+    <div><dt>Requests</dt><dd>${rate.requests ?? '—'}</dd></div>
+    <div><dt>Window</dt><dd>${rate.window_seconds ?? '—'}s</dd></div>
+    <div><dt>Trusted bypass</dt><dd>${trustedBypass}</dd></div>
+    <div><dt>Trusted proxies</dt><dd>${trustedProxies}</dd></div>
+  `;
+  const registered = Array.isArray(extensions.registered)
+    ? extensions.registered
+    : [];
+  rateList.insertAdjacentHTML(
+    'beforeend',
+    `<div><dt>Extensions</dt><dd>${registered.length} active</dd></div>`
+  );
+  if (extensions.contract_version) {
+    rateList.insertAdjacentHTML(
+      'beforeend',
+      `<div><dt>Contract</dt><dd>${escapeHtml(String(extensions.contract_version))}</dd></div>`
+    );
+  }
+  rateList.insertAdjacentHTML(
+    'beforeend',
+    `<div><dt>Admin token</dt><dd>${admin.configured ? 'configured' : 'not configured'}</dd></div>`
+  );
+
+  storageList.innerHTML = `
+    <div><dt>Root</dt><dd id="configurationStorageRoot">${escapeHtml(storage.root || '—')}</dd></div>
+    <div><dt>Exists</dt><dd>${storage.exists === true ? 'yes' : storage.exists === false ? 'no' : 'unknown'}</dd></div>
+    <div><dt>Writable</dt><dd>${storage.writable === true ? 'yes' : storage.writable === false ? 'no' : 'unknown'}</dd></div>
+    <div><dt>Free space</dt><dd>${formatBytes(storage.free_bytes)}</dd></div>
+    <div><dt>Total space</dt><dd>${formatBytes(storage.total_bytes)}</dd></div>
+  `;
+  const storageRootCell = document.getElementById('configurationStorageRoot');
+  if (storageRootCell && storage.root) {
+    const copyButton = document.createElement('button');
+    copyButton.type = 'button';
+    copyButton.className = 'copy-button';
+    copyButton.dataset.copyValue = storage.root;
+    copyButton.dataset.copyLabel = 'Storage root';
+    copyButton.textContent = 'Copy path';
+    storageRootCell.parentElement?.appendChild(copyButton);
+  }
+
+  const configuredViaEnv = database.configured_via_env ? 'environment' : 'default';
+  const engineOptions = database.engine_options && typeof database.engine_options === 'object'
+    ? database.engine_options
+    : {};
+  databaseList.innerHTML = `
+    <div><dt>URL</dt><dd>${escapeHtml(database.url || 'unknown')}</dd></div>
+    <div><dt>Driver</dt><dd>${escapeHtml(database.driver || 'n/a')}</dd></div>
+    <div><dt>Source</dt><dd>${escapeHtml(configuredViaEnv)}</dd></div>
+    <div><dt>Engine options</dt><dd>${Object.keys(engineOptions).length}</dd></div>
+  `;
+  if (Object.keys(engineOptions).length) {
+    const optionSummary = Object.entries(engineOptions)
+      .map(([key, value]) => `${escapeHtml(String(key))}=${escapeHtml(String(value))}`)
+      .join(', ');
+    databaseList.insertAdjacentHTML(
+      'beforeend',
+      `<div><dt>Options</dt><dd>${optionSummary}</dd></div>`
+    );
+  }
+
+  const environmentEntries = Array.isArray(snapshot.environment)
+    ? snapshot.environment
+    : [];
+  if (environmentEntries.length) {
+    envTable.innerHTML = environmentEntries
+      .map(
+        (entry) => `
+          <tr>
+            <td class="border px-2 py-1 align-top">${escapeHtml(entry.name)}</td>
+            <td class="border px-2 py-1 align-top font-mono text-xs">${escapeHtml(entry.value)}</td>
+            <td class="border px-2 py-1 align-top">${escapeHtml(entry.source || 'environment')}</td>
+          </tr>
+        `
+      )
+      .join('');
+  } else {
+    envTable.innerHTML =
+      '<tr><td colspan="3" class="border px-2 py-2 text-sm text-gray-500">No environment overrides detected.</td></tr>';
+  }
+
+  if (warningsWrapper && warningsList) {
+    const warnings = Array.isArray(snapshot.warnings)
+      ? snapshot.warnings
+      : [];
+    if (warnings.length) {
+      warningsWrapper.classList.remove('hidden');
+      warningsList.innerHTML = warnings
+        .map((warning) => `<li>${escapeHtml(String(warning))}</li>`)
+        .join('');
+    } else {
+      warningsWrapper.classList.add('hidden');
+      warningsList.innerHTML = '';
+    }
+  }
 }
 
 function formatTimestamp(value) {
@@ -484,6 +721,27 @@ function renderDiagnosticsWarnings(warnings) {
   list.innerHTML = warnings
     .map((warning) => `<li>• ${escapeHtml(String(warning))}</li>`)
     .join('');
+}
+
+async function refreshConfiguration({ silent = false } = {}) {
+  if (state.configurationLoading) {
+    return;
+  }
+  state.configurationLoading = true;
+  renderConfiguration();
+  try {
+    const payload = await apiFetchJson('/api/configuration');
+    state.configuration = payload;
+    state.configurationFetchedAt = new Date().toISOString();
+  } catch (error) {
+    console.error('Failed to load configuration', error);
+    if (!silent) {
+      showToast('Unable to load configuration. Try again shortly.', 'error');
+    }
+  } finally {
+    state.configurationLoading = false;
+    renderConfiguration();
+  }
 }
 
 async function refreshDiagnostics({ silent = false } = {}) {
@@ -1042,6 +1300,14 @@ function initEventListeners() {
     });
   }
 
+  const configurationRefresh = document.getElementById('refreshConfiguration');
+  if (configurationRefresh) {
+    configurationRefresh.addEventListener('click', (event) => {
+      event.preventDefault();
+      refreshConfiguration();
+    });
+  }
+
   const analyticsRefresh = document.getElementById('refreshAnalytics');
   if (analyticsRefresh) {
     analyticsRefresh.addEventListener('click', (event) => {
@@ -1079,12 +1345,27 @@ function initialize() {
   initEventListeners();
   connectWS();
   renderMaintenanceState();
+  renderConfiguration();
   renderDiagnostics();
   renderAnalytics();
   refreshPlan();
   refreshSystemState();
+  refreshConfiguration({ silent: true });
   refreshDiagnostics({ silent: true });
   refreshAnalytics({ silent: true });
 }
+
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('.copy-button');
+  if (!button) {
+    return;
+  }
+  const value = button.dataset.copyValue || '';
+  if (!value) {
+    return;
+  }
+  const label = button.dataset.copyLabel || 'Value';
+  copyToClipboard(value, label);
+});
 
 document.addEventListener('DOMContentLoaded', initialize);

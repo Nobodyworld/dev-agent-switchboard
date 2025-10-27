@@ -17,12 +17,20 @@ if TYPE_CHECKING:  # pragma: no cover - typing imports for documentation clarity
         HeartbeatResult,
         TaskRecord,
     )
+    from server.extensions.observability import (
+        ObservabilityHook,
+        ObservabilityRegistration,
+    )
+    from server.observability.telemetry import TelemetryState
 else:  # pragma: no cover - runtime fallbacks keep optional dependencies optional
     Agent = Any
     CheckoutResult = Any
     CompletionResult = Any
     HeartbeatResult = Any
     TaskRecord = Any
+    ObservabilityHook = Callable[..., Any]
+    ObservabilityRegistration = Any  # type: ignore[assignment]
+    TelemetryState = Any  # type: ignore[assignment]
 
 
 EXTENSION_API_VERSION = "2025.2"
@@ -32,6 +40,7 @@ TaskEventCallable = Callable[..., TaskEventCoroutine | None]
 StartupHook = Callable[[FastAPI], Awaitable[None] | None]
 PlanEventCoroutine = Awaitable[None]
 PlanEventCallable = Callable[..., PlanEventCoroutine | None]
+ObservabilityHookResult = ObservabilityRegistration | None
 
 
 @dataclass(frozen=True)
@@ -102,6 +111,17 @@ class ExtensionDescriptor:
 
 
 @dataclass(frozen=True)
+class ObservabilityHookRegistration:
+    """Metadata describing an extension-provided observability hook."""
+
+    extension: str
+    callback: ObservabilityHook
+    description: str | None = None
+    capabilities: tuple[str, ...] = ()
+    outputs: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class ExtensionBundle:
     """Frozen set of runtime hooks registered by extensions."""
 
@@ -110,6 +130,7 @@ class ExtensionBundle:
     plan_observers: tuple[object, ...] = ()
     descriptors: tuple[ExtensionDescriptor, ...] = ()
     contract: ExtensionContract = field(default_factory=ExtensionContract)
+    observability_hooks: tuple[ObservabilityHookRegistration, ...] = ()
 
     async def emit(self, event: str, **payload: Any) -> None:
         """Invoke ``event`` across registered task hooks."""
@@ -163,6 +184,7 @@ class ExtensionRegistry:
         self._startup_hooks: list[StartupHook] = []
         self._plan_observers: list[object] = []
         self._descriptors: list[ExtensionDescriptor] = []
+        self._observability_hooks: list[ObservabilityHookRegistration] = []
         self._contract = contract or ExtensionContract()
 
     def register_task_hook(self, hook: object) -> None:
@@ -184,6 +206,27 @@ class ExtensionRegistry:
         """Expose extension metadata for discovery endpoints."""
 
         self._descriptors.append(descriptor)
+
+    def register_observability_hook(
+        self,
+        extension: str,
+        callback: ObservabilityHook,
+        *,
+        description: str | None = None,
+        capabilities: tuple[str, ...] = (),
+        outputs: tuple[str, ...] = (),
+    ) -> None:
+        """Register a telemetry hook executed during instrumentation bootstrap."""
+
+        self._observability_hooks.append(
+            ObservabilityHookRegistration(
+                extension=extension,
+                callback=callback,
+                description=description,
+                capabilities=capabilities,
+                outputs=outputs,
+            )
+        )
 
     def set_contract(
         self,
@@ -217,4 +260,5 @@ class ExtensionRegistry:
             plan_observers=tuple(self._plan_observers),
             descriptors=tuple(self._descriptors),
             contract=self._contract,
+            observability_hooks=tuple(self._observability_hooks),
         )

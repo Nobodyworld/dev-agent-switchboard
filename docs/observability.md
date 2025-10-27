@@ -13,6 +13,7 @@ signals.
 | `/health/ready` | Readiness check executing database and storage probes; returns HTTP 503 with detailed observations when a critical dependency fails. |
 | `/api/observability/health` | Aggregated payload combining the liveness/readiness probes with the latest telemetry snapshot. Requires the admin token when configured. |
 | `/api/diagnostics` | Deep inspection surface exposing package versions, extension metadata, and runtime environment details. |
+| `/api/observability/overview` | Consolidated JSON snapshot combining health probes, telemetry state, diagnostics, and extension observability metadata. Requires the admin token when configured. |
 
 Both `/health/*` endpoints and `/api/observability/health` include the
 `observations` array, providing per-probe duration, criticality, and error
@@ -23,8 +24,9 @@ failures rather than parsing log text.
 
 - `SWITCHBOARD_ENABLE_METRICS=1` enables the Prometheus instrumentator and the
   builtin metrics extensions. Metrics are exposed at `/metrics` and include
-  counters such as `switchboard_task_checkout_total` and gauges updated by
-  `plan_metrics`.
+  counters such as `switchboard_task_checkout_total`, gauges updated by
+  `plan_metrics`, and histograms emitted by `plan_latency` when plan broadcasts
+  occur.
 - `SWITCHBOARD_ENABLE_TRACING=1` instruments FastAPI with OpenTelemetry. Even
   without exporters, the request pipeline emits a stable `X-Trace-ID` header that
   correlates HTTP responses, logs, telemetry payloads, and the audit feed.

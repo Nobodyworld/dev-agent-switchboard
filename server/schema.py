@@ -11,14 +11,18 @@ from .task_status import TaskStatus
 __all__ = [
     "ActivityEventOut",
     "ActivityFeedOut",
+    "AdminSettingsOut",
     "AgentIn",
     "AgentRegistrationResponse",
     "CheckoutFailureReason",
     "CheckoutOut",
     "CompleteIn",
     "CompleteResponse",
+    "ConfigurationResponse",
+    "DatabaseSettingsOut",
     "DiagnosticsPackageOut",
     "DiagnosticsReportOut",
+    "EnvironmentVariableOut",
     "ExecPlanEntry",
     "ExecPlanLifecycle",
     "ExecPlanOwner",
@@ -37,6 +41,7 @@ __all__ = [
     "RuntimeInfoOut",
     "SettingsResponse",
     "StatusResponse",
+    "StorageInfoOut",
     "SystemStateOut",
     "SystemStateUpdateIn",
     "TaskAnalyticsOut",
@@ -231,6 +236,45 @@ class RuntimeInfoOut(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class AdminSettingsOut(BaseModel):
+    """Indicator describing whether privileged endpoints are locked down."""
+
+    configured: bool = Field(
+        default=False,
+        description="True when an administrative token has been configured.",
+    )
+
+
+class StorageInfoOut(BaseModel):
+    """Information about the live file storage root."""
+
+    root: str
+    exists: bool
+    writable: bool
+    total_bytes: int | None = Field(default=None, ge=0)
+    free_bytes: int | None = Field(default=None, ge=0)
+
+
+class DatabaseSettingsOut(BaseModel):
+    """Sanitised database connection details."""
+
+    url: str
+    driver: str | None = None
+    configured_via_env: bool = Field(
+        default=False,
+        description="True when DATABASE_URL is supplied via the environment.",
+    )
+    engine_options: dict[str, Any] = Field(default_factory=dict)
+
+
+class EnvironmentVariableOut(BaseModel):
+    """Safe environment variable presented to operators."""
+
+    name: str
+    value: str
+    source: Literal["environment", "derived"] = "environment"
+
+
 class DiagnosticsPackageOut(BaseModel):
     """Package version and status metadata included in diagnostics payloads."""
 
@@ -246,6 +290,18 @@ class SettingsResponse(BaseModel):
     rate_limit: RateLimitSettingsOut
     lease: LeaseSettingsOut
     extensions: ExtensionSettingsOut
+
+
+class ConfigurationResponse(BaseModel):
+    """Composite configuration payload returned by `/api/configuration`."""
+
+    settings: SettingsResponse
+    admin: AdminSettingsOut
+    storage: StorageInfoOut
+    database: DatabaseSettingsOut
+    runtime: RuntimeInfoOut
+    environment: list[EnvironmentVariableOut] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class SystemStateOut(BaseModel):
@@ -329,6 +385,33 @@ class ObservabilityHealthOut(BaseModel):
     readiness: HealthStatus
     telemetry: dict[str, Any]
     probes: list[HealthObservation] = Field(default_factory=list)
+
+
+class ObservabilityHookOut(BaseModel):
+    """Serialized observability hook registration."""
+
+    extension: str
+    description: str | None = None
+    capabilities: list[str] = Field(default_factory=list)
+    outputs: list[str] = Field(default_factory=list)
+    active: bool
+    registration: dict[str, Any] | None = None
+
+
+class ObservabilityOverviewOut(BaseModel):
+    """Shape returned by `/api/observability/overview`."""
+
+    generated_at: dt.datetime
+    runtime: RuntimeInfoOut
+    liveness: HealthStatus
+    readiness: HealthStatus
+    telemetry: dict[str, Any]
+    diagnostics: dict[str, Any]
+    metrics_catalog: dict[str, Any]
+    extensions: list[ExtensionDescriptorOut]
+    observability_hooks: list[ObservabilityHookOut] = Field(default_factory=list)
+    contract: dict[str, Any]
+    correlation_hints: dict[str, Any] = Field(default_factory=dict)
 
 
 class ExecPlanOwner(BaseModel):

@@ -216,6 +216,97 @@ class RunCommandTests(TestCase):
         client.get_system_state.assert_called_once()
 
 
+class ConfigurationCommandTests(TestCase):
+    def setUp(self) -> None:
+        self.args = argparse.Namespace(
+            base="http://example.test",
+            agent="config-cli",
+            json=False,
+        )
+
+    def test_configuration_command_handles_error(self) -> None:
+        with mock.patch(
+            "switchboard_cli.SwitchboardClient",
+            side_effect=requests.RequestException("boom"),
+        ):
+            self.assertEqual(
+                1, switchboard_cli.configuration_command(self.args)
+            )
+
+    def test_configuration_command_prints_summary(self) -> None:
+        client = _make_context_client()
+        client.get_configuration.return_value = {
+            "settings": {
+                "rate_limit": {
+                    "requests": 10,
+                    "window_seconds": 5,
+                    "enabled": True,
+                    "trusted_bypass": [],
+                    "trusted_proxies": [],
+                },
+                "lease": {"duration_seconds": 42},
+                "extensions": {
+                    "modules": ["alpha"],
+                    "registered": [{"name": "alpha"}],
+                    "contract_version": "2025.2",
+                },
+            },
+            "storage": {
+                "root": "/var/lib/switchboard/files",
+                "exists": True,
+                "writable": True,
+                "free_bytes": 1024,
+                "total_bytes": 4096,
+            },
+            "database": {
+                "url": "sqlite://",
+                "driver": "sqlite",
+                "configured_via_env": False,
+            },
+            "runtime": {
+                "started_at": "2025-02-17T00:00:00Z",
+                "uptime_seconds": 12.3,
+            },
+            "admin": {"configured": True},
+            "warnings": ["Check storage permissions."],
+            "environment": [
+                {
+                    "name": "FILES_ROOT",
+                    "value": "/var/lib/switchboard/files",
+                    "source": "derived",
+                }
+            ],
+        }
+
+        with (
+            mock.patch("switchboard_cli.SwitchboardClient", return_value=client),
+            mock.patch("switchboard_cli.print") as printer,
+        ):
+            self.assertEqual(0, switchboard_cli.configuration_command(self.args))
+
+        client.close.assert_called_once()
+        client.get_configuration.assert_called_once()
+        printed_output = "\n".join(str(call.args[0]) for call in printer.call_args_list)
+        self.assertIn("Rate limit", printed_output)
+        self.assertIn("Warnings:", printed_output)
+
+    def test_configuration_command_json_output(self) -> None:
+        client = _make_context_client()
+        client.get_configuration.return_value = {"settings": {}}
+        args = argparse.Namespace(
+            base="http://example.test", agent="config-cli", json=True
+        )
+
+        with (
+            mock.patch("switchboard_cli.SwitchboardClient", return_value=client),
+            mock.patch("switchboard_cli.print") as printer,
+        ):
+            self.assertEqual(0, switchboard_cli.configuration_command(args))
+
+        client.close.assert_called_once()
+        client.get_configuration.assert_called_once()
+        printer.assert_called_once()
+
 class ProcessTaskTests(TestCase):
     def setUp(self) -> None:
         self.task = {

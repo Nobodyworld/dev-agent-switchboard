@@ -104,6 +104,7 @@ Operators can trace how a request moves from CLI to FastAPI to persistence by re
 | `/api/observability/health` | `GET` | Aggregates liveness, readiness, and telemetry state into a single payload (requires admin token when configured). |
 | `/api/observability/audit-feed` | `GET` | Returns the rolling in-memory audit feed captured by the builtin `activity_feed` extension (requires admin token when configured). |
 | `/api/settings` | `GET` | Inspect rate limit and lease configuration (used by the CLI). |
+| `/api/configuration` | `GET` | Retrieve a comprehensive configuration snapshot (settings, storage, database, runtime, warnings). |
 | `/api/diagnostics` | `GET` | Retrieve runtime metadata, package versions, feature toggles, and system state for operators and UI diagnostics. |
 | `/api/system-state` | `GET`, `PUT` | Inspect or toggle global maintenance mode. `PUT` requires the admin token when `SWITCHBOARD_ADMIN_TOKEN` is set. |
 | `/api/files/{path}` | `PUT` | Upload live documentation available under `/live/<path>`. |
@@ -138,6 +139,7 @@ Switchboard includes a coordinated maintenance toggle that pauses new task check
 - **API:** `GET /api/system-state` returns the persisted flag, message, timestamp, and optimistic concurrency version. `PUT /api/system-state` updates the state and broadcasts the change to WebSocket listeners; set `SWITCHBOARD_ADMIN_TOKEN` to require `Authorization: Bearer <token>` for mutations.
 - **CLI:** `switchboard-cli maintenance --base <url> [--enable|--disable] [--message <text>] [--expected-version <n>] [--admin-token <token>]` inspects and toggles the state without writing bespoke scripts. The interactive `switchboard-cli run` command refuses to start when maintenance is active and surfaces the operator-provided message.
 - **Task analytics:** `switchboard-cli stats --base <url> [--json]` fetches aggregated ready/blocked counts and dependency health so operators can triage backlogs without opening the UI.
+- **Configuration:** `switchboard-cli config --base <url> [--json]` prints the consolidated configuration snapshot (rate limits, storage health, database provenance, and warnings) and powers the new `make config` convenience target.
 - **UI:** The dashboard shows an amber banner whenever maintenance is enabled and includes a guarded toggle form that stores the admin token locally and uses optimistic concurrency.
 
 All channels share a single source of truth so operators can confidently pause checkouts during upgrades or incident response.
@@ -268,6 +270,7 @@ automation is available through the following make targets:
 * `make typecheck` — execute **mypy --strict** for the API and client.
 * `make security` — scan the server code with **bandit**.
 * `make qa` — run the full formatter, lint, type, test, and security suite.
+* `make config` — invoke `switchboard-cli config` against `$API_BASE` to inspect the live configuration snapshot.
 
 ## Configuration
 

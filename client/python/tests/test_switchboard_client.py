@@ -165,6 +165,29 @@ def test_get_settings_returns_payload():
     response.raise_for_status.assert_called_once()
 
 
+def test_get_configuration_returns_payload():
+    session = Mock(spec=requests.Session)
+    response = _successful_response({"settings": {}})
+    session.request.return_value = response
+
+    client = SwitchboardClient(
+        "http://example.com",
+        "agent-007",
+        session=session,
+        auto_register=False,
+    )
+
+    payload = client.get_configuration()
+
+    assert payload == {"settings": {}}
+    session.request.assert_called_once_with(
+        "get",
+        "http://example.com/api/configuration",
+        timeout=DEFAULT_REQUEST_TIMEOUT,
+    )
+    response.raise_for_status.assert_called_once()
+
+
 def test_get_task_analytics_returns_payload():
     session = Mock(spec=requests.Session)
     response = _successful_response({"total_tasks": 5, "ready_tasks": 2})
