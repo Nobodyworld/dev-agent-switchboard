@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from fastapi import FastAPI
 
+from .contracts import PlanBroadcastContext, TaskHookContext
+
 if TYPE_CHECKING:  # pragma: no cover - typing imports for documentation clarity
     from server.domain import (
         Agent,
@@ -33,7 +35,7 @@ else:  # pragma: no cover - runtime fallbacks keep optional dependencies optiona
     TelemetryState = Any  # type: ignore[assignment]
 
 
-EXTENSION_API_VERSION = "2025.2"
+EXTENSION_API_VERSION = "2025.3"
 
 TaskEventCoroutine = Awaitable[None]
 TaskEventCallable = Callable[..., TaskEventCoroutine | None]
@@ -41,6 +43,24 @@ StartupHook = Callable[[FastAPI], Awaitable[None] | None]
 PlanEventCoroutine = Awaitable[None]
 PlanEventCallable = Callable[..., PlanEventCoroutine | None]
 ObservabilityHookResult = ObservabilityRegistration | None
+
+
+def _accepts_context(callback: Any) -> bool:
+    """Return ``True`` if ``callback`` declares a ``context`` keyword."""
+
+    try:
+        signature = inspect.signature(callback)
+    except (TypeError, ValueError):  # pragma: no cover - C extensions
+        return False
+    for parameter in signature.parameters.values():
+        if parameter.name != "context":
+            continue
+        if parameter.kind in (
+            parameter.POSITIONAL_OR_KEYWORD,
+            parameter.KEYWORD_ONLY,
+        ):
+            return True
+    return False
 
 
 @dataclass(frozen=True)
@@ -137,11 +157,15 @@ class ExtensionBundle:
 
         if not self.task_hooks:
             return
+        context = TaskHookContext(event=event, payload=dict(payload))
         for hook in self.task_hooks:
             callback = getattr(hook, event, None)
             if callback is None:
                 continue
-            result = callback(**payload)
+            kwargs = dict(payload)
+            if _accepts_context(callback):
+                kwargs["context"] = context
+            result = callback(**kwargs)
             if inspect.isawaitable(result):
                 await result
 
@@ -150,11 +174,20 @@ class ExtensionBundle:
 
         if not self.plan_observers:
             return
+        context = PlanBroadcastContext(
+            version=payload.get("version"),
+            plan=payload.get("plan"),
+            delta=payload.get("delta"),
+            analytics=payload.get("analytics"),
+        )
         for observer in self.plan_observers:
             callback = getattr(observer, event, None)
             if callback is None:
                 continue
-            result = callback(**payload)
+            kwargs = dict(payload)
+            if _accepts_context(callback):
+                kwargs["context"] = context
+            result = callback(**kwargs)
             if inspect.isawaitable(result):
                 await result
 

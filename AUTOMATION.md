@@ -30,10 +30,16 @@ with Switchboard safely and consistently.
 
 ## Observability Signals
 
+- `GET /api/health` – JSON envelope combining liveness and readiness probes; the
+  response mirrors the admin UI health panel and uses HTTP 503 when readiness
+  fails, making it ideal for load balancer checks.
 - `GET /api/observability/telemetry` – Summarises whether logging, metrics, and
   tracing are currently active and which request/trace headers to propagate.
   This is the canonical way for agents to detect feature flags before emitting
   extra headers or scraping `/metrics`.
+- `GET /api/observability/metrics` – Returns the Prometheus catalog metadata and
+  timestamps so automation can confirm whether builtin gauges are updating; the
+  payload defaults to `enabled: false` when metrics are disabled.
 - `GET /api/observability/health` – Combines liveness, readiness, and telemetry
   state with structured probe observations. Ideal for alerting pipelines that
   want a single JSON document instead of scraping multiple endpoints.
@@ -70,6 +76,9 @@ with Switchboard safely and consistently.
 - `scripts/dev.py observability-overview` – Emit the same payload as
   `/api/observability/overview`, useful for capturing point-in-time telemetry
   snapshots in incident reports.
+- `scripts/dev.py extensions` – Print the loaded extension descriptors,
+  contract notes, and observability registrations so automation can decide
+  whether additional hooks need to run.
 - `scripts/dev.py bump-version` – Update runtime version metadata and create new
   changelog/release note stubs.
 - `scripts/audit_metrics.py` – Produce coverage, cyclomatic complexity, and dependency depth summaries in `reports/system_metrics.json` for stewardship reporting.

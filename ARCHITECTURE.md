@@ -8,7 +8,7 @@ can run in constrained environments while remaining observable.
 
 | Layer | Source Files | Responsibilities |
 | --- | --- | --- |
-| API Gateway | `server/app.py`, `web/` | Hosts REST + WebSocket endpoints, serves the operator UI, and coordinates broadcasting plan updates. |
+| API Gateway | `server/api/`, `server/app.py`, `web/` | Hosts REST + WebSocket endpoints, serves the operator UI, and coordinates broadcasting plan updates. |
 | Domain & Application | `server/domain/`, `server/application/task_service.py`, `server/file_store.py`, `server/execplan_registry.py` | Encapsulates task lifecycle rules, lease policies, ExecPlan metadata normalization, and live-file orchestration. |
 | Persistence | `server/models.py`, `server/db.py`, `server/infrastructure/repositories.py` | Defines SQLAlchemy models (tasks, dependencies, leases, ExecPlan tables), batches dependency lookups through repository adapters, and configures the async engine/session factory. |
 | Middleware & Instrumentation | `server/middleware/`, `server/instrumentation/`, `server/settings.py` | Adds request throttling, logging, metrics, and tracing driven entirely by environment variables. |
@@ -23,7 +23,7 @@ Every module surfaces a descriptive docstring outlining its role; the table abov
 ```mermaid
 sequenceDiagram
     participant Agent
-    participant API as FastAPI (server/app.py)
+    participant API as FastAPI (server/api → app.py)
     participant Logic as task_service.py
     participant DB as AsyncSession
 
@@ -65,7 +65,7 @@ The database schema revolves around four primary tables:
 - `leases` — tracks the current agent lease for a task with an expiry timestamp.
 - `execplan_registry` / `execplans` — optional tables for capturing curated plan documents alongside task DAGs.
 
-`server/models.py` centralizes the ORM definitions; migrations under `server/migrations/` extend the schema. Runtime helpers (e.g., `lifespan` in `server/app.py`) ensure new deployments apply critical migrations such as the `completed_notes` column.
+`server/models.py` centralizes the ORM definitions; migrations under `server/migrations/` extend the schema. Runtime helpers (e.g., `lifespan` in `server/api/lifecycle.py`) ensure new deployments apply critical migrations such as the `completed_notes` column.
 
 ## Deployment & Configuration
 

@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Added
+- `/api/health`, `/api/observability/telemetry`, and `/api/observability/metrics`
+  endpoints delivering JSON health envelopes, telemetry state, and analytics
+  catalogues aligned with the observability runbook.
+- `server/extensions/contracts.py` defining `TaskHookContext` and
+  `PlanBroadcastContext` dataclasses plus optional context injection for hooks
+  and plan observers.
+- Builtin `plan_snapshot` extension capturing broadcast analytics and exposing
+  runtime metadata and observability registrations for dashboards.
+- Developer CLI `scripts/dev.py extensions` command enumerating loaded
+  extensions, contract notes, and observability registrations for operators and
+  agents.
+- Coverage guardrails for the new contracts and plan snapshot modules across
+  `scripts/dev.py`, the Makefile, and CI workflow.
 - Observability overview collector (`server/observability/overview.py`),
   `/api/observability/overview` endpoint, and `scripts/dev.py`
   `observability-overview` command delivering a single snapshot of runtime
@@ -15,6 +28,10 @@
   `/api/configuration` endpoint, CLI `switchboard-cli config` command, Makefile
   `make config` helper, and dashboard panel summarising rate limits, storage
   health, database provenance, warnings, and sanitised environment metadata.
+- Modular FastAPI application factory (`server/api/`) with router packages,
+  compatibility wrapper in `server/app.py`, pytest markers/targets for unit vs
+  integration vs e2e suites, and an enhanced configuration UI showing admin
+  token posture plus runtime metadata with copy affordances.
 - Centralised health probe orchestration (`server/observability/health.py`) with
   enriched `/health/*` responses and the new `/api/observability/health`
   endpoint combining telemetry, liveness, and readiness data.
@@ -76,6 +93,12 @@
 - Coverage workflow captured in `coverage.txt` to document current package-level coverage baselines.
 
 ### Changed
+- Extension contract bumped to **2025.3** with backwards-compatible context
+  injection for task hooks and plan observers when opting into the new
+  dataclasses.
+- Observability documentation and automation guides highlight the telemetry,
+  metrics, and aggregate health endpoints along with the plan snapshot runtime
+  metadata.
 - Extension registry now tracks observability hook metadata and documentation
   has been refreshed to highlight plan latency metrics and the consolidated
   observability overview payload.
@@ -156,6 +179,22 @@
 - Removed stale reference artifacts in favour of the live test suite and addressed lint violations across CLI, test, and instrumentation code (magic numbers, nested context managers, hard-coded tokens).
 - Resolved stale extension metadata when disabling builtin plugins by reloading
   the runtime bundle alongside settings cache refreshes.
+
+# 2024-10-20 — Dependency Safety Polish
+
+## Changed
+- Normalized FastAPI imports to absolute module paths and introduced context-managed
+  lifespans to silence Starlette deprecation warnings during startup logging.
+- Reworked router dependency signatures to use `Annotated` aliases with optional
+  defaults so direct function calls in tests continue to work while satisfying
+  Ruff's dependency linting.
+- Updated task and file routes to return concrete Pydantic models and enforce
+  explicit session handling before committing database transactions.
+
+## Fixed
+- Ensured agent registration, file uploads, and task lifecycle helpers no longer
+  raise `TypeError` when invoked directly, restoring compatibility for existing
+  test fixtures and CLI automation.
 
 ## 2024-10-19 — Adaptive Perfection Update
 

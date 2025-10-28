@@ -11,6 +11,7 @@ signals.
 | --- | --- |
 | `/health/live` | Liveness check confirming the process is up and returning probe observations for the `process` check. |
 | `/health/ready` | Readiness check executing database and storage probes; returns HTTP 503 with detailed observations when a critical dependency fails. |
+| `/api/health` | JSON envelope combining liveness and readiness payloads; returns HTTP 503 when readiness is degraded. |
 | `/api/observability/health` | Aggregated payload combining the liveness/readiness probes with the latest telemetry snapshot. Requires the admin token when configured. |
 | `/api/diagnostics` | Deep inspection surface exposing package versions, extension metadata, and runtime environment details. |
 | `/api/observability/overview` | Consolidated JSON snapshot combining health probes, telemetry state, diagnostics, and extension observability metadata. Requires the admin token when configured. |
@@ -25,8 +26,8 @@ failures rather than parsing log text.
 - `SWITCHBOARD_ENABLE_METRICS=1` enables the Prometheus instrumentator and the
   builtin metrics extensions. Metrics are exposed at `/metrics` and include
   counters such as `switchboard_task_checkout_total`, gauges updated by
-  `plan_metrics`, and histograms emitted by `plan_latency` when plan broadcasts
-  occur.
+  `plan_metrics`, histograms emitted by `plan_latency`, and plan snapshot
+  metadata published via `/api/observability/metrics`.
 - `SWITCHBOARD_ENABLE_TRACING=1` instruments FastAPI with OpenTelemetry. Even
   without exporters, the request pipeline emits a stable `X-Trace-ID` header that
   correlates HTTP responses, logs, telemetry payloads, and the audit feed.
@@ -34,9 +35,15 @@ failures rather than parsing log text.
   `python-json-logger`; every record includes `request_id` and `trace_id`
   properties.
 
-The `/api/observability/telemetry` endpoint summarises which subsystems are
-active, the expected request/trace headers, and the last time builtin metrics
-were updated.
+- The `/api/observability/telemetry` endpoint summarises which subsystems are
+  active, the expected request/trace headers, runtime metadata (including plan
+  snapshot details), and the last time builtin metrics were updated.
+- `/api/observability/metrics` returns the analytics catalog (enabled flag,
+  timestamps, sample values) so dashboards can confirm whether gauges remain
+  fresh without scraping `/metrics` directly.
+- `python scripts/dev.py extensions` prints the loaded extensions, contract
+  notes, and observability registrations so responders can correlate telemetry
+  payloads with extension outputs.
 
 ## Audit Feed
 

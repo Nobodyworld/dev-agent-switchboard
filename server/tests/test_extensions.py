@@ -12,12 +12,15 @@ from server.db import AsyncSessionLocal
 from server.domain import Agent
 from server.extensions import (
     ExtensionBundle,
+    PlanBroadcastContext,
+    TaskHookContext,
     loader as extension_loader,
     set_extension_bundle,
 )
 from server.extensions.builtin import (
     activity_feed,
     plan_metrics,
+    plan_snapshot,
     task_metrics,
     webhook_notifier,
 )
@@ -54,6 +57,35 @@ class RecordingHook:
         self.events.append(("updated", task.title))
 
 
+class ContextAwareHook:
+    def __init__(self) -> None:
+        self.contexts: list[TaskHookContext] = []
+
+    async def on_complete(
+        self, *, agent_id: str, result, context: TaskHookContext
+    ) -> None:
+        _ = agent_id
+        _ = result
+        self.contexts.append(context)
+
+
+class ContextAwarePlanObserver:
+    def __init__(self) -> None:
+        self.contexts: list[PlanBroadcastContext] = []
+
+    async def on_plan_broadcast(
+        self,
+        *,
+        version: int | None,
+        plan: dict[str, object] | None,
+        delta: dict[str, object] | None,
+        analytics,
+        context: PlanBroadcastContext,
+    ) -> None:
+        _ = (version, plan, delta, analytics)
+        self.contexts.append(context)
+
+
 @pytest.mark.asyncio
 async def test_task_service_emits_extension_events():
     hook = RecordingHook()
@@ -79,6 +111,54 @@ async def test_task_service_emits_extension_events():
     assert any(event[0] == "checkout" for event in hook.events)
     assert any(event == ("complete", True) for event in hook.events)
     assert any(event[0] == "updated" for event in hook.events)
+
+
+@pytest.mark.asyncio
+async def test_task_hook_context_opt_in():
+    hook = ContextAwareHook()
+    bundle = ExtensionBundle(task_hooks=(hook,), startup_hooks=(), descriptors=())
+    expected_task_id = 9
+
+    await bundle.emit(
+        "on_complete",
+        agent_id="agent-x",
+        result=SimpleNamespace(ok=True, task_id=expected_task_id),
+    )
+    assert hook.contexts
+    context = hook.contexts[0]
+    assert context.agent_id == "agent-x"
+    assert context.task_id == expected_task_id
+    assert context.event == "on_complete"
+
+
+@pytest.mark.asyncio
+async def test_plan_observer_context_opt_in():
+    observer = ContextAwarePlanObserver()
+    bundle = ExtensionBundle(
+        task_hooks=(),
+        startup_hooks=(),
+        descriptors=(),
+        plan_observers=(observer,),
+    )
+    expected_ready_tasks = 3
+    expected_blocked_tasks = 1
+    expected_version = 7
+    analytics = SimpleNamespace(
+        ready_tasks=expected_ready_tasks,
+        blocked_tasks=expected_blocked_tasks,
+    )
+    await bundle.emit_plan_event(
+        "on_plan_broadcast",
+        version=expected_version,
+        plan={"tasks": []},
+        delta={"tasks": []},
+        analytics=analytics,
+    )
+    assert observer.contexts
+    context = observer.contexts[0]
+    assert context.version == expected_version
+    assert context.ready_tasks == expected_ready_tasks
+    assert context.blocked_tasks == expected_blocked_tasks
 
 
 @pytest.mark.skipif(
@@ -178,16 +258,19 @@ async def test_webhook_notifier_registers_and_emits(monkeypatch):
     )
     assert hook is not None
 
-    task_id = 5
+    completed_task_id = 5
     await hook.on_complete(
         agent_id="agent-1",
-        result=SimpleNamespace(ok=True, task=SimpleNamespace(id=task_id)),
+        result=SimpleNamespace(
+            ok=True,
+            task=SimpleNamespace(id=completed_task_id),
+        ),
     )
 
     assert events
     payload = events[0]["json"]
     assert payload["event"] == "on_complete"
-    assert payload["data"]["task_id"] == task_id
+    assert payload["data"]["task_id"] == completed_task_id
 
 
 def test_webhook_notifier_rejects_invalid_timeout(monkeypatch):
@@ -197,6 +280,46 @@ def test_webhook_notifier_rejects_invalid_timeout(monkeypatch):
     registry = ExtensionRegistry()
     with pytest.raises(ExtensionLoadError):
         webhook_notifier.register(registry)
+
+
+@pytest.mark.asyncio
+async def test_plan_snapshot_extension_records_metadata(monkeypatch):
+    monkeypatch.setattr(
+        plan_snapshot,
+        "_SNAPSHOT",
+        plan_snapshot._PlanSnapshot(),
+        raising=False,
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_register(**metadata):
+        captured.update(metadata)
+
+    monkeypatch.setattr(plan_snapshot, "register_runtime_metadata", fake_register)
+    observer = plan_snapshot.PlanSnapshotObserver()
+    expected_version = 11
+    expected_ready_tasks = 4
+    expected_blocked_tasks = 2
+    context = PlanBroadcastContext(
+        version=expected_version,
+        plan={"tasks": []},
+        delta={"added": []},
+        analytics=SimpleNamespace(
+            ready_tasks=expected_ready_tasks,
+            blocked_tasks=expected_blocked_tasks,
+        ),
+    )
+    await observer.on_plan_broadcast(
+        version=expected_version,
+        analytics=context.analytics,
+        context=context,
+    )
+    assert "plan_snapshot" in captured
+    snapshot = captured["plan_snapshot"]
+    assert snapshot["ready_tasks"] == expected_ready_tasks
+    registration = plan_snapshot._register_observability(None, None)
+    assert registration is not None
+    assert registration.details["last_plan_version"] == expected_version
 
 
 def test_activity_feed_extension_registers_and_emits():

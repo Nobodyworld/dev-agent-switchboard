@@ -321,6 +321,8 @@ function renderConfiguration() {
   const storageList = document.getElementById('configurationStorage');
   const databaseList = document.getElementById('configurationDatabase');
   const envTable = document.getElementById('configurationEnvironment');
+  const adminList = document.getElementById('configurationAdmin');
+  const runtimeList = document.getElementById('configurationRuntime');
   const warningsWrapper = document.getElementById('configurationWarningsWrapper');
   const warningsList = document.getElementById('configurationWarnings');
   const updatedWrapper = document.getElementById('configurationUpdatedWrapper');
@@ -332,6 +334,8 @@ function renderConfiguration() {
     !storageList ||
     !databaseList ||
     !envTable ||
+    !adminList ||
+    !runtimeList ||
     !refresh
   ) {
     return;
@@ -351,6 +355,8 @@ function renderConfiguration() {
     rateList.innerHTML = '<p class="text-xs text-gray-500">No data available.</p>';
     storageList.innerHTML = '<p class="text-xs text-gray-500">No data available.</p>';
     databaseList.innerHTML = '<p class="text-xs text-gray-500">No data available.</p>';
+    adminList.innerHTML = '<p class="text-xs text-gray-500">No data available.</p>';
+    runtimeList.innerHTML = '<p class="text-xs text-gray-500">No data available.</p>';
     envTable.innerHTML =
       '<tr><td colspan="3" class="border px-2 py-2 text-sm text-gray-500">No environment data loaded.</td></tr>';
     if (warningsWrapper && warningsList) {
@@ -372,6 +378,7 @@ function renderConfiguration() {
   const storage = snapshot.storage || {};
   const database = snapshot.database || {};
   const admin = snapshot.admin || {};
+  const runtime = snapshot.runtime || {};
 
   const rateStatus = rate.enabled ? 'enabled' : 'disabled';
   const leaseSeconds =
@@ -384,8 +391,9 @@ function renderConfiguration() {
   } else if (storage.writable === false) {
     storageDescriptor = 'read-only';
   }
+  const adminStatus = admin.configured ? 'configured' : 'not configured';
 
-  summary.textContent = `Rate limiter ${rateStatus}; lease ${leaseSeconds}; storage ${storageDescriptor}.`;
+  summary.textContent = `Rate limiter ${rateStatus}; lease ${leaseSeconds}; storage ${storageDescriptor}; admin token ${adminStatus}.`;
 
   if (updatedWrapper && updatedEl) {
     const fetchedAt = state.configurationFetchedAt
@@ -429,10 +437,17 @@ function renderConfiguration() {
       `<div><dt>Contract</dt><dd>${escapeHtml(String(extensions.contract_version))}</dd></div>`
     );
   }
-  rateList.insertAdjacentHTML(
-    'beforeend',
-    `<div><dt>Admin token</dt><dd>${admin.configured ? 'configured' : 'not configured'}</dd></div>`
-  );
+  adminList.innerHTML = `
+    <div><dt>Status</dt><dd>${adminStatus}</dd></div>
+    <div><dt>Header</dt><dd><code class="font-mono">X-Switchboard-Admin-Token</code></dd></div>
+    <div><dt>Environment variable</dt><dd><code class="font-mono">SWITCHBOARD_ADMIN_TOKEN</code></dd></div>
+  `;
+  if (!admin.configured) {
+    adminList.insertAdjacentHTML(
+      'beforeend',
+      '<div><dt>Next step</dt><dd class="text-amber-700">Configure an admin token to protect system state mutations.</dd></div>'
+    );
+  }
 
   storageList.innerHTML = `
     <div><dt>Root</dt><dd id="configurationStorageRoot">${escapeHtml(storage.root || '—')}</dd></div>
@@ -515,6 +530,23 @@ function formatTimestamp(value) {
     return null;
   }
   return date;
+}
+
+function formatDuration(value) {
+  if (typeof value !== 'number' || Number.isNaN(value) || value < 0) {
+    return null;
+  }
+  const totalSeconds = Math.floor(value);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts = [];
+  if (days) parts.push(`${days}d`);
+  if (hours || parts.length) parts.push(`${hours}h`);
+  if (minutes || parts.length) parts.push(`${minutes}m`);
+  parts.push(`${seconds}s`);
+  return parts.join(' ');
 }
 
 function renderDiagnostics() {
