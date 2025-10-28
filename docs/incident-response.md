@@ -17,14 +17,17 @@ incidents affecting Switchboard.
    - Request/trace identifiers (`X-Request-ID`, `X-Trace-ID`) from the failing
      response headers.
    - `/api/settings` payload (rate limits, lease duration, extensions).
-   - `/health/live`, `/health/ready`, `/api/observability/health`, and
-     `/api/observability/telemetry` JSON payloads (instrumentation status,
-     request header guidance, probe observations).
+   - `/health/live`, `/health/ready`, `/api/health`, `/api/observability/health`,
+     and `/api/observability/telemetry` JSON payloads (instrumentation status,
+     request header guidance, probe observations, plan snapshot metadata).
    - `/api/observability/audit-feed` snapshot (confirms which lifecycle events
      the builtin `activity_feed` observed around the incident window).
+   - `/api/observability/metrics` snapshot (confirms whether plan analytics
+     gauges are updating and when they were last refreshed).
 2. **Check telemetry**
    - `/metrics` (if enabled) – focus on `switchboard_task_*` counters to identify
-     spikes in checkout/heartbeat failures.
+     spikes in checkout/heartbeat failures. Cross-reference with
+     `/api/observability/metrics` when Prometheus is unreachable.
    - Application logs filtered by `request_id` or `trace_id` using the structured
      JSON output.
    - Database connectivity: run `SELECT 1` using the same credentials as the app.

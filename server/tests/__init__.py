@@ -19,3 +19,5 @@ pytest.importorskip(
     ),
 )
 
+pytestmark = pytest.mark.integration
+

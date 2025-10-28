@@ -56,6 +56,9 @@ def load_extension_bundle(
             plan_latency = importlib.import_module(
                 "server.extensions.builtin.plan_latency"
             )
+            plan_snapshot = importlib.import_module(
+                "server.extensions.builtin.plan_snapshot"
+            )
             activity_feed = importlib.import_module(
                 "server.extensions.builtin.activity_feed"
             )
@@ -64,6 +67,7 @@ def load_extension_bundle(
             webhook_notifier.register(registry)
             plan_metrics.register(registry)
             plan_latency.register(registry)
+            plan_snapshot.register(registry)
             activity_feed.register(registry)
         except Exception:  # pragma: no cover - builtin registration should succeed
             LOGGER.exception("Failed to register builtin extensions")

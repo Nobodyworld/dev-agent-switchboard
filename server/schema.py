@@ -31,9 +31,11 @@ __all__ = [
     "ExtensionDescriptorOut",
     "ExtensionSettingsOut",
     "FileUploadResponse",
+    "HealthEnvelopeOut",
     "HealthObservation",
     "HealthStatus",
     "LeaseSettingsOut",
+    "MetricsCatalogOut",
     "ObservabilityHealthOut",
     "OkResponse",
     "PlanOut",
@@ -224,6 +226,14 @@ class HealthStatus(StatusResponse):
     observations: list[HealthObservation] = Field(default_factory=list)
 
 
+class HealthEnvelopeOut(BaseModel):
+    """JSON response combining liveness and readiness payloads."""
+
+    ok: bool
+    liveness: HealthStatus
+    readiness: HealthStatus
+
+
 class RuntimeInfoOut(BaseModel):
     """Serialized runtime metadata describing the running process."""
 
@@ -412,6 +422,21 @@ class ObservabilityOverviewOut(BaseModel):
     observability_hooks: list[ObservabilityHookOut] = Field(default_factory=list)
     contract: dict[str, Any]
     correlation_hints: dict[str, Any] = Field(default_factory=dict)
+
+
+class MetricsCatalogOut(BaseModel):
+    """Shape returned by `/api/observability/metrics`."""
+
+    generated_at: dt.datetime
+    enabled: bool
+    last_updated_at: dt.datetime | None = None
+    status: dict[str, float] = Field(default_factory=dict)
+    readiness: dict[str, float] = Field(default_factory=dict)
+    dependency: dict[str, float] = Field(default_factory=dict)
+    missing: dict[str, float] = Field(default_factory=dict)
+    dependency_edges: float = 0.0
+    average_dependencies: float = 0.0
+    updated_timestamp: float = 0.0
 
 
 class ExecPlanOwner(BaseModel):

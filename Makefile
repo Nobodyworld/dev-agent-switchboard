@@ -6,7 +6,7 @@ PLAN_REMOTE_PATH?=docs/PLANS.md
 VENV?=.venv
 ACTIVATE=. $(VENV)/bin/activate &&
 
-.PHONY: setup venv run test openapi publish-plan docker-up lint fmt typecheck security qa coverage dev-bootstrap release-bump todo-check verify config
+.PHONY: setup venv run test test-unit test-integration test-e2e openapi publish-plan docker-up lint fmt typecheck security qa coverage dev-bootstrap release-bump todo-check verify config
 
 $(VENV)/.bootstrapped: server/requirements-dev.txt
 	@if [ ! -d "$(VENV)" ]; then \
@@ -23,7 +23,16 @@ run: venv
 	$(ACTIVATE) uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
 
 test: venv
-	$(ACTIVATE) pytest server/tests
+        $(ACTIVATE) pytest server/tests
+
+test-unit: venv
+	$(ACTIVATE) pytest -m unit
+
+test-integration: venv
+	$(ACTIVATE) pytest -m integration
+
+test-e2e: venv
+	$(ACTIVATE) pytest -m e2e
 
 lint: venv
 	$(ACTIVATE) ruff check .
@@ -42,17 +51,22 @@ todo-check:
 
 coverage: venv
 	mkdir -p reports
-	$(ACTIVATE) pytest --cov=server.extensions --cov=server.application.task_service --cov=server.application.configuration_service --cov=server.observability.diagnostics --cov=server.observability.health --cov=server.observability.activity --cov-report=term-missing --cov-report=json:reports/coverage.json
+	$(ACTIVATE) pytest --cov=server.extensions --cov=server.application.task_service --cov=server.application.configuration_service --cov=server.observability.diagnostics --cov=server.observability.health --cov=server.observability.activity --cov=server.observability.overview --cov-report=term-missing --cov-report=json:reports/coverage.json
 	$(ACTIVATE) python scripts/dev.py coverage-gate --json reports/coverage.json \
-		--module server/extensions/loader.py=85 \
-		--module server/extensions/runtime.py=85 \
-		--module server/extensions/builtin/task_metrics.py=85 \
-		--module server/extensions/builtin/plan_metrics.py=85 \
-		--module server/extensions/builtin/activity_feed.py=85 \
-		--module server/observability/diagnostics.py=80 \
-		--module server/observability/health.py=85 \
-		--module server/observability/activity.py=80 \
-		--module server/application/configuration_service.py=85
+	 --module server/extensions/loader.py=85 \
+	 --module server/extensions/runtime.py=85 \
+	 --module server/extensions/contracts.py=85 \
+	 --module server/extensions/builtin/task_metrics.py=85 \
+	 --module server/extensions/builtin/plan_metrics.py=85 \
+	 --module server/extensions/builtin/plan_latency.py=80 \
+	 --module server/extensions/builtin/plan_snapshot.py=80 \
+	 --module server/extensions/builtin/activity_feed.py=85 \
+	 --module server/extensions/observability.py=80 \
+	 --module server/observability/diagnostics.py=80 \
+	 --module server/observability/health.py=85 \
+	 --module server/observability/activity.py=80 \
+	 --module server/observability/overview.py=85 \
+	 --module server/application/configuration_service.py=85
 
 qa: fmt lint typecheck test security todo-check coverage
 

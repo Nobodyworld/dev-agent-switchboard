@@ -143,11 +143,21 @@ jobs:
       - name: Enforce coverage thresholds
         run: |
           python scripts/dev.py coverage-gate --json reports/coverage.json \
+            --module server/extensions/contracts.py=85 \
             --module server/extensions/interfaces.py=85 \
             --module server/extensions/loader.py=85 \
             --module server/extensions/runtime.py=85 \
             --module server/extensions/builtin/task_metrics.py=85 \
-            --module server/extensions/builtin/plan_metrics.py=85
+            --module server/extensions/builtin/plan_metrics.py=85 \
+            --module server/extensions/builtin/plan_latency.py=80 \
+            --module server/extensions/builtin/plan_snapshot.py=80 \
+            --module server/extensions/builtin/activity_feed.py=85 \
+            --module server/extensions/observability.py=80 \
+            --module server/observability/diagnostics.py=80 \
+            --module server/observability/health.py=85 \
+            --module server/observability/activity.py=80 \
+            --module server/observability/overview.py=85 \
+            --module server/application/configuration_service.py=85
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4

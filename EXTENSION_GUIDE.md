@@ -21,7 +21,9 @@ writing new extensions.
    checkout, heartbeat, completion, abandonment, creation, and update, and
    `broadcast_plan` calls `ExtensionBundle.emit_plan_event(...)` before
    delivering plan payloads. Hooks and observers may perform synchronous or
-   asynchronous work.
+   asynchronous work. Contract **2025.3** introduces optional `context`
+   arguments (`TaskHookContext`, `PlanBroadcastContext`) so extensions can
+   consume structured metadata without parsing kwargs manually.
 4. **Observation** – `/api/settings` exposes the effective configuration,
    registered descriptors, and the contract version/notes. `/api/diagnostics` and
    `/api/observability/telemetry` surface the same metadata for automation.
@@ -39,6 +41,29 @@ The template registers descriptor metadata, appends a contract note, and wires a
 placeholder observability hook that returns an `ObservabilityRegistration` once
 instrumentation is implemented. Flesh out the generated file or create a module
 from scratch that registers hooks with the provided registry:
+
+### Context Dataclasses
+
+- **`TaskHookContext`** – Exposes the event name, derived `agent_id`, `task_id`,
+  and generation timestamp. Declare `context: TaskHookContext` in hook
+  signatures to consume metadata without walking nested result objects.
+- **`PlanBroadcastContext`** – Provides plan version, delta keys, analytics
+  payloads, and derived ready/blocked counts. Declare `context:
+  PlanBroadcastContext` in plan observers to avoid coupling to the raw
+  `TaskAnalytics` dataclass.
+
+Hooks that omit `context` continue to receive legacy kwargs, so existing
+extensions remain compatible with the updated contract.
+
+### Reference Implementations
+
+- **`builtin.plan_snapshot`** – Captures broadcast analytics, updates runtime
+  metadata exposed via `/api/observability/telemetry`, and registers
+  observability notes for dashboards.
+- **`builtin.webhook_notifier`** – Emits HTTP webhooks for selected lifecycle
+  events and records contract notes surfaced via `/api/settings`.
+- **`builtin.plan_metrics`** and **`builtin.plan_latency`** – Demonstrate how to
+  translate plan analytics into Prometheus gauges and histograms.
 
 ```python
 # myproject/switchboard_ext/email_alerts.py

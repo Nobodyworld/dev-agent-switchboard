@@ -77,3 +77,34 @@ def test_activity_feed_endpoint_reports_events():
     payload = response.json()
     assert payload["events"]
     assert payload["events"][0]["kind"] == "test.event"
+
+
+def test_combined_health_endpoint_reports_status():
+    client = TestClient(app)
+    response = client.get("/api/health")
+    assert response.status_code == HTTPStatus.OK
+    payload = response.json()
+    assert payload["ok"] is True
+    assert "liveness" in payload
+    assert "readiness" in payload
+
+
+def test_observability_telemetry_endpoint_returns_subsystems():
+    client = TestClient(app)
+    response = client.get("/api/observability/telemetry")
+    assert response.status_code == HTTPStatus.OK
+    payload = response.json()
+    assert payload["logging"]["enabled"] in {True, False}
+    assert payload["metrics"]["details"]
+    assert payload["tracing"]["configured"] in {True, False}
+    assert payload["runtime"]
+
+
+def test_observability_metrics_endpoint_returns_catalog():
+    client = TestClient(app)
+    response = client.get("/api/observability/metrics")
+    assert response.status_code == HTTPStatus.OK
+    payload = response.json()
+    assert "generated_at" in payload
+    allowed_keys = {"value", "total", "pending", "in_progress", "completed"}
+    assert set(payload["status"].keys()) <= allowed_keys

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .contracts import PlanBroadcastContext, TaskHookContext
 from .interfaces import (
     EXTENSION_API_VERSION,
     ExtensionBundle,
@@ -36,6 +37,8 @@ __all__ = [
     "ObservabilityHookRegistration",
     "ObservabilityRegistration",
     "ObservabilitySnapshot",
+    "PlanBroadcastContext",
+    "TaskHookContext",
     "get_extension_bundle",
     "get_observability_registrations",
     "initialize_extensions",

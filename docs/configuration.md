@@ -35,9 +35,11 @@ The new `make config` target shells the command with repository defaults so deve
 The web console now renders a **Configuration** card near the top of the dashboard:
 
 - Displays rate limiter status, lease duration, extension counts, storage metadata, and database provenance.
+- Highlights administrative token configuration and the expected `X-Switchboard-Admin-Token` header alongside the backing environment variable.
+- Presents runtime metadata (version, environment, commit SHA, uptime, PID) with a one-click copy control for the commit hash.
 - Streams sanitised environment variables in a tabular view.
 - Surfaces warnings inline with amber styling.
-- Provides a "Copy path" affordance for the live file root (uses clipboard APIs with a fallback for legacy browsers).
+- Provides copy affordances for the live file root and runtime commit for quick sharing in incident channels.
 
 Data refreshes when the page loads and can be reloaded manually using the **Refresh** button.
 

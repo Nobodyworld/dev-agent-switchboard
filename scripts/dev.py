@@ -195,9 +195,11 @@ def cmd_verify(args: argparse.Namespace) -> None:
         module=[
             "server/extensions/loader.py=85",
             "server/extensions/runtime.py=85",
+            "server/extensions/contracts.py=85",
             "server/extensions/builtin/task_metrics.py=85",
             "server/extensions/builtin/plan_metrics.py=85",
             "server/extensions/builtin/plan_latency.py=80",
+            "server/extensions/builtin/plan_snapshot.py=80",
             "server/extensions/observability.py=80",
             "server/extensions/builtin/activity_feed.py=85",
             "server/observability/diagnostics.py=80",
@@ -318,6 +320,51 @@ def cmd_observability_overview(args: argparse.Namespace) -> None:
         print(f"Observability overview written to {output_path}")
     else:
         print(text)
+
+
+def cmd_list_extensions(_args: argparse.Namespace) -> None:
+    """Print registered extensions and observability registrations."""
+
+    from server.extensions import (  # noqa: PLC0415 - lazy import for CLI startup
+        get_extension_bundle,
+        get_observability_registrations,
+    )
+
+    bundle = get_extension_bundle()
+    print(f"Extension contract: v{bundle.contract.api_version}")
+    if bundle.contract.notes:
+        print("Notes:")
+        for note in bundle.contract.notes:
+            print(f"  - {note}")
+    descriptors = list(bundle.descriptors)
+    if descriptors:
+        print("Registered extensions:")
+        for descriptor in descriptors:
+            capabilities = ", ".join(descriptor.capabilities) or "-"
+            version = descriptor.version or "n/a"
+            descriptor_line = (
+                "  - "
+                f"{descriptor.name} "
+                f"(capabilities: {capabilities}, version: {version})"
+            )
+            print(descriptor_line)
+            if descriptor.description:
+                print(f"      {descriptor.description}")
+    else:
+        print("No extensions registered.")
+    snapshot = get_observability_registrations()
+    registrations = snapshot.registrations
+    if registrations:
+        print("Observability registrations:")
+        for name, registration in registrations.items():
+            payload = registration.as_payload()
+            details = payload.get("details", {})
+            print(f"  - {name}: {details}")
+            notes = payload.get("notes") or []
+            for note in notes:
+                print(f"      note: {note}")
+    else:
+        print("Observability registrations: none")
 
 
 _VERSION_RE = re.compile(r'version="(?P<version>\d+\.\d+\.\d+)"')
@@ -470,6 +517,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional path to write the JSON payload",
     )
     overview.set_defaults(func=cmd_observability_overview)
+
+    extensions = subparsers.add_parser(
+        "extensions", help="List registered extensions and observability hooks"
+    )
+    extensions.set_defaults(func=cmd_list_extensions)
 
     bump = subparsers.add_parser(
         "bump-version", help="Bump server version and changelog stubs"

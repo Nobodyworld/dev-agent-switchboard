@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from server.extensions.contracts import PlanBroadcastContext, TaskHookContext
 from server.extensions.interfaces import ExtensionDescriptor, ExtensionRegistry
 from server.extensions.observability import ObservabilityRegistration
 
@@ -10,6 +11,11 @@ class {{class_name}}:
     """Lifecycle hooks for the ``{{descriptor_name}}`` extension."""
 
     # TODO(P3, 2d) - Implement lifecycle callbacks (on_checkout, on_complete, etc.).
+    # Example:
+    # async def on_complete(
+    #     self, *, agent_id: str, result, context: TaskHookContext
+    # ) -> None:
+    #     ...
 
 
 def _register_observability(_app, _state) -> ObservabilityRegistration | None:
@@ -42,3 +48,4 @@ def register_extension(registry: ExtensionRegistry) -> None:
         outputs=(),
     )
     # TODO(P3, 1d) - Register lifecycle hooks, e.g. ``registry.register_task_hook({{class_name}}())``.
+    # TODO(P3, 1d) - Register plan observers using ``PlanBroadcastContext`` for analytics snapshots.

@@ -1,6 +1,24 @@
 # Release Notes
 
 ## Upgrade Considerations
+- When invoking `server.app` task or agent helpers directly, continue to supply an
+  `AsyncSession` instance; dependency defaults now validate the session before
+  mutating plan state or committing changes.
+- Surface the new `/api/health`, `/api/observability/telemetry`, and
+  `/api/observability/metrics` endpoints through reverse proxies so dashboards
+  and automation can consume the structured payloads; update firewall rules if
+  they previously only allowed `/health/*`.
+- Extension authors should review the **2025.3** contract update: hooks can now
+  opt into `context: TaskHookContext | PlanBroadcastContext`. Existing
+  extensions continue to work, but new implementations should use the context
+  helpers for richer metadata.
+- If you rely on plan analytics snapshots, ensure builtin extensions remain
+  enabled or explicitly include `server.extensions.builtin.plan_snapshot` in
+  `SWITCHBOARD_EXTENSIONS`; the new runtime metadata powers incident dashboards
+  and telemetry outputs.
+- Operators can enumerate loaded extensions and observability registrations via
+  `python scripts/dev.py extensions`; update runbooks that previously scraped
+  `/api/settings` for module lists.
 - Allow `/api/observability/health` and `/api/observability/audit-feed` through
   load balancers or API gateways; configure `SWITCHBOARD_ACTIVITY_FEED_SIZE`
   where larger audit buffers are desired.

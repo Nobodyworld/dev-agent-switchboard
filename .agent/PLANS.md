@@ -1744,3 +1744,229 @@ Expose Switchboard's runtime configuration in a first-class, type-safe way acros
 - Reuses `server.settings` functions, `server.observability.runtime`, and `server.file_store.ensure_root` for data gathering.
 - CLI additions depend on `client/python/switchboard_client.py` and `argparse` integration.
 - Web UI updates rely on existing fetch helpers (`apiFetchJson`) and DOM structure defined in `web/index.html` and `web/static/styles.css`.
+
+# Modularize FastAPI application surface and testing infrastructure
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Reduce the `server/app.py` monolith into a modular FastAPI application factory with explicit dependency injection and router boundaries. Refresh the testing and UI layers to consume the new abstractions while uplifting developer ergonomics (pytest markers, Make targets) and documentation. The end state should make it trivial to spin up isolated app instances in tests, reason about route ownership, and expose richer configuration insights in the operator UI.
+
+## Progress
+
+- [x] Current application entry point and tests reviewed.
+- [x] Application factory and router modules implemented.
+- [x] Tests refactored to use factory fixture with updated markers.
+- [x] Operator UI adjusted to surface new configuration details.
+- [x] Documentation and tooling synchronized with new structure.
+
+## Surprises & Discoveries
+
+- Observation: Numerous server tests import `server.app` directly, creating tight coupling to module-level state and complicating alternative app instances.
+  Evidence: `server/tests/test_leases.py`, `server/tests/test_rate_limit.py`, and peers import `app` from `server.app`.
+- Observation: Operator UI fetches `/api/configuration` but omits admin-token status and runtime metadata despite payload support.
+  Evidence: `web/static/app.js` renders rate, storage, and database sections but never reads `payload.admin` or `payload.runtime`.
+
+## Decision Log
+
+- Decision: Introduce `server/api` package housing dependency modules and routers, with `create_app()` returning a fully wired FastAPI application. Keep `server/app.py` as a thin compatibility wrapper exporting a singleton instance.
+  Rationale: Enables dependency overrides in tests and future multi-app deployments without breaking existing imports.
+  Date/Author: 2025-02-17 / gpt-5-codex.
+- Decision: Define pytest markers (`unit`, `integration`, `e2e`) and fixtures leveraging the app factory to standardize test layering.
+  Rationale: Developers can target subsets easily while ensuring isolation through factory-built apps.
+  Date/Author: 2025-02-17 / gpt-5-codex.
+- Decision: Extend the operator UI configuration panel to display admin-token status and runtime build metadata with copy-friendly affordances.
+  Rationale: Aligns UI with backend payloads and aids operators auditing deployments.
+  Date/Author: 2025-02-17 / gpt-5-codex.
+
+## Outcomes & Retrospective
+
+- FastAPI routing now lives in `server/api` with a `create_app` factory, while `server/app.py` re-exports a singleton for backward compatibility; pytest markers/targets and fixtures enable layered test runs; the configuration UI surfaces admin token posture and runtime metadata with copy helpers, reducing operational guesswork.
+
+## Context and Orientation
+
+- `server/app.py` currently builds a FastAPI instance at import time and defines all routes inline, mixing startup concerns, routers, WebSocket orchestration, and helper functions.
+- `server/application` hosts domain services (`TaskService`, `ConfigurationService`, `SystemStateService`).
+- Tests in `server/tests/` rely on module-level `app`, performing manual DB/file resets in `conftest.py`.
+- Operator UI under `web/` consumes REST endpoints, with configuration summary present but incomplete.
+- Tooling (Makefile, pytest) lacks explicit markers for layered test execution.
+
+## Plan of Work
+
+1. Create `server/api` package encapsulating lifecycle management (`lifespan`), dependency helpers, and router modules (configuration, diagnostics, tasks, system state, execplans, files, health, ui). Each router should mirror existing endpoint behavior while supporting dependency injection via FastAPI's `Depends`.
+2. Refactor `server/app.py` into a thin wrapper that imports `create_app` from `server.api` and instantiates the default `app`. Preserve backward-compatible exports (e.g., `broadcast_plan`, `PLAN_BROADCASTER`) and update auxiliary functions to live alongside the appropriate router modules.
+3. Update tests to use a shared `create_app` fixture, add pytest markers for `unit`, `integration`, `e2e`, and adjust `server/tests/conftest.py` to leverage the factory for cleanup. Introduce targeted tests for the new app factory module.
+4. Enhance the operator UI configuration panel to display admin token status and runtime build metadata, including accessible labels and copy interactions. Ensure supporting styles and HTML elements exist.
+5. Refresh documentation (README, ARCHITECTURE_OVERVIEW, docs/configuration.md) and tooling (Makefile targets, pytest.ini) to reference the app factory, new test markers, and UI affordances. Capture changes in CHANGELOG and STATUS as needed.
+
+## Concrete Steps
+
+1. Implement `server/api` modules: define `AppConfig` dataclass, `lifespan` context manager, dependency helpers, routers for configuration/diagnostics/tasks/plan/files/health/ui. Ensure routers encapsulate helper functions previously in `server/app.py`.
+2. Rewrite `server/app.py` to import the factory, instantiate `app = create_app()`, and re-export utilities (e.g., `broadcast_plan`, `PLAN_BROADCASTER`) from new modules to maintain compatibility with existing imports and tests.
+3. Introduce `pytest.ini` (or update existing configuration) registering `unit`, `integration`, `e2e` markers; refactor `server/tests/conftest.py` to provide an `app` fixture via `create_app` and ensure DB/file reset hooks remain effective. Add new tests validating router registration and app startup.
+4. Modify `web/index.html` and `web/static/app.js` to render admin token status and runtime build metadata within the configuration card, ensuring responsive layout and accessible semantics; update or add CSS rules if necessary.
+5. Document the new architecture and developer workflow in README, ARCHITECTURE_OVERVIEW, docs/configuration.md, and update Makefile targets or scripts to mention the factory/markers. Record summary in CHANGELOG and STATUS if appropriate.
+
+## Validation and Acceptance
+
+- `pytest -q` passes with updated suite and markers.
+- Importing `server.app` yields the same singleton application while `server.api.create_app()` can be used independently in tests/tools.
+- Operator UI displays admin token configuration and runtime metadata derived from `/api/configuration`.
+- Documentation accurately reflects the modular API structure and test workflow adjustments.
+
+## Idempotence and Recovery
+
+- Router refactor maintains identical endpoint signatures; reversion involves restoring prior `server/app.py` monolith.
+- Tests rely on fixtures and markers; previous behavior can be reinstated by reverting conftest/pytest config.
+- UI additions are additive; removing new sections returns to prior presentation without affecting backend behavior.
+
+## Artifacts and Notes
+
+- Capture screenshot of updated configuration panel.
+- Pytest transcript with marker usage examples.
+- Any architectural diagrams updated in docs referencing the new `server/api` package.
+
+## Interfaces and Dependencies
+
+- Depends on FastAPI router composition and existing application services.
+- UI changes depend on `web/static/app.js` state management helpers and DOM references.
+- Tooling updates rely on pytest/Makefile; ensure compatibility with CI pipeline definitions.
+
+# Future-proof observability and extension ecosystem
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`,
+`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in
+accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Stabilize Switchboard for long-term stewardship by expanding observability, formalizing
+extension contracts, and equipping developers (human and agentic) with tooling that keeps
+automation safe and auditable. Deliver a reference plugin, telemetry endpoints, and
+documentation that codifies upgrade paths and operational playbooks.
+
+## Progress
+
+- [x] Instrument FastAPI with telemetry endpoints and aggregated health summaries.
+- [x] Define versioned extension contracts with typed contexts and context-aware dispatch.
+- [x] Ship a reference plan snapshot extension showcasing the modular boundary.
+- [x] Extend developer tooling (CLI, docs, automation guides) to expose the new surfaces.
+- [x] Update CI/QA guardrails and documentation with recovery and migration guidance.
+
+## Surprises & Discoveries
+
+- Discovery: Existing builtin extensions assumed raw kwargs without structured context;
+  adding optional context injection required signature inspection to retain backward
+  compatibility.
+- Discovery: Observability docs already referenced telemetry endpoints that did not yet
+  exist; aligning implementation with documentation eliminated stale guidance.
+
+## Decision Log
+
+- Decision: Introduce `TaskHookContext` and `PlanBroadcastContext` dataclasses and pass
+  them opportunistically when hooks opt-in via a `context` keyword parameter. This keeps
+  existing extensions working while enabling richer metadata for new plugins.
+  Rationale: Backwards compatibility is critical for downstream automation, yet typed
+  contexts empower future extensions and automated agents. Date/Author: 2025-02-18 /
+  gpt-5-codex.
+- Decision: Expose `/api/observability/telemetry` and `/api/observability/metrics` JSON
+  endpoints secured by admin token to unify how operators, agents, and dashboards surface
+  runtime state.
+  Rationale: Prior health endpoints were split between plain-text and composite payloads,
+  which complicated automation; the new endpoints provide a single JSON source of truth.
+  Date/Author: 2025-02-18 / gpt-5-codex.
+- Decision: Add a builtin `plan_snapshot` extension capturing broadcast analytics and
+  publishing structured runtime metadata plus observability registration.
+  Rationale: Demonstrates the new contract interface and seeds a template for analytics
+  plugins without adding external dependencies. Date/Author: 2025-02-18 / gpt-5-codex.
+
+## Outcomes & Retrospective
+
+- Observability API now surfaces telemetry, metrics catalogues, and compound health JSON
+  responses aligned with documentation.
+- Extensions can opt into structured contexts, and CI enforces coverage on the new
+  contract helpers.
+- Developer tooling enumerates loaded extensions and scaffolds context-aware plugins,
+  improving day-two operations for humans and agents alike.
+- Documentation (architecture, automation handbooks, extension guide) references concrete
+  upgrade and recovery workflows, boosting onboarding clarity.
+
+## Context and Orientation
+
+- Observability endpoints live under `server/api/routers/observability.py`.
+- Extension interfaces live in `server/extensions/interfaces.py` with contracts defined in
+  `server/extensions/contracts.py`.
+- Builtin reference extensions are located in `server/extensions/builtin/`.
+- Developer tooling (CLI helpers, automation docs) sit in `scripts/` and root markdown
+  files.
+- CI guardrails are defined in `.github/workflows/ci.yml` and mirrored by `Makefile`
+  targets and `scripts/dev.py verify`.
+
+## Plan of Work
+
+1. Add telemetry and metrics endpoints plus health summary JSON responses to the
+   observability router; update schemas accordingly.
+2. Introduce context dataclasses and optional dispatch for extension hooks, adjusting
+   builtin loaders and templates.
+3. Implement the builtin `plan_snapshot` extension and ensure it registers metadata via
+   observability hooks.
+4. Enhance developer tooling (CLI, docs, templates) to surface extension inventories and
+   context-aware scaffolding.
+5. Update CI guardrails, docs, and automation guides with recovery and migration
+   instructions, including Evolvability scoring and future opportunities.
+
+## Concrete Steps
+
+1. Modify `server/api/routers/observability.py` and `server/schema.py` to add telemetry and
+   metrics endpoints/models; cover them with FastAPI tests.
+2. Add `server/extensions/contracts.py`, refactor `ExtensionBundle.emit` and
+   `emit_plan_event` to pass contexts when supported, and update coverage gates.
+3. Create `server/extensions/builtin/plan_snapshot.py`, register it via the loader, and add
+   unit tests verifying analytics snapshots and observability registration.
+4. Extend `scripts/dev.py` with `extensions` inventory command and update extension
+   templates/docs to highlight context usage; refresh automation handbooks.
+5. Document incident response escalation paths, containerization guidance, and future
+   roadmap in README/ARCHITECTURE_OVERVIEW/RELEASE_NOTES; update CI + Make targets for new
+   modules.
+
+## Validation and Acceptance
+
+- `pytest -q` succeeds, covering new endpoints and extension contexts.
+- `/api/observability/telemetry`, `/api/observability/metrics`, and `/api/health` respond
+  with structured payloads documented in `server/schema.py`.
+- Extensions opting into `context` receive structured dataclasses; regression tests confirm
+  backwards compatibility.
+- CLI `python scripts/dev.py extensions` prints descriptors, contract metadata, and
+  observability registrations.
+- CHANGELOG and RELEASE_NOTES capture observability and extension contract updates; docs
+  outline incident response and future-proofing.
+
+## Idempotence and Recovery
+
+- Observability endpoints are additive; revert the router/schema changes to restore the
+  previous surface.
+- Extension context injection is opt-in; removing `context` keyword restores legacy
+  behavior.
+- The builtin `plan_snapshot` extension can be disabled via
+  `SWITCHBOARD_ENABLE_BUILTIN_EXTENSIONS=0` or by removing it from the loader.
+- CLI/docs updates are documentation-only and reversible without data loss.
+
+## Artifacts and Notes
+
+- Capture telemetry and metrics endpoint responses in the release notes.
+- Update `reports/perf_metrics.json` if profiling reveals regressions.
+- Provide Evolvability score and next-generation opportunities in final summary.
+
+## Interfaces and Dependencies
+
+- Depends on FastAPI routing, SQLAlchemy sessions for readiness checks, and builtin
+  extension loading.
+- Observability instrumentation integrates with optional Prometheus and OpenTelemetry
+  dependencies.
+- CLI tooling leverages standard library modules only; no new runtime dependencies.
+

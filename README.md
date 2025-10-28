@@ -15,8 +15,9 @@ Switchboard is a small, production‑leaning FastAPI service that:
 - Ships with **AGENTS.md** and a **.agent/PLANS.md** template aligned with the ExecPlan pattern.
 - Includes a **Python client** and a **local runner** for agent integrations alongside container packaging.
 - Surfaces a structured diagnostics snapshot (`/api/diagnostics`) and dashboard panel so operators can verify package versions, configuration, and feature toggles without leaving the app.
-- Exposes `/api/observability/telemetry` so operators and agents can check logging, metrics, tracing, and webhook status in one request.
+- Exposes `/api/health`, `/api/observability/telemetry`, and `/api/observability/metrics` so operators and agents can check readiness, instrumentation posture, and analytics catalogues without stitching multiple endpoints together.
 - Publishes task analytics as Prometheus gauges on every plan broadcast so dashboards and alerting systems can track ready/blocked backlogs without polling the API.
+- Bundles a plan snapshot extension that records the latest analytics for dashboards and incident responders.
 - Documents the full stack layout in [docs/architecture.md](docs/architecture.md) and the new [documentation hub](docs/index.md).
 
 ## Why
@@ -27,7 +28,7 @@ Switchboard is a small, production‑leaning FastAPI service that:
 
 ## How
 
-- **Router & Schemas** – `server/app.py` and `server/schema.py` translate domain records from `TaskService` into immutable payloads returned by the API.
+- **Router & Schemas** – `server/api/` provides the FastAPI routers and application factory, while `server/app.py` re-exports the assembled app alongside compatibility helpers. `server/schema.py` translates domain records from `TaskService` into immutable payloads returned by the API.
 - **Domain & Application Layers** – `server/domain/` defines immutable task and lease records, while `server/application/task_service.py` orchestrates lifecycle rules through repository interfaces and triggers extension hooks (including plan observers).
 - **Infrastructure Adapters** – `server/infrastructure/repositories.py` implements the repository interfaces against SQLAlchemy models, batching dependency lookups so task checkout avoids N+1 queries.
 - **Health & Operations** – `/health/live` and `/health/ready` surface liveness and dependency status via the new `HealthStatus` schema; `docs/failure-modes.md` enumerates remediation steps.
@@ -60,7 +61,7 @@ Switchboard follows a service-plus-client architecture:
 ```text
 ┌────────────────┐      REST & WS       ┌──────────────────────────┐
 │  Agents / CLI  │ ───────────────────▶ │    FastAPI Application   │
-│  (humans & AI) │ ◀─────────────────── │  (server/app.py)         │
+│  (humans & AI) │ ◀─────────────────── │  (server/api → app.py)   │
 └────────────────┘     plan updates     └────────────┬─────────────┘
                                                       │
                                                       ▼
@@ -79,7 +80,7 @@ Switchboard follows a service-plus-client architecture:
                                   └──────────────────────────────┘
 ```
 
-- **FastAPI application (`server/app.py`)** exposes REST endpoints, WebSocket plan broadcasts, and the static operator UI. Middleware hooks add rate limiting and observability.
+- **FastAPI application (`server/api`, `server/app.py`)** exposes REST endpoints, WebSocket plan broadcasts, and the static operator UI. Middleware hooks add rate limiting and observability while the compatibility wrapper preserves legacy imports.
 - **Domain logic (`server/domain/`, `server/application/`, `server/file_store.py`)** coordinates task lifecycle state, dependency enforcement, and content mirroring while keeping database access localized.
 - **Client toolkit (`client/python/`)** wraps the HTTP API for both interactive humans (`switchboard_cli.py`) and automated agents.
 - **Live files & ExecPlan registry** give agents durable documentation by persisting uploads to disk and serving digestible plan indexes, while the builtin `plan_metrics` observer keeps Prometheus gauges aligned with the latest plan snapshot.
@@ -101,6 +102,9 @@ Operators can trace how a request moves from CLI to FastAPI to persistence by re
 | `/api/tasks/analytics` | `GET` | Return aggregated task analytics including ready/blocked counts and dependency health. |
 | `/health/live` | `GET` | Liveness probe returning the `HealthStatus` payload with `process` checks and probe observations. |
 | `/health/ready` | `GET` | Readiness probe that validates database and storage access; returns HTTP 503 when dependencies fail and includes probe metadata for root-cause analysis. |
+| `/api/health` | `GET` | JSON envelope combining liveness and readiness payloads; returns HTTP 503 when readiness fails. |
+| `/api/observability/telemetry` | `GET` | Summarises logging, metrics, tracing, runtime metadata, and observability notes (requires admin token when configured). |
+| `/api/observability/metrics` | `GET` | Exposes the Prometheus analytics catalog (enabled status, last updated timestamp, sample values). |
 | `/api/observability/health` | `GET` | Aggregates liveness, readiness, and telemetry state into a single payload (requires admin token when configured). |
 | `/api/observability/audit-feed` | `GET` | Returns the rolling in-memory audit feed captured by the builtin `activity_feed` extension (requires admin token when configured). |
 | `/api/settings` | `GET` | Inspect rate limit and lease configuration (used by the CLI). |
@@ -383,6 +387,8 @@ python -m client.python.examples.agent_example
   and installs pre-commit hooks.
 - `scripts/dev.py coverage-gate` validates coverage JSON output against the
   ≥85% thresholds enforced in CI (see `.github/workflows/ci.yml`).
+- `scripts/dev.py extensions` enumerates loaded extensions, contract notes, and
+  observability registrations so operators can audit instrumentation quickly.
 - `scripts/dev.py bump-version` updates `server/app.py`, `CHANGELOG.md`, and
   `RELEASE_NOTES.md` with a new semantic version stub.
 - `make qa` now runs formatting, linting, typing, tests, security scans, and the
