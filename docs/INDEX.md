@@ -1,99 +1,154 @@
----
-title: "Documentation Index"
-summary: "Unified entry point that links every Switchboard guide, reference, and plan for zero-context onboarding."
-nav:
-  section: "Getting Started"
-  order: 0
-search:
-  keywords:
-    - index
-    - onboarding
-    - documentation
-tags:
-  - overview
-  - onboarding
----
+# Switchboard Documentation Hub
 
-# Switchboard Documentation Index
+Welcome to the Switchboard operator and agent guide. This site explains how the
+queue and agent orchestration router is structured, how to run it locally, and
+how to integrate agents safely.
 
-Welcome to the Switchboard documentation portal. This index is designed so a brand-new contributor can:
+## Quick Start
 
-> Looking for the modern quick-start experience? Head to the lightweight
-> [documentation hub](index.md) which summarises architecture, message schema,
-> failure modes, and the local runner walkthrough introduced in this update.
+1. **Install dependencies**
 
-1. Understand what Switchboard is and how it is structured.
-2. Discover the right guide for their task (building agents, operating the server, extending the UI, or shipping roadmap work).
-3. Traverse directly to deep technical references without trawling the repository tree.
+   ```bash
+   make install
+   ```
 
-Use this page together with [`docs/_meta/navigation.yaml`](./_meta/navigation.yaml), which machines or static-site tooling can ingest to render navigation menus and power search indexing.
+2. **Start the API and dashboard**
 
-## Quick Start Checklist
+   ```bash
+   make serve
+   ```
 
-Follow these steps in order if you are new to the project:
+3. **Verify health checks**
 
-1. **Read the [README](../README.md)** for prerequisites, environment setup, and live command examples.
-2. **Scan the [Architecture Deep Dive](./architecture.md)** to internalize module boundaries and data flows.
-3. **Pick your persona:**
-   - Building an automation agent? Jump to the [AI Interface Guide](./AI_INTERFACE.md).
-   - Exploring existing roadmap work? Review the ExecPlans under [`docs/execplans/`](./execplans).
-   - Investigating operational controls? Consult the [Rate Limiting Design Note](./rate-limiting-design.md) and [Test & Reliability Report](./testing_report.md).
-4. **Return here whenever you need to locate supporting references**—every document in `/docs` is cataloged below with purpose, inputs, and related modules.
+   ```bash
+   curl http://localhost:8000/health/live
+   curl -i http://localhost:8000/health/ready
+   ```
 
-## Navigation Map
+4. **Run the local runner**
 
-The table below mirrors `docs/_meta/navigation.yaml` and groups content the same way a docs portal would render sidebar sections.
+   ```bash
+   python scripts/local_runner.py --base-url http://localhost:8000 --once
+   ```
 
-| Section | Document | Purpose |
-| --- | --- | --- |
-| Getting Started | [Documentation Index](./INDEX.md) | Centralize links and onboarding flow for new contributors. |
-| Getting Started | [Architecture Deep Dive](./architecture.md) | Explain server, client, and UI architecture with module callouts. |
-| Agents & Automation | [AI Interface Guide](./AI_INTERFACE.md) | Detail agent REST/WebSocket flows and Python SDK usage. |
-| Agents & Automation | [ExecPlan Registry Index Format](./execplan-registry-index.md) | Specify the schema agents use to enumerate ExecPlans. |
-| Design Notes | [Rate Limiting Design Note](./rate-limiting-design.md) | Capture rationale and configuration for request throttling. |
-| ExecPlans | [Bootstrap Observability Instrumentation](./execplans/instrumentation-observability.md) | Track the plan for rolling out logging, metrics, and tracing. |
-| ExecPlans | [Harden Core Runtime Helpers](./execplans/targeted-hardening.md) | Govern hardening work across time utilities, clients, and middleware. |
-| Quality & Operations | [Test & Reliability Report](./testing_report.md) | Summarize test coverage, reliability wins, and outstanding constraints. |
-| Quality & Operations | [Documentation Improvement Report](./PORTAL_STATUS.md) | Record this portal refresh and track future documentation backlog items. |
+   The runner registers an agent, attempts a checkout, and optionally completes
+   a task when `--auto-complete` is supplied. See the [end-to-end
+   example](#end-to-end-example) for a fuller walkthrough.
 
-## Module Reference
+## Architecture Overview
 
-This reference aligns code modules with the documentation that describes them. Use it to connect implementation files to guides, ensuring every component is discoverable.
+Switchboard is intentionally modular:
 
-| Area | Module(s) | Documentation | What You Learn |
-| --- | --- | --- | --- |
-| API Surface | `server/app.py`, `server/schema.py`, `server/application/task_service.py` | [Architecture Deep Dive](./architecture.md), [AI Interface Guide](./AI_INTERFACE.md) | Request routing, task lifecycle orchestration, and payload contracts. |
-| Persistence & Registry | `server/execplan_registry.py`, `docs/execplan-registry-index.md`, `docs/execplans/` | [Architecture Deep Dive](./architecture.md), [ExecPlan Registry Index Format](./execplan-registry-index.md) | How ExecPlans are persisted, indexed, and consumed by agents. |
-| Time & Status Utilities | `server/time_utils.py`, `server/task_status.py` | [Architecture Deep Dive](./architecture.md) | Why timestamp helpers and enums exist and how the server/clients share them. |
-| Rate Limiting | `server/middleware/rate_limit.py` | [Rate Limiting Design Note](./rate-limiting-design.md) | Sliding-window algorithm, configuration knobs, and operational trade-offs. |
-| Instrumentation | `server/instrumentation/*` | [Bootstrap Observability Instrumentation](./execplans/instrumentation-observability.md) | Rollout plan and toggles for logging, metrics, and tracing. |
-| Client SDK | `client/python/switchboard_client.py`, `switchboard_client.py` | [AI Interface Guide](./AI_INTERFACE.md) | API helpers, retry semantics, and how agents authenticate and upload artifacts. |
-| CLI Tooling | `client/python/switchboard_cli.py`, `switchboard_cli.py` | [AI Interface Guide](./AI_INTERFACE.md) | Interactive agent shell, heartbeat loops, and unattended usage patterns. |
-| Example Agents | `client/python/examples/agent_example.py` | [AI Interface Guide](./AI_INTERFACE.md) | Minimal polling agent walkthrough and extension points. |
-| Operator UI | `web/` templates & static assets | [Architecture Deep Dive](./architecture.md) | How the HTMX dashboard consumes REST and WebSocket APIs. |
-| Testing & Quality | `tests/`, `client/python/tests/` | [Test & Reliability Report](./testing_report.md) | Coverage strategy, known skips, and next steps for automation. |
-| Operations | `ops/`, `scripts/`, `Makefile` | [Architecture Deep Dive](./architecture.md), [Test & Reliability Report](./testing_report.md) | Deployment scripts, local development commands, and validation routines. |
+- **Router & API** – `server/app.py` exposes REST, WebSocket, and health
+  endpoints. Queue orchestration occurs in `server/application/task_service.py`
+  backed by domain records in `server/domain/` and the Pydantic schemas in
+  `server/schema.py`.
+- **Domain Logic** – `server/domain/` and `server/application/task_service.py` encapsulate task lifecycle rules,
+  leases, and dependency evaluation.
+- **Client Toolkit** – `client/python/switchboard_client.py` and
+  `scripts/local_runner.py` provide a Python API and executable runner that
+  exercise the router.
+- **Maintenance Mode** – `server/application/system_state_service.py` persists
+  the global maintenance flag while the CLI (`switchboard-cli maintenance`) and
+  web dashboard keep operators informed and in control.
 
-## Search Metadata
+See [Architecture](architecture.md) for diagrams and deeper discussion, and
+consult the top-level [Architecture Overview](../ARCHITECTURE_OVERVIEW.md) for a
+component map of the updated extension pipeline.
 
-Static site generators can seed their search indices with the metadata we now provide. Each Markdown file includes YAML front matter defining `title`, `summary`, `tags`, and `search.keywords`. Tools like MkDocs, Docusaurus, or custom pipelines can parse this file or [`docs/_meta/navigation.yaml`](./_meta/navigation.yaml) to generate navigation sidebars and keyword indexes without manual curation.
+## Message Schema
 
-## Related External References
+The router exchanges structured payloads defined in `server/schema.py`. Core
+structures include:
 
-Some documentation remains at the repository root for historical or governance reasons:
+- **TaskOut** – immutable task payload returned by `/api/tasks` and checkout
+  responses.
+- **PlanOut** – WebSocket broadcast payload capturing the current plan version
+  and serialized tasks.
+- **HealthStatus** – aggregates liveness and readiness checks with per-probe
+  booleans.
 
-- [`ARCHITECTURE.md`](../ARCHITECTURE.md) — Organization-wide architecture narrative referenced by external stakeholders.
-- [`CONTRIBUTING.md`](../CONTRIBUTING.md) — Contribution guidelines, required reading before submitting PRs.
-- [`PLAN.md`](../PLAN.md) and [`PROJECT_STATUS.md`](../PROJECT_STATUS.md) — Program-level planning artifacts that complement ExecPlans.
+Consult the [Message Schema reference](message-schema.md) for serialized
+examples and field definitions.
 
-These documents now link back into `/docs` so readers can pivot between high-level context and the detailed guides cataloged here.
+## Failure Modes
 
-## Keeping the Index Current
+Operational concerns—from database outages to lease contention—are captured in
+[Failure Modes](failure-modes.md). Each scenario includes detection guidance and
+recommended remediation steps.
 
-When adding or updating documentation:
+## Observability
 
-1. Add or adjust YAML front matter at the top of the Markdown file.
-2. Register the document inside [`docs/_meta/navigation.yaml`](./_meta/navigation.yaml) so navigation menus stay synchronized.
-3. Update the Module Reference table above if the change introduces new modules or significantly alters responsibilities.
+Review the [Observability Playbook](observability.md) for guidance on enabling
+metrics, tracing, and the audit feed. The playbook documents health endpoint
+semantics, header propagation, and operational checklists for automation.
 
-Periodic reviews should also verify that README setup instructions, ExecPlans, and operational runbooks remain accurate as the codebase evolves.
+## Maintenance Mode
+
+Maintenance mode pauses new checkouts so you can apply migrations or debug
+issues without juggling active agents:
+
+1. Enable maintenance with the CLI:
+
+   ```bash
+   switchboard-cli maintenance --base http://localhost:8000 --enable --message "Applying migrations" --admin-token "$SWITCHBOARD_ADMIN_TOKEN"
+   ```
+
+2. The dashboard banner switches to an amber warning, and `switchboard-cli run`
+   exits immediately with the operator-supplied message.
+
+3. When ready, disable maintenance with the CLI or the dashboard form. The
+   server broadcasts the change to all WebSocket listeners so agents can resume
+   work.
+
+The admin token is optional in development but should be configured in
+production via `SWITCHBOARD_ADMIN_TOKEN`.
+
+## Task Analytics
+
+Track backlog health without scanning every task manually:
+
+- **API:** `GET /api/tasks/analytics` returns totals for pending, in-progress,
+  ready, and blocked tasks alongside dependency statistics.
+- **CLI:** `switchboard-cli stats --base http://localhost:8000` renders the
+  analytics table in the terminal; add `--json` to consume the raw payload in
+  scripts.
+- **UI:** The dashboard now includes a Task Analytics card summarising ready
+  versus blocked work and dependency density with live refresh controls.
+
+## End-to-End Example
+
+Follow these steps to process a task locally:
+
+1. Seed a task using the REST API:
+
+   ```bash
+   http POST http://localhost:8000/api/tasks title="Sample" description="Demo"
+   ```
+
+2. Run the local runner in auto-complete mode:
+
+   ```bash
+   python scripts/local_runner.py --base-url http://localhost:8000 --auto-complete --completion-notes "Verified locally"
+   ```
+
+3. Observe the task transition to `completed` via the dashboard or `http
+   http://localhost:8000/api/tasks`.
+
+## Additional Resources
+
+- [Architecture](architecture.md)
+- [Architecture Overview](../ARCHITECTURE_OVERVIEW.md)
+- [Message Schema](message-schema.md)
+- [Failure Modes](failure-modes.md)
+- [CLI Runtime Guide](cli-runtime.md)
+- [Extension Guide](../EXTENSION_GUIDE.md)
+- [Automation Handbook](../AUTOMATION.md)
+- [Incident Response Runbook](incident-response.md)
+- [Future-Proofing Guide](future-proofing.md)
+- [Dependency & License Audit](DEPENDENCIES.md)
+- [README](../README.md)
+- [CHANGELOG](../CHANGELOG.md)
+- [TODO Issues](TODO-ISSUES.md)
+
+For historical documents that have not yet been migrated, see `docs/INDEX.md`.
