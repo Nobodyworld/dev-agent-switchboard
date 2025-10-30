@@ -1,28 +1,39 @@
 # Code Owners for Organization Repositories
+
 # This file defines who owns what code and who should review changes
+
 # Format: path pattern @owner1 @owner2
 
 # Global owners (fallback for all files)
+
 * @Nobodyworld/agents-platform @Nobodyworld/maintainers
 
 # Repository-specific for dev-agent-switchboard ownership can be added below
-# Examples:
+
+# Examples
+
 # /src/ @Nobodyworld/frontend-team
+
 # /backend/ @Nobodyworld/backend-team
+
 # /tests/ @Nobodyworld/qa-team
+
 # /docs/ @Nobodyworld/docs-team
 
 # Security-critical files
+
 *.pem @Nobodyworld/security-team
 *.key @Nobodyworld/security-team
 *secret* @Nobodyworld/security-team
 *.env* @Nobodyworld/security-team
 
 # CI/CD files
+
 .github/workflows/ @Nobodyworld/devops-team
 .github/actions/ @Nobodyworld/devops-team
 
 # Package management files
+
 package.json @Nobodyworld/frontend-team
 requirements.txt @Nobodyworld/backend-team
 pyproject.toml @Nobodyworld/backend-team
