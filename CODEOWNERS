@@ -1,4 +1,0 @@
-# See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
-# These owners will be requested for review when files in their scope change.
-
-* @openai/agents-platform @openai
