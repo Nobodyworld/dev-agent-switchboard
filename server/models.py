@@ -46,6 +46,7 @@ class Task(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(Text, default="")
+    priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False, index=True)
     status: Mapped[TaskStatus] = mapped_column(
         SAEnum(
             TaskStatus,

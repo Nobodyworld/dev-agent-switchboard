@@ -38,6 +38,7 @@ class TaskRepository(Protocol):
         title: str,
         description: str,
         depends_on: Iterable[int] = (),
+        priority: int = 0,
     ) -> TaskRecord: ...
 
     async def update(  # noqa: PLR0913 - protocol mirrors repository override signature
@@ -49,6 +50,7 @@ class TaskRepository(Protocol):
         status: TaskStatus | None = None,
         depends_on: Iterable[int] | None = None,
         completed_notes: str | None = None,
+        priority: int | None = None,
     ) -> TaskRecord | None: ...
 
     async def delete(self, task_id: int) -> bool: ...

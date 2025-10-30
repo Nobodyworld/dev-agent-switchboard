@@ -231,7 +231,12 @@ class HeartbeatLoop(threading.Thread):
     """Background thread that maintains task leases via heartbeats."""
 
     def __init__(
-        self, client: SwitchboardClient, task_id: int, interval: float
+        self,
+        client: SwitchboardClient,
+        task_id: int,
+        interval: float,
+        *,
+        max_heartbeats: int | None = None,
     ) -> None:
         """Initialise the heartbeat loop thread with its dependencies."""
 
@@ -241,6 +246,11 @@ class HeartbeatLoop(threading.Thread):
         self._interval = interval
         self._stop = threading.Event()
         self._error: Optional[str] = None
+        self._heartbeats_sent = 0
+        self._max_heartbeats = (
+            max_heartbeats if max_heartbeats and max_heartbeats > 0 else None
+        )
+        self._limit_reached = False
 
     def run(self) -> None:
         """Send heartbeats until the loop is stopped or an error occurs."""
@@ -253,6 +263,14 @@ class HeartbeatLoop(threading.Thread):
                 return
             if not ok:
                 self._error = "Server rejected heartbeat"
+                return
+            self._heartbeats_sent += 1
+            if (
+                self._max_heartbeats is not None
+                and self._heartbeats_sent >= self._max_heartbeats
+            ):
+                self._limit_reached = True
+                self._stop.set()
                 return
             if self._stop.wait(self._interval):
                 return
@@ -267,6 +285,18 @@ class HeartbeatLoop(threading.Thread):
         """Return the last error encountered by the heartbeat loop, if any."""
 
         return self._error
+
+    @property
+    def limit_reached(self) -> bool:
+        """Return ``True`` when the configured heartbeat limit has been reached."""
+
+        return self._limit_reached
+
+    @property
+    def heartbeats_sent(self) -> int:
+        """Return the number of heartbeats emitted by the loop."""
+
+        return self._heartbeats_sent
 
 
 def format_task(task: TaskPayload) -> str:
@@ -286,20 +316,30 @@ def process_task(
     client: SwitchboardClient,
     task: TaskPayload,
     heartbeat_interval: float,
+    *,
+    max_heartbeats: int | None = None,
 ) -> bool:
     """Interactively process ``task`` using the provided client."""
 
     task_id = task["id"]
     print()
     print(format_task(task))
-    loop = HeartbeatLoop(client, task_id, heartbeat_interval)
+    loop = HeartbeatLoop(
+        client,
+        task_id,
+        heartbeat_interval,
+        max_heartbeats=max_heartbeats,
+    )
     # The heartbeat thread keeps the lease alive while we wait for user input.
     # We always stop and join the thread in the finally block so the daemon
     # never leaks if the command exits early.
     loop.start()
+    heartbeat_note = f"every {heartbeat_interval:.0f}s"
+    if max_heartbeats is not None and max_heartbeats > 0:
+        heartbeat_note += f"; auto-abandon after {max_heartbeats} heartbeats"
     print(
         "Heartbeat thread started "
-        f"(every {heartbeat_interval:.0f}s). "
+        f"({heartbeat_note}). "
         "Type 'help' for options."
     )
     notes: Optional[str] = None
@@ -329,6 +369,12 @@ def process_task(
 
     try:
         while True:
+            if loop.limit_reached:
+                print(
+                    "Heartbeat limit reached; abandoning task automatically.",
+                    file=sys.stderr,
+                )
+                return finalize("abandon")
             if loop.error:
                 print(loop.error, file=sys.stderr)
                 return False
@@ -388,6 +434,10 @@ def display_runtime_configuration(config: RuntimeConfiguration) -> None:
         ("Max poll interval", f"{config.max_poll_interval:.1f}s"),
         ("Backoff multiplier", f"{config.backoff_multiplier:.2f}"),
     ]
+    if config.max_heartbeats is not None:
+        rows.append(("Max heartbeats", str(config.max_heartbeats)))
+    else:
+        rows.append(("Max heartbeats", "disabled"))
     if config.lease_duration is not None:
         rows.append(("Server lease", f"{config.lease_duration:.0f}s"))
     if config.heartbeat_reason:
@@ -583,6 +633,7 @@ def run_command(args: argparse.Namespace) -> int:  # noqa: PLR0912 - CLI loop ha
                 lease_settings=settings_payload,
                 system_state=system_state_payload,
                 warnings=warning_messages,
+                max_heartbeats=getattr(args, "max_heartbeats", None),
             )
 
             display_runtime_configuration(config)
@@ -609,6 +660,7 @@ def run_command(args: argparse.Namespace) -> int:  # noqa: PLR0912 - CLI loop ha
             poll_interval = config.poll_interval
             max_poll_interval = config.max_poll_interval
             backoff_multiplier = config.backoff_multiplier
+            max_heartbeats = config.max_heartbeats
             misses = 0
             current_interval = poll_interval
             while True:
@@ -651,7 +703,12 @@ def run_command(args: argparse.Namespace) -> int:  # noqa: PLR0912 - CLI loop ha
                     continue
                 misses = 0
                 current_interval = poll_interval
-                if not process_task(client, task, heartbeat_interval):
+                if not process_task(
+                    client,
+                    task,
+                    heartbeat_interval,
+                    max_heartbeats=max_heartbeats,
+                ):
                     return 1
     except requests.RequestException as exc:
         print(f"Failed to register agent: {exc}", file=sys.stderr)
@@ -696,6 +753,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_HEARTBEAT_INTERVAL,
         help="Seconds between automatic heartbeats while a task is checked out",
+    )
+    run_parser.add_argument(
+        "--max-heartbeats",
+        type=int,
+        default=None,
+        help="Automatically abandon a task after this many heartbeats (0 disables)",
     )
     run_parser.set_defaults(func=run_command)
 

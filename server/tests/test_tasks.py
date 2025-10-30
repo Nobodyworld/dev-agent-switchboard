@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from server.app import (
     checkout,
+    complete,
     create_task,
     delete_task,
     health,
@@ -20,6 +21,7 @@ from server.models import Task, TaskDependency
 from server.schema import (
     AgentIn,
     CheckoutFailureReason,
+    CompleteIn,
     SystemStateUpdateIn,
     TaskIn,
     TaskUpdate,
@@ -50,6 +52,37 @@ async def test_create_and_checkout() -> None:
         checkout_result = await checkout(agent_id="bot1", session=session)
         assert checkout_result.task is not None
         assert checkout_result.task.id == first.id
+
+
+async def test_checkout_prefers_high_priority_task() -> None:
+    async with AsyncSessionLocal() as session:
+        low_priority = await create_task(
+            TaskIn(title="low", description="", depends_on=[], priority=0),
+            session=session,
+        )
+        high_priority = await create_task(
+            TaskIn(title="high", description="", depends_on=[], priority=5),
+            session=session,
+        )
+        await register_agent(AgentIn(agent_name="bot"), session=session)
+        await session.commit()
+
+        checkout_result = await checkout(agent_id="bot", session=session)
+        assert checkout_result.task is not None
+        assert checkout_result.task.id == high_priority.id
+
+        # Completing the high-priority task should allow the lower priority one next.
+        await complete(
+            task_id=high_priority.id,
+            agent_id="bot",
+            body=CompleteIn(notes=None),
+            session=session,
+        )
+        await session.commit()
+
+        next_checkout = await checkout(agent_id="bot", session=session)
+        assert next_checkout.task is not None
+        assert next_checkout.task.id == low_priority.id
 
 
 async def test_targeted_checkout_respects_availability() -> None:

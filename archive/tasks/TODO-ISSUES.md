@@ -1,3 +1,4 @@
+<!-- Archived: 2025-10-30. Tasks migrated to root TASKSLIST.md -->
 # TODO Issue Backlog
 
 The following gaps were identified while stabilizing the orchestration router.

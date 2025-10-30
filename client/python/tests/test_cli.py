@@ -121,8 +121,9 @@ class RunCommandTests(TestCase):
         ), mock.patch("switchboard_cli.process_task", return_value=False) as proc:
             self.assertEqual(1, switchboard_cli.run_command(self.args))
         proc.assert_called_once()
-        called_args = proc.call_args[0]
+        called_args, called_kwargs = proc.call_args
         self.assertEqual(called_args[2], 150.0)
+        self.assertIsNone(called_kwargs.get("max_heartbeats"))
         client.close.assert_called_once()
         client.get_settings.assert_called_once()
         client.get_system_state.assert_called_once()
@@ -318,9 +319,18 @@ class ProcessTaskTests(TestCase):
         self.client = mock.Mock()
         self.client.heartbeat.return_value = True
 
-    def _install_loop(self, error: str | None = None):
+    def _install_loop(
+        self, error: str | None = None, *, limit_reached: bool = False
+    ):
         class DummyLoop:
-            def __init__(self, client, task_id, interval):
+            def __init__(
+                self,
+                client,
+                task_id,
+                interval,
+                *,
+                max_heartbeats=None,
+            ):
                 self.client = client
                 self.task_id = task_id
                 self.interval = interval
@@ -328,6 +338,7 @@ class ProcessTaskTests(TestCase):
                 self.stopped = False
                 self.joined_with = None
                 self._error = error
+                self._limit_reached = limit_reached
 
             def start(self):
                 self.started = True
@@ -341,6 +352,14 @@ class ProcessTaskTests(TestCase):
             @property
             def error(self):
                 return self._error
+
+            @property
+            def limit_reached(self):
+                return self._limit_reached
+
+            @property
+            def heartbeats_sent(self):  # pragma: no cover - exposed for parity
+                return 0
 
         loop = DummyLoop(self.client, self.task["id"], 30.0)
         patcher = mock.patch("switchboard_cli.HeartbeatLoop", return_value=loop)
@@ -408,6 +427,22 @@ class ProcessTaskTests(TestCase):
 
         self.client.heartbeat.assert_called_once_with(self.task["id"])
         printer.assert_any_call("Unknown command: unknown")
+
+    def test_process_task_auto_abandons_on_limit(self) -> None:
+        loop, patcher = self._install_loop(limit_reached=True)
+        self.client.abandon.return_value = True
+        with patcher, mock.patch("switchboard_cli.print") as printer:
+            self.assertTrue(
+                switchboard_cli.process_task(
+                    self.client, self.task, 10.0, max_heartbeats=3
+                )
+            )
+
+        self.client.abandon.assert_called_once_with(self.task["id"])
+        printer.assert_any_call(
+            "Heartbeat limit reached; abandoning task automatically.",
+            file=sys.stderr,
+        )
 
     def test_process_task_aborts_on_loop_error(self) -> None:
         loop, patcher = self._install_loop(error="Server rejected heartbeat")

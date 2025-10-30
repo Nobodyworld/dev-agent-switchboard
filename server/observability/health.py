@@ -5,11 +5,18 @@ from __future__ import annotations
 import inspect
 import logging
 import math
+import os
 import time
 from collections.abc import Awaitable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
+
+try:  # pragma: no cover - optional dependency for metrics exposure
+    from prometheus_client import Counter, Gauge  # type: ignore
+except Exception:  # pragma: no cover - gracefully degrade when unavailable
+    Counter = None  # type: ignore[assignment]
+    Gauge = None  # type: ignore[assignment]
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,6 +62,165 @@ class ProbeObservation:
         if self.detail:
             payload["detail"] = self.detail
         return payload
+
+
+@dataclass
+class _ReadinessMetricsState:
+    overall_status: Gauge | None = None
+    last_checked_timestamp: Gauge | None = None
+    probe_status: Gauge | None = None
+    probe_duration: Gauge | None = None
+    probe_total: Counter | None = None
+    last_checked_at: datetime | None = None
+
+
+_READINESS_METRICS = _ReadinessMetricsState()
+_METRICS_ENV_FLAG = "SWITCHBOARD_ENABLE_METRICS"
+
+
+def _truthy_env(name: str) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return False
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _ensure_readiness_metrics() -> bool:
+    if Gauge is None or Counter is None:
+        return False
+    if not _truthy_env(_METRICS_ENV_FLAG):
+        return False
+    if _READINESS_METRICS.overall_status is not None:
+        return True
+
+    _READINESS_METRICS.overall_status = Gauge(
+        "switchboard_readiness_ok",
+        "Overall readiness status (1=ready, 0=not ready).",
+    )
+    _READINESS_METRICS.last_checked_timestamp = Gauge(
+        "switchboard_readiness_last_checked_timestamp",
+        "Unix timestamp when readiness was last evaluated.",
+    )
+    _READINESS_METRICS.probe_status = Gauge(
+        "switchboard_readiness_probe_status",
+        "Latest readiness probe outcome (1=ok, 0=failed).",
+        ("probe",),
+    )
+    _READINESS_METRICS.probe_duration = Gauge(
+        "switchboard_readiness_probe_duration_ms",
+        "Duration of readiness probes in milliseconds.",
+        ("probe",),
+    )
+    _READINESS_METRICS.probe_total = Counter(
+        "switchboard_readiness_probe_total",
+        "Total readiness probe executions grouped by result.",
+        ("probe", "result"),
+    )
+    return True
+
+
+def _record_readiness_metrics(
+    observations: Sequence[ProbeObservation], overall_ok: bool
+) -> None:
+    if not _ensure_readiness_metrics():
+        return
+
+    timestamp = time.time()
+    state = _READINESS_METRICS
+    if state.overall_status is not None:
+        state.overall_status.set(1.0 if overall_ok else 0.0)
+    if state.last_checked_timestamp is not None:
+        state.last_checked_timestamp.set(timestamp)
+    state.last_checked_at = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+
+    for observation in observations:
+        if state.probe_status is not None:
+            state.probe_status.labels(probe=observation.name).set(
+                1.0 if observation.ok else 0.0
+            )
+        if state.probe_duration is not None:
+            state.probe_duration.labels(probe=observation.name).set(
+                observation.duration_ms
+            )
+        if state.probe_total is not None:
+            state.probe_total.labels(
+                probe=observation.name,
+                result="ok" if observation.ok else "failed",
+            ).inc()
+
+
+def _collect_samples(metric: Any) -> list[tuple[dict[str, str], float]]:
+    if metric is None:
+        return []
+    collected: list[tuple[dict[str, str], float]] = []
+    for family in metric.collect():
+        for sample in family.samples:
+            if sample.name.endswith("_created"):
+                continue
+            labels = dict(sample.labels or {})
+            collected.append((labels, float(sample.value)))
+    return collected
+
+
+def describe_readiness_metrics() -> dict[str, Any]:
+    """Return a snapshot of readiness metrics for diagnostics."""
+
+    enabled = (
+        _READINESS_METRICS.overall_status is not None
+        and _truthy_env(_METRICS_ENV_FLAG)
+        and Gauge is not None
+        and Counter is not None
+    )
+    status = None
+    last_checked = None
+    if enabled:
+        for labels, value in _collect_samples(_READINESS_METRICS.overall_status):
+            status = value
+        for labels, value in _collect_samples(
+            _READINESS_METRICS.last_checked_timestamp
+        ):
+            last_checked = value
+
+    probe_status: dict[str, float] = {}
+    probe_duration: dict[str, float] = {}
+    probe_totals: dict[str, dict[str, float]] = {}
+    if enabled:
+        for labels, value in _collect_samples(_READINESS_METRICS.probe_status):
+            key = labels.get("probe", "")
+            probe_status[key] = value
+        for labels, value in _collect_samples(_READINESS_METRICS.probe_duration):
+            key = labels.get("probe", "")
+            probe_duration[key] = value
+        for labels, value in _collect_samples(_READINESS_METRICS.probe_total):
+            probe = labels.get("probe", "")
+            result = labels.get("result", "") or "value"
+            bucket = probe_totals.setdefault(probe, {})
+            bucket[result] = value
+
+    return {
+        "enabled": bool(enabled),
+        "overall_status": status,
+        "last_checked_timestamp": last_checked,
+        "last_checked_at": _READINESS_METRICS.last_checked_at,
+        "probe_status": probe_status,
+        "probe_duration_ms": probe_duration,
+        "probe_totals": probe_totals,
+    }
+
+
+def _reset_readiness_metrics_for_testing() -> None:  # pragma: no cover - tests only
+    state = _READINESS_METRICS
+    if state.probe_status is not None:
+        state.probe_status.clear()
+    if state.probe_duration is not None:
+        state.probe_duration.clear()
+    if state.probe_total is not None:
+        state.probe_total.clear()
+    if state.overall_status is not None:
+        state.overall_status.set(0.0)
+    if state.last_checked_timestamp is not None:
+        state.last_checked_timestamp.set(0.0)
+    state.last_checked_at = None
 
 
 async def _run_probe(definition: ProbeDefinition) -> ProbeObservation:
@@ -156,6 +322,7 @@ async def build_readiness_payload(
         "observations": [obs.as_payload() for obs in observations],
     }
     payload.update(runtime.model_dump())
+    _record_readiness_metrics(observations, overall_ok)
     return payload
 
 
@@ -184,4 +351,5 @@ __all__ = [
     "build_liveness_payload",
     "build_readiness_payload",
     "collect_observability_health",
+    "describe_readiness_metrics",
 ]

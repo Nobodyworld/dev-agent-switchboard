@@ -43,7 +43,7 @@
 ## Documentation Status
 - Comprehensive top-level guides: `README.md`, `ARCHITECTURE.md`, `docs/index.md`, and status reports (`REPORTS/*.md`).
 - Documentation portal uses YAML front matter and navigation metadata (`docs/_meta/navigation.yaml`).
-- Detailed API references (`docs/AI_INTERFACE.md`, `docs/message-schema.md`), testing report, and TODO backlog maintained in `docs/TODO-ISSUES.md`.
+- Detailed API references (`docs/AI_INTERFACE.md`, `docs/message-schema.md`), testing report, and task backlog maintained in `TASKSLIST.md`.
 - Additional operational docs: `SUPPORT.md`, `STATUS.md`, `PROJECT_STATUS.md`, `IMPLEMENTATION_NOTES.md`.
 
 ## Current Pain Points & TODOs
@@ -52,7 +52,7 @@
 - **WebSocket Monitoring:** TODO to record connection metadata and simulate slow consumers (`server/app.py`, `server/tests/test_plan_broadcaster_unit.py`).
 - **Repository Tests:** Legacy tests relied on `asyncio.run` and shared filesystem state; TODOs indicated migration to pytest-asyncio and temp directories (resolved — the suite now runs coroutine tests natively and isolates live file storage per test).
 - **UI Responsiveness:** `web/static/styles.css` notes mobile layout TODO; `web/static/app.js` highlights planned performance/backoff improvements.
-- **Backlog Items:** Queue prioritization, Prometheus health metrics, and improved runner abandonment workflow remain open in `docs/TODO-ISSUES.md`.
+- **Backlog Items:** Queue prioritization, Prometheus health metrics, and improved runner abandonment workflow remain open in `TASKSLIST.md`.
 
 ## Quality & Operations Snapshot
 - **Testing:** `Makefile` includes lint/test targets; root `tests/` cover client/CLI while `server/tests/` exercise domain logic (pending modernization per TODOs).

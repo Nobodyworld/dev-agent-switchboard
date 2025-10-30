@@ -30,6 +30,7 @@ class TaskRecord:
     title: str
     description: str
     status: TaskStatus
+    priority: int = 0
     depends_on: tuple[int, ...] = ()
     completed_notes: str | None = None
     updated_at: dt.datetime | None = None

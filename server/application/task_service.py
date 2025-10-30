@@ -189,14 +189,22 @@ class TaskService:
         return result
 
     async def create_task(
-        self, *, title: str, description: str, depends_on: Iterable[int]
+        self,
+        *,
+        title: str,
+        description: str,
+        depends_on: Iterable[int],
+        priority: int = 0,
     ) -> TaskRecord:
         """Create a new task after validating dependency integrity."""
 
         normalized_deps = self._normalize_dependencies(depends_on)
         await self._ensure_dependencies_exist(normalized_deps)
         task = await self._tasks.create(
-            title=title, description=description, depends_on=normalized_deps
+            title=title,
+            description=description,
+            depends_on=normalized_deps,
+            priority=priority,
         )
         await self._notify("on_task_created", task=task)
         return task
@@ -210,6 +218,7 @@ class TaskService:
         status: TaskStatus | None = None,
         depends_on: Iterable[int] | None = None,
         completed_notes: str | None = None,
+        priority: int | None = None,
     ) -> TaskRecord:
         """Apply updates to the requested task, validating dependencies."""
 
@@ -229,6 +238,7 @@ class TaskService:
             status=status,
             depends_on=normalized_deps,
             completed_notes=completed_notes,
+            priority=priority,
         )
         if updated is None:
             raise TaskNotFoundError()

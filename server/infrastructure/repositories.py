@@ -87,7 +87,9 @@ class SqlAlchemyTaskRepository(TaskRepository):
             dependency_map = await self._dependency_map((task.id,))
             return [self._to_record(task, dependency_map.get(task.id, ()))]
 
-        result = await self._session.execute(select(Task).order_by(Task.id))
+        result = await self._session.execute(
+            select(Task).order_by(Task.priority.desc(), Task.id)
+        )
         tasks = result.scalars().all()
         if not tasks:
             return []
@@ -124,8 +126,9 @@ class SqlAlchemyTaskRepository(TaskRepository):
         title: str,
         description: str,
         depends_on: Iterable[int] = (),
+        priority: int = 0,
     ) -> TaskRecord:
-        instance = Task(title=title, description=description)
+        instance = Task(title=title, description=description, priority=priority)
         self._session.add(instance)
         await self._session.flush()
         normalized = tuple(sorted(set(depends_on)))
@@ -145,6 +148,7 @@ class SqlAlchemyTaskRepository(TaskRepository):
         status: TaskStatus | None = None,
         depends_on: Iterable[int] | None = None,
         completed_notes: str | None = None,
+        priority: int | None = None,
     ) -> TaskRecord | None:
         instance = await self._session.get(Task, task_id)
         if instance is None:
@@ -157,6 +161,8 @@ class SqlAlchemyTaskRepository(TaskRepository):
             instance.status = status
         if completed_notes is not None or status == TaskStatus.COMPLETED:
             instance.completed_notes = completed_notes
+        if priority is not None:
+            instance.priority = priority
         if depends_on is not None:
             await self._session.execute(
                 delete(TaskDependency).where(TaskDependency.task_id == task_id)
@@ -307,6 +313,7 @@ class SqlAlchemyTaskRepository(TaskRepository):
             status=task.status
             if isinstance(task.status, TaskStatus)
             else TaskStatus(task.status),
+            priority=task.priority,
             depends_on=dependencies,
             completed_notes=task.completed_notes,
             updated_at=updated_at,

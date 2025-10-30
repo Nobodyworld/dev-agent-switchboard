@@ -52,7 +52,7 @@ Start with the [documentation hub](docs/index.md) for a curated quick start, mes
 | Testing & quality reports | [docs/testing_report.md](docs/testing_report.md) |
 | Documentation status & backlog | [docs/PORTAL_STATUS.md](docs/PORTAL_STATUS.md) |
 
-Each document now shares terminology and links back to this README so contributors can pivot between operational, architectural, and API-focused guidance without guessing where to look. The new [TODO backlog](docs/TODO-ISSUES.md) captures follow-up work discovered during the orchestration router stabilization.
+Each document now shares terminology and links back to this README so contributors can pivot between operational, architectural, and API-focused guidance without guessing where to look. The new [task backlog](TASKSLIST.md) captures follow-up work discovered during the orchestration router stabilization.
 
 ## Architecture at a Glance
 

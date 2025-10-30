@@ -10,6 +10,7 @@ from .health import (
     build_liveness_payload,
     build_readiness_payload,
     collect_observability_health,
+    describe_readiness_metrics,
 )
 from .metrics import describe_task_metrics, record_task_analytics_metrics
 from .overview import ObservabilityOverview, collect_observability_overview
@@ -37,6 +38,7 @@ __all__ = [
     "collect_diagnostics",
     "collect_observability_health",
     "collect_observability_overview",
+    "describe_readiness_metrics",
     "describe_task_metrics",
     "get_runtime_snapshot",
     "get_telemetry_report",
