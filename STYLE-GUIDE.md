@@ -1,15 +1,17 @@
 # Global Style Guide
 
+Last Updated: October 31, 2025
+
 This document is a concise, drop-in style and process guide for any repository in this organization. It emphasizes reliability, maintainability, reproducibility, and security. Use this as a baseline and tailor via ADRs where justified.
 
 ## 0. Core Root Files (Do Not Remove)
 
-- NEVER REMOVE: `TASK.md`, `TASKLIST.md`, `REPORTS.md`, or `URGENT.md` from the repository root.
-- Purposes
-  - `URGENT.md` — high-level plan, repo snapshot, agent quickstart, risks, and DoD.
-  - `TASKLIST.md` — the only task tracker; one line per task; oldest-first ordering.
-  - `REPORTS.md` — chronological PR log; one entry per PR with cross-links to tasks.
-  - `TASK.md` — optional scratchpad for task details (final tasks must live in `TASKLIST.md`).
+- **NEVER REMOVE** `README.md`, `SPEC.md`, or `TASKLIST.md` from the repository root.
+
+- Purposes:
+  - `README.md` — Repository overview and getting-started instructions.
+  - `SPEC.md` — Canonical repository specification. Keep concise and authoritative.
+  - `TASKLIST.md` — The single authoritative task and lightweight reporting file for the repo; one line per task; oldest-first ordering.
 
 ## 1. Repository Organization
 
@@ -30,21 +32,24 @@ This document is a concise, drop-in style and process guide for any repository i
   - Do not commit compiled binaries, archives, large images/models/datasets.
   - Use Git LFS or external object storage and add ignore rules.
 
-## 1.1 Tasks and Reports Conventions (Cross‑linking)
+## 1.1 Tasks and Reporting (Consolidated)
 
-- TASKLIST.md
+We standardize on a single file for tasks and lightweight reporting: `TASKLIST.md`.
+
+- TASKLIST.md rules
   - Keep tasks one line each; oldest first; check off when done.
   - Include a Task Unique Identifier (e.g., `TK-YYYYMMDD-###`).
-  - On completion, append: completion timestamp and hyperlink to the matching REPORTS.md entry (Task Report Unique Identifier).
+  - When a task is completed, update the task line to indicate completion and append a brief report as an indented sub-bullet containing:
+    - completion date, PR or link to changes, short summary (1–2 lines).
   - Example:
-    - `- [ ] Add CI for Node/TS — TK-2025-10-29-001 — When completed: 2025-11-01, link: REPORTS.md#TR-2025-11-01-003`
-- REPORTS.md
-  - Append one entry per PR in chronological order.
-  - Include fields: Task Report Unique Identifier (e.g., `TR-YYYYMMDD-###`), Task Unique Identifier (link back to `TASKLIST.md`), Description, References, Problems Solved, Next Steps.
-  - Example heading:
-    - `### 2025-11-01 - chore(ci): add node checks (https://github.com/org/repo/pull/123)`
-    - Then include: `Task Report Unique Identifier: TR-2025-11-01-003` and `Task Unique Identifier: TK-2025-10-29-001` with links.
-  - Never overwrite past entries; always append.
+    - `- [x] Add CI for Node/TS — TK-2025-10-29-001`
+      - `Completed: 2025-11-01 — PR: https://github.com/org/repo/pull/123 — Added check-only lint/test workflows.`
+
+### Notes
+
+- `REPORTS.md` and `TASK.md` are deprecated. Do not create or rely on them. Keep all task state and lightweight reports inside `TASKLIST.md` so reviewers and automation only need to look in one place.
+
+- For long-form post-mortems or extensive reports, link to a `docs/` file from the TASKLIST entry rather than creating a separate ad-hoc task/report file in the repo root.
 
 ## 2. Code Quality Standards (Polyglot)
 
@@ -73,6 +78,8 @@ This document is a concise, drop-in style and process guide for any repository i
   - Type hints; docstrings (Google or NumPy style); explicit virtualenv; deterministic tests.
 - Rust
   - Prefer `Result` with context via `anyhow`/custom errors; small modules; trait‑based boundaries.
+- Go
+  - Use `gofmt`; follow effective Go guidelines; error handling with explicit returns; keep packages small and focused.
 
 ## 3. Testing Strategy
 
@@ -126,10 +133,10 @@ This document is a concise, drop-in style and process guide for any repository i
 
 ## 10. Planning & Tasks
 
-- Planning docs: keep high‑level plan in `URGENT.md`; decisions via ADRs.
-- Tasks: ONLY `TASKLIST.md` (one per active directory). No other TODO files.
-- Outputs: paste check‑only results into PRs and check off tasks as completed.
-- Cross‑linking: every completed task must link to a `REPORTS.md` entry; every `REPORTS.md` entry must cite the task it fulfilled.
+- Planning docs: keep high‑level plan in `SPEC.md` (formerly `URGENT.md`); decisions via ADRs.
+- Tasks: ONLY `TASKLIST.md` (one per active directory). No other TODO files in the repo root — keep all task state here.
+- Outputs: paste check‑only results into PRs and update `TASKLIST.md` with completion details and a PR link.
+- Reporting: include short completion notes inline in `TASKLIST.md` (see 1.1). For longer reports, add a document under `docs/` and link to it from the task entry.
 
 ## 11. Exceptions
 
