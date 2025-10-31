@@ -114,6 +114,35 @@ async def test_complete_releases_lease_and_records_notes() -> None:
         assert persisted.completed_notes == "ok"
 
 
+async def test_checkout_prefers_high_priority_tasks() -> None:
+    async with AsyncSessionLocal() as session:
+        service = build_task_service(session)
+        low = await service.create_task(
+            title="low priority",
+            description="",
+            depends_on=(),
+            priority=1,
+        )
+        high = await service.create_task(
+            title="high priority",
+            description="",
+            depends_on=(),
+            priority=5,
+        )
+        await session.commit()
+
+        checkout = await service.checkout(Agent(agent_id="agent-e"))
+        assert checkout.task is not None
+        assert checkout.task.id == high.id
+
+        await service.complete("agent-e", checkout.task.id)
+        await session.commit()
+
+        second = await service.checkout(Agent(agent_id="agent-e"))
+        assert second.task is not None
+        assert second.task.id == low.id
+
+
 async def test_abandon_returns_task_to_pending_and_clears_lease() -> None:
     async with AsyncSessionLocal() as session:
         service = build_task_service(session)

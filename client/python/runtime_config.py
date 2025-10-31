@@ -36,6 +36,8 @@ class RuntimeConfiguration:
         ``True`` when server-side maintenance mode is enabled.
     maintenance_message:
         Optional human-readable message supplied by the operator.
+    max_heartbeats:
+        Optional upper bound on automatic heartbeats before abandoning a task.
     """
 
     heartbeat_interval: float
@@ -47,6 +49,7 @@ class RuntimeConfiguration:
     warnings: tuple[str, ...]
     maintenance_mode: bool
     maintenance_message: str | None
+    max_heartbeats: int | None
 
 
 WarningSequence = Iterable[str]
@@ -166,6 +169,7 @@ def derive_runtime_configuration(  # noqa: PLR0913 - CLI config derivation requi
     lease_settings: Mapping[str, object] | None,
     system_state: Mapping[str, object] | None = None,
     warnings: WarningSequence = (),
+    max_heartbeats: int | None = None,
 ) -> RuntimeConfiguration:
     """Derive sanitized runtime values for the interactive CLI loop."""
 
@@ -209,6 +213,19 @@ def derive_runtime_configuration(  # noqa: PLR0913 - CLI config derivation requi
         if isinstance(raw_message, str):
             maintenance_message = raw_message.strip() or None
 
+    sanitized_max_heartbeats: int | None = None
+    if max_heartbeats is not None:
+        try:
+            candidate = int(max_heartbeats)
+        except (TypeError, ValueError):
+            candidate = 0
+        if candidate <= 0:
+            all_warnings += (
+                "max heartbeats must be a positive integer; disabling auto abandonment",
+            )
+        else:
+            sanitized_max_heartbeats = candidate
+
     return RuntimeConfiguration(
         heartbeat_interval=heartbeat_interval,
         heartbeat_reason=heartbeat_reason,
@@ -219,6 +236,7 @@ def derive_runtime_configuration(  # noqa: PLR0913 - CLI config derivation requi
         warnings=all_warnings,
         maintenance_mode=maintenance_enabled,
         maintenance_message=maintenance_message,
+        max_heartbeats=sanitized_max_heartbeats,
     )
 
 

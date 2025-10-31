@@ -74,6 +74,10 @@ class TaskIn(BaseModel):
         description="Long-form task details",
     )
     depends_on: list[int] = Field(default_factory=list)
+    priority: int = Field(
+        default=0,
+        description="Higher values are checked out before lower priority tasks",
+    )
 
 
 class TaskUpdate(BaseModel):
@@ -89,6 +93,10 @@ class TaskUpdate(BaseModel):
     )
     status: TaskStatus | None = None
     depends_on: list[int] | None = Field(default=None)
+    priority: int | None = Field(
+        default=None,
+        description="Override the task priority used during checkout",
+    )
 
 
 class TaskOut(BaseModel):
@@ -96,6 +104,7 @@ class TaskOut(BaseModel):
     title: str
     description: str
     status: TaskStatus
+    priority: int
     completed_notes: str | None = None
     depends_on: list[int] = Field(default_factory=list)
 

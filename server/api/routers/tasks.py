@@ -88,6 +88,7 @@ async def create_task(
             title=task.title,
             description=task.description,
             depends_on=task.depends_on,
+            priority=task.priority,
         )
     except MissingDependenciesError as exc:
         raise HTTPException(
@@ -122,6 +123,7 @@ async def update_task(
             description=update.description,
             status=update.status,
             depends_on=update.depends_on,
+            priority=update.priority,
         )
     except SelfDependencyError as exc:
         raise HTTPException(

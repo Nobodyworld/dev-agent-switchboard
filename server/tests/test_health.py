@@ -6,6 +6,13 @@ from fastapi.testclient import TestClient
 
 from server.app import app
 from server.observability import activity
+from server.observability.health import (
+    Gauge as ReadinessGauge,
+    _reset_readiness_metrics_for_testing,
+    describe_readiness_metrics,
+)
+
+import pytest
 
 
 def test_health_live_returns_process_check():
@@ -35,6 +42,31 @@ def test_health_ready_reports_dependencies():
     assert payload["uptime_seconds"] >= 0
     assert payload["pid"] > 0
     assert any(obs["name"] == "database" for obs in payload["observations"])
+
+
+@pytest.mark.skipif(
+    ReadinessGauge is None, reason="prometheus_client not installed"
+)
+def test_health_ready_updates_metrics_when_enabled(monkeypatch):
+    monkeypatch.setenv("SWITCHBOARD_ENABLE_METRICS", "1")
+    _reset_readiness_metrics_for_testing()
+    client = TestClient(app)
+
+    before = describe_readiness_metrics()
+    before_ok = before["probe_totals"].get("database", {}).get("ok", 0.0)
+
+    response = client.get("/health/ready")
+    assert response.status_code == HTTPStatus.OK
+
+    after = describe_readiness_metrics()
+    assert after["enabled"] is True
+    assert after["overall_status"] == pytest.approx(1.0)
+    database_ok = after["probe_totals"].get("database", {}).get("ok", 0.0)
+    assert database_ok == pytest.approx(before_ok + 1.0)
+    assert after["probe_status"]["database"] == pytest.approx(1.0)
+    assert after["probe_duration_ms"]["database"] >= 0.0
+
+    _reset_readiness_metrics_for_testing()
 
 
 def test_health_ready_returns_503_when_storage_fails():

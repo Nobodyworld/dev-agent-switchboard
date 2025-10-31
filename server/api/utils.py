@@ -27,6 +27,7 @@ def task_record_to_out(task: TaskRecord) -> TaskOut:
         title=task.title,
         description=task.description,
         status=task.status,
+        priority=task.priority,
         completed_notes=task.completed_notes,
         depends_on=list(task.depends_on),
     )
