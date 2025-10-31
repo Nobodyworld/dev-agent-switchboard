@@ -133,7 +133,7 @@ We standardize on a single file for tasks and lightweight reporting: `TASKLIST.m
 
 ## 10. Planning & Tasks
 
-- Planning docs: keep high‑level plan in `SPEC.md` (formerly `URGENT.md`); decisions via ADRs.
+- Planning docs: keep high‑level plan in `SPEC.md`; decisions via ADRs.
 - Tasks: ONLY `TASKLIST.md` (one per active directory). No other TODO files in the repo root — keep all task state here.
 - Outputs: paste check‑only results into PRs and update `TASKLIST.md` with completion details and a PR link.
 - Reporting: include short completion notes inline in `TASKLIST.md` (see 1.1). For longer reports, add a document under `docs/` and link to it from the task entry.
