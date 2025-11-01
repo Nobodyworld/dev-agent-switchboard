@@ -27,7 +27,7 @@ _Last updated: 2025-02-15_
 | `web/` | HTMX/Tailwind dashboard assets and templates. | Build pipeline absent; adopt Prettier/Tailwind lint to prevent drift. |
 | `ops/` | Docker Compose, deployment manifests. | Ensure Compose reflects production topology; currently SQLite-only. |
 | `scripts/` | Utility scripts for running services/tests. | Some scripts stale (e.g., `run_pytest.py` vs Make targets); evaluate consolidation. |
-| `docs/` & `REPORTS/` | ADRs, migration notes, archival reports. | Deduplicate authoritative sources vs. historical artifacts. |
+| `docs/` (architecture/guides/reports) | ADRs, migration notes, archival reports. | Deduplicate authoritative sources vs. historical artifacts. |
 
 ### Data Flows
 1. **Agent lifecycle** — `POST /api/agents` registers clients, returning lease cadence; `POST /api/tasks/checkout` issues work conditioned on dependencies stored in `tasks`/`task_dependencies` tables; `POST /api/tasks/{id}/heartbeat` extends leases; `POST /api/tasks/{id}/complete` records completion and increments plan version.
@@ -105,7 +105,7 @@ flowchart TD
 - **Runtime schema mutations** — Startup lifespan executes raw `ALTER TABLE` for `completed_notes`; replace with Alembic revision and migration smoke test.
 - **Mutable global config** — Rate limit middleware caches env-derived settings globally; tests manipulating env vars may leak state between runs.
 - **Client shims duplication** — Root `switchboard_client.py`/`switchboard_cli.py` mirror package entry points; plan staged deprecation with import compatibility layer.
-- **Legacy artifacts** — `REPORTS/` and older scripts appear archival; verify references prior to pruning to avoid breaking governance audit trails.
+- **Legacy artifacts** — `docs/reports/case-files/legacy/` and older scripts appear archival; verify references prior to pruning to avoid breaking governance audit trails.
 - **Instrumentation guards** — Optional logging/metrics modules rely on `try/except ImportError`; provide typed fallbacks to eliminate hidden failures.
 - **UI asset drift** — Tailwind/HTMX assets lack build validation; add Prettier/ESLint/Stylelint to catch regressions.
 
@@ -140,7 +140,7 @@ flowchart TD
 | 10 | **DX Improvements** | Reduces onboarding friction, codifies workflows. | Governance baseline |
 
 ## Additional Observations
-- README, ARCHITECTURE.md, and MIGRATION.md partially overlap with REPORT/PLAN; consolidate into canonical architecture + operational guides to avoid drift.
+- README, `docs/architecture/architecture.md`, and `docs/guides/migration.md` partially overlap with the operations report and plan guides; consolidate into canonical architecture + operational guides to avoid drift.
 - Observability scaffolding exists but lacks explicit configuration tests — instrumentation modules should expose typed factories and fail fast when optional deps missing.
-- STATUS.md must be updated after every PR with summary + next steps per directive.
+- `docs/reports/status.md` must be updated after every PR with summary + next steps per directive.
 - Introduce ADRs for architectural shifts (e.g., app factory, settings system) to capture rationale and keep modernization traceable.

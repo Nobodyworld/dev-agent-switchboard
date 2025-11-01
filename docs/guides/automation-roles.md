@@ -10,7 +10,7 @@ Switchboard stewardship tooling.
   `reports/perf_metrics.json`; file follow-up tasks if coverage or complexity
   regress.【F:scripts/audit_metrics.py†L1-L220】【F:reports/system_metrics.json†L1-L16】
 - **Artifacts** – Updated metrics in `reports/` plus appended notes in
-  `STEWARDS_REPORT.md`.
+  `docs/reports/stewards-report.md`.
 
 ## Schema Custodian
 - **Trigger** – Whenever API payloads change (e.g., new fields in
@@ -30,8 +30,8 @@ Switchboard stewardship tooling.
 
 ## Documentation Curator
 - **Trigger** – Onboarding new agents or delivering releases.
-- **Actions** – Ensure `AUTOMATION.md`, `RELEASE_NOTES.md`, and
-  `STEWARDS_REPORT.md` reflect the latest tooling; verify coverage thresholds and
-  automation entry points remain consistent.【F:AUTOMATION.md†L1-L80】【F:RELEASE_NOTES.md†L1-L80】【F:STEWARDS_REPORT.md†L1-L120】
+- **Actions** – Ensure `docs/guides/automation.md`, `RELEASE_NOTES.md`, and
+  `docs/reports/stewards-report.md` reflect the latest tooling; verify coverage thresholds and
+  automation entry points remain consistent.【F:docs/guides/automation.md†L1-L80】【F:RELEASE_NOTES.md†L1-L80】【F:docs/reports/stewards-report.md†L1-L120】
 - **Artifacts** – Updated documentation with explicit references to agent-safe
   tasks (# agent-entrypoint / # agent-safe-task markers).

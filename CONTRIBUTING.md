@@ -34,7 +34,7 @@ Participation in this project is governed by our [Code of Conduct](CODE_OF_CONDU
 - Update [docs/cli-runtime.md](docs/cli-runtime.md) when CLI behaviour or
   runtime summaries change so operators have accurate guidance.
 - Record dependency upgrades, removals, or new packages in
-  [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) and ensure licenses remain
+  [docs/dependencies.md](docs/dependencies.md) and ensure licenses remain
   compatible with the proprietary Switchboard distribution.
 - Mention documentation updates in your pull request description to keep
   reviewers aware of parallel doc changes.
@@ -110,8 +110,8 @@ If you discover a vulnerability, please follow our [Security Policy](SECURITY.md
 
 ## Support
 
-Questions about setup or day-to-day usage should go to [SUPPORT.md](SUPPORT.md).
+Questions about setup or day-to-day usage should go to [the support playbook](docs/guides/support.md).
 
 We appreciate your contributions and look forward to collaborating with you! If
-you are developing automation or agent tooling, consult `AUTOMATION.md` and
-`EXTENSION_GUIDE.md` before integrating with production systems.
+you are developing automation or agent tooling, consult `docs/guides/automation.md` and
+`docs/guides/extension-guide.md` before integrating with production systems.

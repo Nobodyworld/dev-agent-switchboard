@@ -28,7 +28,7 @@ We request a 90-day embargo period to investigate, patch, and release a fix. If 
 
 ## Dependency Security
 
-The [Dependency & License Audit](docs/DEPENDENCIES.md) tracks the packages used
+The [Dependency & License Audit](docs/dependencies.md) tracks the packages used
 by both the server and Python client. When reporting a vulnerability in a
 third-party library, please reference the package name and version pinned in
 that document so we can cross-check impact quickly. CI runs `pip-audit` on every

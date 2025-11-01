@@ -18,7 +18,7 @@ tags:
 
 # Switchboard Architecture Overview
 
-Switchboard is composed of a FastAPI backend, a lightweight web UI, and Python tooling for agents. This document builds on the repository-wide overview in [ARCHITECTURE.md](../ARCHITECTURE.md) with extra detail targeted at contributors who need to trace execution paths or extend the platform.
+Switchboard is composed of a FastAPI backend, a lightweight web UI, and Python tooling for agents. This document builds on the repository-wide overview in [architecture/architecture.md](architecture/architecture.md) with extra detail targeted at contributors who need to trace execution paths or extend the platform.
 
 ## Server Layout (`server/`)
 

@@ -41,10 +41,10 @@
 - **Tooling:** Ruff, Black, mypy; CI via GitHub workflows (`Makefile`, `ops/` config, `mypy.ini`).
 
 ## Documentation Status
-- Comprehensive top-level guides: `README.md`, `ARCHITECTURE.md`, `docs/index.md`, and status reports (`REPORTS/*.md`).
+- Comprehensive top-level guides: `README.md`, `docs/architecture/architecture.md`, `docs/index.md`, and status reports stored under `docs/reports/`.
 - Documentation portal uses YAML front matter and navigation metadata (`docs/_meta/navigation.yaml`).
-- Detailed API references (`docs/AI_INTERFACE.md`, `docs/message-schema.md`), testing report, and task backlog maintained in `TASKSLIST.md`.
-- Additional operational docs: `SUPPORT.md`, `STATUS.md`, `PROJECT_STATUS.md`, `IMPLEMENTATION_NOTES.md`.
+- Detailed API references (`docs/ai-interface.md`, `docs/message-schema.md`), testing report, and task backlog maintained in `TASKLIST.md`.
+- Additional operational docs: `docs/guides/support.md`, `docs/reports/status.md`, `docs/reports/project-status.md`, `docs/guides/implementation-notes.md`.
 
 ## Current Pain Points & TODOs
 - **Runtime Migration:** `server/app.py` performs an inline schema migration for `completed_notes`; needs formal Alembic revision to eliminate startup DDL.
@@ -52,7 +52,7 @@
 - **WebSocket Monitoring:** TODO to record connection metadata and simulate slow consumers (`server/app.py`, `server/tests/test_plan_broadcaster_unit.py`).
 - **Repository Tests:** Legacy tests relied on `asyncio.run` and shared filesystem state; TODOs indicated migration to pytest-asyncio and temp directories (resolved — the suite now runs coroutine tests natively and isolates live file storage per test).
 - **UI Responsiveness:** `web/static/styles.css` notes mobile layout TODO; `web/static/app.js` highlights planned performance/backoff improvements.
-- **Backlog Items:** Queue prioritization, Prometheus health metrics, and improved runner abandonment workflow remain open in `TASKSLIST.md`.
+- **Backlog Items:** Queue prioritization, Prometheus health metrics, and improved runner abandonment workflow remain open in `TASKLIST.md`.
 
 ## Quality & Operations Snapshot
 - **Testing:** `Makefile` includes lint/test targets; root `tests/` cover client/CLI while `server/tests/` exercise domain logic (pending modernization per TODOs).
@@ -63,4 +63,4 @@
 ## Immediate Opportunities
 - Prioritize schema migration tooling and rate-limit tightening to reduce runtime risk.
 - Invest in async-native tests and WebSocket backpressure simulations to harden concurrency behavior.
-- Produce missing docs (UI customization, deployment playbooks, automation examples) flagged in `docs/PORTAL_STATUS.md` to close onboarding gaps.
+- Produce missing docs (UI customization, deployment playbooks, automation examples) flagged in `docs/portal-status.md` to close onboarding gaps.

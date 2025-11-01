@@ -2,6 +2,7 @@ import asyncio
 from http import HTTPStatus
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from server.app import app
@@ -11,8 +12,6 @@ from server.observability.health import (
     _reset_readiness_metrics_for_testing,
     describe_readiness_metrics,
 )
-
-import pytest
 
 
 def test_health_live_returns_process_check():

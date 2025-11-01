@@ -3,14 +3,18 @@
 import pytest
 
 from server.settings import (
+    ENABLE_BUILTIN_EXTENSIONS_ENV,
+    EXTENSION_MODULES_ENV,
     LEASE_SECONDS_ENV,
     RATE_LIMIT_REQUESTS_ENV,
     RATE_LIMIT_WINDOW_ENV,
+    ExtensionConfigurationError,
     LeaseConfigurationError,
     RateLimitConfigurationError,
     get_lease_settings,
     get_rate_limit_settings,
     get_settings_bundle,
+    reload_extension_settings,
     reload_lease_settings,
     reload_rate_limit_settings,
     reload_settings_bundle,
@@ -104,3 +108,25 @@ def test_lease_duration_helper_reflects_configuration(monkeypatch):
     finally:
         monkeypatch.delenv(LEASE_SECONDS_ENV, raising=False)
         reload_lease_settings()
+
+
+def test_extension_list_requires_valid_module_paths(monkeypatch):
+    monkeypatch.setenv(EXTENSION_MODULES_ENV, "valid.module, invalid module")
+    with pytest.raises(ExtensionConfigurationError):
+        reload_extension_settings()
+    monkeypatch.setenv(EXTENSION_MODULES_ENV, "extensions.custom,extensions.custom")
+    settings = reload_extension_settings()
+    assert settings.modules == ("extensions.custom",)
+    monkeypatch.delenv(EXTENSION_MODULES_ENV, raising=False)
+    reload_extension_settings()
+
+
+def test_builtin_toggle_respects_truthy_values(monkeypatch):
+    monkeypatch.setenv(ENABLE_BUILTIN_EXTENSIONS_ENV, "off")
+    settings = reload_extension_settings()
+    assert settings.enable_builtin is False
+    monkeypatch.setenv(ENABLE_BUILTIN_EXTENSIONS_ENV, "TRUE")
+    settings = reload_extension_settings()
+    assert settings.enable_builtin is True
+    monkeypatch.delenv(ENABLE_BUILTIN_EXTENSIONS_ENV, raising=False)
+    reload_extension_settings()

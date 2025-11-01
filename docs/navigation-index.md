@@ -53,7 +53,7 @@ Switchboard is intentionally modular:
   web dashboard keep operators informed and in control.
 
 See [Architecture](architecture.md) for diagrams and deeper discussion, and
-consult the top-level [Architecture Overview](../ARCHITECTURE_OVERVIEW.md) for a
+consult the top-level [Architecture Overview](architecture/architecture-overview.md) for a
 component map of the updated extension pipeline.
 
 ## Message Schema
@@ -138,17 +138,17 @@ Follow these steps to process a task locally:
 ## Additional Resources
 
 - [Architecture](architecture.md)
-- [Architecture Overview](../ARCHITECTURE_OVERVIEW.md)
+- [Architecture overview](architecture/architecture-overview.md)
 - [Message Schema](message-schema.md)
 - [Failure Modes](failure-modes.md)
 - [CLI Runtime Guide](cli-runtime.md)
-- [Extension Guide](../EXTENSION_GUIDE.md)
-- [Automation Handbook](../AUTOMATION.md)
+- [Extension guide](guides/extension-guide.md)
+- [Automation handbook](guides/automation.md)
 - [Incident Response Runbook](incident-response.md)
 - [Future-Proofing Guide](future-proofing.md)
-- [Dependency & License Audit](DEPENDENCIES.md)
+- [Dependency & License Audit](dependencies.md)
 - [README](../README.md)
 - [CHANGELOG](../CHANGELOG.md)
-- [Task Backlog](../TASKSLIST.md)
+- [Task Backlog](../TASKLIST.md)
 
-For historical documents that have not yet been migrated, see `docs/INDEX.md`.
+For historical documents that have not yet been migrated, see [`docs/history/`](history/) and [`archive/`](../archive/).

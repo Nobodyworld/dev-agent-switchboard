@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- Directory-level `README.md` files for `archive/`, `client/`, `docs/`, `ops/`,
+  `reports/`, `scripts/`, `server/`, `tests/`, and `web/` to document the
+  reorganized structure and cross-link core references.
+- Additional configuration validation tests covering extension module overrides
+  and builtin toggle parsing.
 - `/api/health`, `/api/observability/telemetry`, and `/api/observability/metrics`
   endpoints delivering JSON health envelopes, telemetry state, and analytics
   catalogues aligned with the observability runbook.
@@ -62,7 +67,7 @@
 - Diagnostics version loader cache plus `clear_required_versions_cache()` helper
   with coverage to support deterministic diagnostics testing.
 - Extension runtime under `server/extensions/` with builtin Prometheus task
-  metrics hook and documentation in `EXTENSION_GUIDE.md`.
+  metrics hook and documentation in `docs/guides/extension-guide.md`.
 - Plan observer contract with builtin `plan_metrics` extension and
   `server/observability/metrics.py` helper emitting Prometheus gauges for
   task analytics after each broadcast.
@@ -77,22 +82,31 @@
   `bump-version` subcommands used by the Makefile and CI pipeline.
 - `server/observability/runtime.py` captures process uptime, deployment
   metadata, and powers enriched health responses.
-- Architecture, automation, and incident response documentation (`ARCHITECTURE_OVERVIEW.md`,
-  `AUTOMATION.md`, `docs/incident-response.md`).
+- Architecture, automation, and incident response documentation (`docs/architecture/architecture-overview.md`,
+  `docs/guides/automation.md`, `docs/incident-response.md`).
 - Extension loader regression tests exercise explicit module loading,
   missing-registrar warnings, and error handling to backstop the new coverage
   thresholds.
 - Stewardship metrics CLI `scripts/audit_metrics.py` exports coverage, complexity, and dependency depth summaries to `reports/system_metrics.json` for automation and reporting.
 - `/health/live` and `/health/ready` endpoints expose liveness and readiness probes via the new `HealthStatus` schema.
 - `scripts/local_runner.py` provides a reference agent loop that registers, heartbeats, and optionally completes tasks.
-- Documentation hub at `docs/index.md`, message schema reference, failure modes guide, and [TASKSLIST.md](TASKSLIST.md) backlog enumerating follow-up work.
+- Documentation hub at `docs/index.md`, message schema reference, failure modes guide, and [TASKLIST.md](TASKLIST.md) backlog enumerating follow-up work.
 - `/api/settings` endpoint exposing rate limit and lease configuration for operators and clients.
 - Python CLI now fetches server settings and adjusts heartbeat intervals that would outlive the lease duration.
-- CLI runtime summary output with accompanying [docs/cli-runtime.md](docs/cli-runtime.md) walkthrough plus the dependency audit in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
+- CLI runtime summary output with accompanying [docs/cli-runtime.md](docs/cli-runtime.md) walkthrough plus the dependency audit in [docs/dependencies.md](docs/dependencies.md).
 - Hardened developer helper scripts: `scripts/run_pytest.py` now shells directly into pytest, while `scripts/run_uvicorn.py` starts uvicorn via the library API and binds to loopback by default for safer local testing.
 - Coverage workflow captured in `coverage.txt` to document current package-level coverage baselines.
 
 ### Changed
+- Renamed legacy documentation to lowercase paths (`docs/ai-interface.md`,
+  `docs/dependencies.md`, `docs/navigation-index.md`, `docs/portal-status.md`)
+  and updated cross-links across README, docs navigation, and contributor
+  guides.
+- Refreshed `README.md`, `SPEC.md`, and `STYLE-GUIDE.md` to reflect the cleaned
+  repository layout, highlight canonical references, and summarise workflow
+  expectations.
+- Consolidated documentation into purpose-driven directories (`docs/architecture/`, `docs/guides/`, `docs/reports/`, `docs/history/`) and moved historical reports plus plan artifacts out of the repository root for faster navigation.
+- Normalised `reports/` to store only machine-generated metrics, relocating prose narratives to `docs/reports/` and archiving the plan endpoint patch under `archive/patches/`.
 - Extension contract bumped to **2025.3** with backwards-compatible context
   injection for task hooks and plan observers when opting into the new
   dataclasses.
@@ -147,7 +161,7 @@
   resolution.
 - README now introduces Switchboard via What/Why/How framing, highlights the local runner, and documents new health probes.
 - Module docstrings across `server/` and the Python client follow NumPy style for consistent parameter/return documentation.
-- Existing `docs/architecture.md` expanded with application/service context, while `docs/INDEX.md` links to the new documentation hub.
+- Existing `docs/architecture.md` expanded with application/service context, while `docs/navigation-index.md` links to the new documentation hub.
 - License replaced with the Switchboard Proprietary notice reflecting the project's closed-source status.
 - Lease duration parsing raises clearer "positive integer" errors and is validated during FastAPI startup, logging the active configuration.
 - Settings caching now exposes an aggregated bundle so `/api/settings` and startup logging read a single coherent snapshot while cache reloads keep the views in sync.
@@ -164,6 +178,9 @@
 - Deprecated `server/interfaces.py` dataclasses in favour of the canonical Pydantic schemas in `server/schema.py`.
 
 ### Fixed
+- Extension configuration parsing now validates dotted module paths and dedupes
+  entries when loading `SWITCHBOARD_EXTENSIONS`, preventing misconfigured
+  overrides from silently passing through startup.
 - Observability telemetry tests install stubbed instrumentation helpers that
   accept the same keyword arguments as production setup routines, restoring
   compatibility with stricter Ruff rules.
@@ -199,8 +216,8 @@
 ## 2024-10-19 — Adaptive Perfection Update
 
 ### Added
-- `REPORTS/000_CONTEXT.md`, `001_DIAGNOSIS.md`, and `002_VERIFICATION.md` capture environment, diagnostic, and testing details.
-- `ARCHITECTURE.md` overview and `docs/AI_INTERFACE.md` describing agent integration points.
+- `docs/reports/case-files/legacy/000_CONTEXT.md`, `001_DIAGNOSIS.md`, and `002_VERIFICATION.md` capture environment, diagnostic, and testing details.
+- `docs/architecture/architecture.md` overview and `docs/ai-interface.md` describing agent integration points.
 - `.env.example` and `LICENSE` to document configuration defaults and licensing terms.
 - `tests/conftest.py` to ensure the project root is importable during pytest collection.
 - `tests/test_settings_validation.py` covering rate limit configuration parsing.
