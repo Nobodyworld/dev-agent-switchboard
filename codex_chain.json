@@ -36,7 +36,7 @@
     {
       "id": 7,
       "name": "Audit Dependencies & Security",
-      "prompt": "Review all dependencies for necessity, version safety, and license compliance. Replace vulnerable or outdated packages. Document reasoning in /docs/DEPENDENCIES.md. Goal: secure and transparent dependency graph."
+      "prompt": "Review all dependencies for necessity, version safety, and license compliance. Replace vulnerable or outdated packages. Document reasoning in /docs/dependencies.md. Goal: secure and transparent dependency graph."
     },
     {
       "id": 8,

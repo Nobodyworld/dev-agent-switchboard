@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -15,6 +16,10 @@ class RateLimitConfigurationError(ValueError):
 
 class LeaseConfigurationError(ValueError):
     """Raised when lease environment variables are invalid."""
+
+
+class ExtensionConfigurationError(ValueError):
+    """Raised when extension environment variables are invalid."""
 
 
 RATE_LIMIT_REQUESTS_ENV = "SWITCHBOARD_RATE_LIMIT_REQUESTS"
@@ -30,6 +35,11 @@ ENABLE_BUILTIN_EXTENSIONS_ENV = "SWITCHBOARD_ENABLE_BUILTIN_EXTENSIONS"
 _DEFAULT_REQUESTS = 120
 _DEFAULT_WINDOW_SECONDS = 60
 _DEFAULT_LEASE_SECONDS = 300
+
+
+_EXTENSION_NAME_PATTERN = re.compile(
+    r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*"
+)
 
 
 @dataclass(frozen=True)
@@ -97,6 +107,8 @@ def _parse_int(
 
 
 def _parse_trusted(raw: str | None) -> frozenset[str]:
+    """Return a normalised set of comma-separated hostnames or networks."""
+
     if not raw:
         return frozenset()
     items = [item.strip() for item in raw.split(",")]
@@ -104,13 +116,20 @@ def _parse_trusted(raw: str | None) -> frozenset[str]:
 
 
 def _parse_extensions(raw: str | None) -> tuple[str, ...]:
+    """Parse a comma-separated list of Python module paths for extensions."""
+
     if not raw:
         return ()
-    modules = []
+    modules: list[str] = []
     for entry in raw.split(","):
         candidate = entry.strip()
         if not candidate:
             continue
+        if not _EXTENSION_NAME_PATTERN.fullmatch(candidate):
+            raise ExtensionConfigurationError(
+                "Extension module names must be importable dotted paths; "
+                f"got {candidate!r}."
+            )
         if candidate not in modules:
             modules.append(candidate)
     return tuple(modules)

@@ -3,18 +3,18 @@ sections:
     description: "Orient new contributors and provide high-level entry points."
     items:
       - title: "Documentation Index"
-        path: "docs/INDEX.md"
+        path: "docs/navigation-index.md"
         summary: "Complete map of Switchboard documentation with module responsibilities and onboarding flow."
         keywords: ["index", "map", "overview"]
       - title: "Architecture Deep Dive"
-        path: "docs/architecture.md"
+        path: "docs/architecture/architecture.md"
         summary: "Expanded explanation of backend, client, and UI components."
         keywords: ["architecture", "fastapi", "client"]
   - title: "Agents & Automation"
     description: "Teach human and autonomous agents how to interact with Switchboard."
     items:
       - title: "AI Interface Guide"
-        path: "docs/AI_INTERFACE.md"
+        path: "docs/ai-interface.md"
         summary: "REST, WebSocket, and Python SDK reference for agents."
         keywords: ["api", "websocket", "python"]
       - title: "CLI Runtime Guide"
@@ -51,10 +51,10 @@ sections:
         summary: "Coverage status and ongoing reliability work."
         keywords: ["testing", "reliability"]
       - title: "Documentation Improvement Report"
-        path: "docs/PORTAL_STATUS.md"
+        path: "docs/portal-status.md"
         summary: "Snapshot of portal upgrades and remaining documentation backlog."
         keywords: ["documentation", "report"]
       - title: "Dependency & License Audit"
-        path: "docs/DEPENDENCIES.md"
+        path: "docs/dependencies.md"
         summary: "Catalog of runtime and tooling dependencies with license notes."
         keywords: ["dependencies", "licenses", "security"]

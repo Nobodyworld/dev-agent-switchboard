@@ -1970,3 +1970,68 @@ documentation that codifies upgrade paths and operational playbooks.
   dependencies.
 - CLI tooling leverages standard library modules only; no new runtime dependencies.
 
+
+
+# Repository cleanup and information architecture refresh
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Reduce root-level clutter, group documentation and reports into predictable directories, and refresh contributor wayfinding so the project reflects contemporary Python repository conventions. Preserve required root artefacts (`README.md`, `LICENSE`, `SPEC.md`, `STYLE-GUIDE.md`, `TASKLIST.md`) while consolidating historical material into `docs/` and `archive/`.
+
+## Progress
+
+- [x] Review and update the canonical task list.
+- [x] Restructure documentation and reports into coherent subdirectories.
+- [x] Refresh contributor guidance (`README.md`, `CONTRIBUTING.md`) to match the new layout.
+- [x] Validate repository hygiene (gitignore, changelog, summaries).
+
+## Surprises & Discoveries
+
+- The legacy task completion links pointed to a non-existent `REPORTS.md` anchor, so completion notes now reference the consolidated operations report instead of dangling fragments.
+
+## Decision Log
+
+- Adopted a four-pillar documentation structure (`architecture`, `guides`, `reports`, `history`) to keep future additions organized without reintroducing root clutter.
+- Archived the standalone plan patch under `archive/patches/` while keeping historical narratives under `docs/history/` to preserve provenance without bloating the root directory.
+
+## Context and Orientation
+
+- Legacy documentation currently lives alongside metadata in the repository root (`ARCHITECTURE.md`, `AUTOMATION.md`, etc.).
+- Reports are split between `REPORTS/` (Markdown narratives) and `reports/` (metrics JSON/TXT mixed with prose).
+- Scripts and application code already live under `scripts/`, `server/`, `client/`, and `web/`.
+
+## Plan of Work
+
+1. Normalize the task tracker and ensure it stays rooted at the top level under the expected filename.
+2. Create targeted documentation subdirectories (`docs/architecture/`, `docs/guides/`, `docs/reports/`, `docs/history/`) and move or rename markdown assets accordingly.
+3. Migrate legacy reports and patches into `docs/` or `archive/` as appropriate, trimming duplicates and clarifying purpose.
+4. Update the primary onboarding docs (README, CONTRIBUTING) and changelog entries to reflect the new structure and navigation paths.
+
+## Concrete Steps
+
+1. Rename `TASKSLIST.md` to `TASKLIST.md`, clean up encoding artefacts, and confirm completed items remain documented.
+2. Create new documentation subdirectories and move markdown sources, renaming files to consistent kebab-case names; relocate the patch file into `archive/patches/`.
+3. Consolidate `REPORTS/` content into the new `docs/reports/` tree and move prose reports out of `reports/`, leaving metrics artefacts behind.
+4. Sweep the repository for references to old paths and update cross-links in README, docs index files, and contributor guides.
+5. Refresh `.gitignore` only if new temporary directories emerge, update `CHANGELOG.md` with a summary, and review the project layout for lingering stragglers.
+
+## Validation and Acceptance
+
+- Repository root contains only active metadata, configuration, task tracker, and package entry points.
+- Documentation index and README accurately describe the new structure and link to relocated files.
+- `reports/` houses only machine-generated metrics or data artefacts; narrative reports live under `docs/`.
+- `git status` is clean after running through restructured layout (no orphaned duplicates).
+
+## Idempotence and Recovery
+
+- Moves are handled with `git mv`, enabling straightforward reversion if a path proves problematic.
+- Historical files remain intact under `docs/history/` or `archive/`, ensuring provenance without cluttering the root.
+
+## Outcomes & Retrospective
+
+- Repository navigation is significantly cleaner: the root now contains only active metadata, code, configuration, and the canonical task tracker, while documentation lives under purpose-specific subdirectories.
+- README, CONTRIBUTING, and the changelog reflect the new layout, giving contributors a single source of truth for where to find architecture guides, operations reports, and historical artifacts.

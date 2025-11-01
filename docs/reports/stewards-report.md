@@ -20,11 +20,11 @@
 - Removed the unused `server/interfaces.py` dataclasses and updated documentation to reference the canonical Pydantic models, reducing maintenance drag and eliminating zero-coverage modules from the suite.【F:docs/index.md†L4-L28】【F:docs/message-schema.md†L1-L120】
 - Regenerated stewardship assets (`reports/system_metrics.json`, `reports/complexity.txt`, `reports/perf_metrics.json`) via the new audit script so future runs have baselines committed in-repo.【F:reports/system_metrics.json†L1-L16】【F:reports/complexity.txt†L1-L20】【F:reports/perf_metrics.json†L1-L5】
 - Collapsed duplicate Prometheus gauge creation into `_GAUGE_SPECS`, shrinking boilerplate in `server/observability/metrics.py` and clarifying how analytics observers extend instrumentation.【F:server/observability/metrics.py†L1-L200】
-- Updated automation docs, Makefile coverage gates, and release guidance to point at the refreshed tooling and revised coverage thresholds, keeping human and agent workflows synchronized.【F:AUTOMATION.md†L35-L60】【F:Makefile†L37-L55】【F:RELEASE_NOTES.md†L1-L80】
+- Updated automation docs, Makefile coverage gates, and release guidance to point at the refreshed tooling and revised coverage thresholds, keeping human and agent workflows synchronized.【F:docs/guides/automation.md†L35-L60】【F:Makefile†L37-L55】【F:RELEASE_NOTES.md†L1-L80】
 
 ## Knowledge & Automation Enhancements
 - `scripts/audit_metrics.py` surfaces JSON metrics for downstream agents; the CLI emits machine-readable data suitable for dashboards or stewardship bots.【F:scripts/audit_metrics.py†L1-L220】【F:reports/system_metrics.json†L1-L16】
-- `AUTOMATION.md` now enumerates the audit script so automation runners discover it alongside the existing dev tooling.【F:AUTOMATION.md†L35-L60】
+- `docs/guides/automation.md` now enumerates the audit script so automation runners discover it alongside the existing dev tooling.【F:docs/guides/automation.md†L35-L60】
 - Coverage gates across `Makefile`, `scripts/dev.py`, and `RELEASE_NOTES.md` reference the same module thresholds (extensions + diagnostics), closing the loop between CI, docs, and local workflows.【F:Makefile†L43-L55】【F:scripts/dev.py†L112-L140】【F:RELEASE_NOTES.md†L58-L80】
 
 ## Future Roadmap

@@ -63,7 +63,7 @@ incidents affecting Switchboard.
 
 1. Annotate the incident timeline in `RELEASE_NOTES.md` (under the relevant
    version) with impact, mitigation, and follow-up items.
-2. File TODO entries (with priority/effort tags) in `TASKSLIST.md` for any
+2. File TODO entries (with priority/effort tags) in `TASKLIST.md` for any
    structural improvements identified.
 3. Ensure CI runs (`make qa`) before closing the incident to verify no regressions
    were introduced during the fix. `python scripts/dev.py verify` mirrors the CI

@@ -20,7 +20,7 @@ This report captures the end-to-end documentation work completed for the Switchb
 
 ## Enhancements Completed
 
-- **Docs Portal Structure** — Added [`docs/INDEX.md`](./INDEX.md) and [`docs/_meta/navigation.yaml`](./_meta/navigation.yaml) so the documentation set exposes machine- and human-readable navigation metadata. Every Markdown file in `/docs` now includes YAML front matter with titles, summaries, tags, and search keywords.
+- **Docs Portal Structure** — Added [`docs/navigation-index.md`](./navigation-index.md) and [`docs/_meta/navigation.yaml`](./_meta/navigation.yaml) so the documentation set exposes machine- and human-readable navigation metadata. Every Markdown file in `/docs` now includes YAML front matter with titles, summaries, tags, and search keywords.
 - **Consistent Metadata** — Normalized headings and front matter across reference guides, design notes, and ExecPlans, enabling static-site tooling to render cohesive navigation and search experiences.
 - **Module-to-Guide Mapping** — Documented explicit relationships between code modules and their guides inside the Documentation Index, giving newcomers a deterministic path from files to explanations.
 - **Operational Transparency** — Re-contextualized quality and design reports under the portal so operators can trace configuration decisions (rate limiting, observability, testing posture) without leaving `/docs`.

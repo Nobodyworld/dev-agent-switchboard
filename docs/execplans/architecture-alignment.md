@@ -52,7 +52,7 @@ Clarify the server architecture by introducing explicit domain, application, and
 4. Refactor infrastructure modules (`models`, `db`, `file_store`) to implement the repository interfaces and handle SQLAlchemy, filesystem, and settings concerns.
 5. Update FastAPI endpoints to depend on the application services and ensure dependency injection flows from outer layers inward only.
 6. Refresh tests to target the new services and confirm existing API behavior remains intact.
-7. Document the new layering in `ARCHITECTURE.md`/`docs/architecture.md` and ensure README claims remain accurate.
+7. Document the new layering in `docs/architecture/architecture.md` and `docs/architecture/architecture-overview.md` and ensure README claims remain accurate.
 
 ## Concrete Steps
 

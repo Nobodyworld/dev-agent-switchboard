@@ -3,7 +3,7 @@
 ## Step 5 – Document & Explain
 - Added [docs/cli-runtime.md](../docs/cli-runtime.md) describing the CLI start-up
   flow, runtime summary, and sanitisation warnings now emitted by the CLI.
-- Authored [docs/DEPENDENCIES.md](../docs/DEPENDENCIES.md) to catalogue runtime
+- Authored [docs/dependencies.md](../docs/dependencies.md) to catalogue runtime
   and tooling dependencies along with license notes for operator review.
 - Updated `README.md`, `docs/index.md`, `CONTRIBUTING.md`, and `SECURITY.md` to
   reference the new guides and clarify where runtime and dependency
@@ -19,7 +19,7 @@
 
 ## Step 7 – Audit Dependencies & Security
 - Reviewed server and client dependency manifests, recording supported versions
-  and licenses in [docs/DEPENDENCIES.md](../docs/DEPENDENCIES.md).
+  and licenses in [docs/dependencies.md](../docs/dependencies.md).
 - Linked the audit document from `SECURITY.md` to streamline future vulnerability
   reports and keep disclosure workflows grounded in the latest package list.
 
@@ -42,7 +42,7 @@
 - Re-reviewed the repo after the documentation, CLI, and dependency updates to
   ensure the instructions in `codex_chain.json` are satisfied through Step 11.
   Recommended next follow-up: extend UI documentation to cover template and HTMX
-  patterns called out in `docs/PORTAL_STATUS.md`.
+  patterns called out in `docs/portal-status.md`.
 
 ---
 

@@ -35,6 +35,17 @@ Switchboard is a small, production‑leaning FastAPI service that:
 - **Agent Toolkit** – `client/python/switchboard_client.py` exposes a resilient HTTP client while `scripts/local_runner.py` offers an executable agent loop for local testing.
 - **Maintenance Controls** – `/api/system-state`, the CLI `switchboard-cli maintenance` command, and the web dashboard banner expose a shared maintenance mode switch with optimistic concurrency and WebSocket broadcasts so humans and agents remain in sync.
 
+## Repository Essentials
+
+- [SPEC.md](SPEC.md) captures the canonical project snapshot, governance
+  expectations, and operational defaults.
+- [STYLE-GUIDE.md](STYLE-GUIDE.md) documents the coding conventions shared by
+  the server, client, and web dashboards.
+- [TASKLIST.md](TASKLIST.md) is the authoritative backlog used to track ongoing
+  work.
+- [docs/README.md](docs/README.md) links to architecture deep dives, guides, and
+  reports grouped by purpose.
+
 ## Documentation Map
 
 Start with the [documentation hub](docs/index.md) for a curated quick start, message schema reference, and failure modes. The table below highlights common entry points:
@@ -42,17 +53,19 @@ Start with the [documentation hub](docs/index.md) for a curated quick start, mes
 | Topic | Start Here |
 | --- | --- |
 | Quick start, architecture, message schema | [docs/index.md](docs/index.md) – consolidated hub introduced in this release |
-| Legacy navigation index | [docs/INDEX.md](docs/INDEX.md) – navigation map & module reference (`docs/_meta/navigation.yaml` exposes machine-readable nav) |
-| System architecture & data flow | [ARCHITECTURE.md](ARCHITECTURE.md) – high-level narrative<br/>[docs/architecture.md](docs/architecture.md) – deeper component breakdown |
-| Operator & agent workflows | [README.md](README.md#quickstart-local) – quickstart, local runner, and CLI guidance<br/>[docs/AI_INTERFACE.md](docs/AI_INTERFACE.md) – endpoint matrix |
+| Legacy navigation index | [docs/navigation-index.md](docs/navigation-index.md) – navigation map & module reference (`docs/_meta/navigation.yaml` exposes machine-readable nav) |
+| System architecture & data flow | [docs/architecture/architecture.md](docs/architecture/architecture.md) – high-level responsibilities<br/>[docs/architecture/architecture-overview.md](docs/architecture/architecture-overview.md) – runtime topology diagrams |
+| Operator & agent workflows | [README.md](README.md#quickstart-local) – quickstart, local runner, and CLI guidance<br/>[docs/ai-interface.md](docs/ai-interface.md) – endpoint matrix |
 | Message schema details | [docs/message-schema.md](docs/message-schema.md) – serialized payloads and field definitions |
 | Failure diagnostics | [docs/failure-modes.md](docs/failure-modes.md) – detection and mitigation guide |
 | ExecPlan registry | [docs/execplan-registry-index.md](docs/execplan-registry-index.md) |
 | Rate limiting design | [docs/rate-limiting-design.md](docs/rate-limiting-design.md) |
 | Testing & quality reports | [docs/testing_report.md](docs/testing_report.md) |
-| Documentation status & backlog | [docs/PORTAL_STATUS.md](docs/PORTAL_STATUS.md) |
+| Documentation status & backlog | [docs/portal-status.md](docs/portal-status.md) |
 
-Each document now shares terminology and links back to this README so contributors can pivot between operational, architectural, and API-focused guidance without guessing where to look. The new [task backlog](TASKSLIST.md) captures follow-up work discovered during the orchestration router stabilization.
+Each document now shares terminology and links back to this README so contributors can pivot between operational, architectural, and API-focused guidance without guessing where to look. The refreshed [task backlog](TASKLIST.md) captures follow-up work discovered during the orchestration router stabilization.
+
+Documentation is grouped by purpose: architecture references live under `docs/architecture/`, contributor handbooks and runbooks live under `docs/guides/`, reports and status digests live under `docs/reports/`, and historical artifacts are tucked into `docs/history/` for posterity.
 
 ## Architecture at a Glance
 
@@ -86,7 +99,7 @@ Switchboard follows a service-plus-client architecture:
 - **Live files & ExecPlan registry** give agents durable documentation by persisting uploads to disk and serving digestible plan indexes, while the builtin `plan_metrics` observer keeps Prometheus gauges aligned with the latest plan snapshot.
 - **Observability suite (`server/observability/health.py`, `server/observability/activity.py`)** orchestrates health probes, telemetry aggregation, and the rolling audit feed so operators can diagnose issues using correlated request and trace identifiers.
 
-Operators can trace how a request moves from CLI to FastAPI to persistence by reading the matching sections in [ARCHITECTURE.md](ARCHITECTURE.md) and the annotated source files referenced above.
+Operators can trace how a request moves from CLI to FastAPI to persistence by reading the matching sections in [docs/architecture/architecture.md](docs/architecture/architecture.md) and the annotated source files referenced above.
 
 ## API Quick Reference
 
@@ -114,7 +127,7 @@ Operators can trace how a request moves from CLI to FastAPI to persistence by re
 | `/api/files/{path}` | `PUT` | Upload live documentation available under `/live/<path>`. |
 | `/ws/plan` | `GET` (WebSocket) | Stream plan version updates and deltas for UI/agent sync. |
 
-See [docs/AI_INTERFACE.md](docs/AI_INTERFACE.md) for payload schemas, curl examples, and integration tips.
+See [docs/ai-interface.md](docs/ai-interface.md) for payload schemas, curl examples, and integration tips.
 
 ## Python Client Example
 
@@ -293,7 +306,7 @@ behavior:
 * Optional observability controls such as `SWITCHBOARD_LOGGING_LEVEL`,
   `SWITCHBOARD_METRICS_PATH`, and `SWITCHBOARD_TRACING_EXPORTER`.
 
-Refer to the [Architecture overview](ARCHITECTURE.md) for additional context
+Refer to the [Architecture overview](docs/architecture/architecture.md) for additional context
 on where each setting is consumed.
 
 ## Continuous Integration
@@ -394,22 +407,22 @@ python -m client.python.examples.agent_example
 - `make qa` now runs formatting, linting, typing, tests, security scans, and the
   coverage gate to mirror the CI pipeline locally.
 
-See [AUTOMATION.md](AUTOMATION.md) for agent workflows and
-[EXTENSION_GUIDE.md](EXTENSION_GUIDE.md) for custom plugin patterns.
+See [the automation handbook](docs/guides/automation.md) for agent workflows and
+[the extension guide](docs/guides/extension-guide.md) for custom plugin patterns.
 
 ## Community & Governance
 
 - [CODE_OF_CONDUCT](CODE_OF_CONDUCT.md)
 - [CONTRIBUTING](CONTRIBUTING.md)
 - [SECURITY](SECURITY.md)
-- [SUPPORT](SUPPORT.md)
-- [STATUS](STATUS.md)
-- [PLAN](PLAN.md) – modernization roadmap
-- [REPORT](REPORT.md) – system overview and risk hotspots
+- [Support playbook](docs/guides/support.md)
+- [Status digest](docs/reports/status.md)
+- [Modernization roadmap](docs/guides/plan-operations.md)
+- [Operations report](docs/reports/operations-report.md)
 - [renovate.json](renovate.json) – automated dependency updates
-- [Architecture Overview](ARCHITECTURE_OVERVIEW.md)
-- [Extension Guide](EXTENSION_GUIDE.md)
-- [Automation Handbook](AUTOMATION.md)
+- [Architecture overview](docs/architecture/architecture-overview.md)
+- [Extension guide](docs/guides/extension-guide.md)
+- [Automation handbook](docs/guides/automation.md)
 - [Observability Playbook](docs/observability.md)
 
 ## Observability (Logging, Metrics, Tracing)

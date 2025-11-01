@@ -20,9 +20,9 @@ _Last updated: 2025-02-15_
    - _Exit criteria_: Benchmarks produce baseline, resilience tests cover retries/timeouts, migrations run without runtime DDL.
 6. **M6 – Releases & Developer Experience (Weeks 6–7)**
    - Automate releases, bootstrap scripts, final documentation and STATUS hand-off.
-   - _Exit criteria_: Semantic release dry-run executed, onboarding guide validated by fresh-clone test, STATUS.md finalized.
+  - _Exit criteria_: Semantic release dry-run executed, onboarding guide validated by fresh-clone test, `docs/reports/status.md` finalized.
 
-Each milestone is composed of parallelizable workstreams; tasks specify tags, prerequisites, and rollback strategies. Update `STATUS.md` after every merged PR.
+Each milestone is composed of parallelizable workstreams; tasks specify tags, prerequisites, and rollback strategies. Update `docs/reports/status.md` after every merged PR.
 
 ---
 
@@ -126,11 +126,11 @@ _Objective_: Make type errors impossible to merge and codify module boundaries f
 
 #### Workstream: Code Health & Modularization
 - **Task M2.HEALTH.1 – Remove dead code & consolidate shims** `[tags: DX]`
-  - _Goal_: Audit `REPORTS/`, unused scripts, redundant CLI shims; remove or mark deprecated with warnings + CHANGELOG entries.
+  - _Goal_: Audit `docs/reports/`, unused scripts, redundant CLI shims; remove or mark deprecated with warnings + CHANGELOG entries.
   - _Acceptance Criteria_: No imports reference removed modules; CHANGELOG updated; clients unaffected.
   - _Blast Radius_: Packaging/distribution.
   - _Rollback Plan_: Restore removed assets from history.
-  - _Prerequisites_: REPORT/PLAN highlight (complete M1 to ensure documentation references updated).
+  - _Prerequisites_: Operations report/plan highlights (complete M1 to ensure documentation references updated).
   - _Blockers_: Validate external consumers before removal.
   - _Status_: Planned.
 - **Task M2.HEALTH.2 – Introduce app factory & module boundaries** `[tags: reliability, performance]`
@@ -257,7 +257,7 @@ _Objective_: Ensure Switchboard degrades gracefully under load and supports pred
 #### Workstream: Benchmarking & Capacity Planning
 - **Task M5.RES.3 – Introduce performance benchmarks & load profiles** `[tags: performance, testing]`
   - _Goal_: Add `pytest-benchmark` or `asv` suite for checkout/heartbeat throughput; script to produce load report.
-  - _Acceptance Criteria_: Benchmarks runnable locally/CI (optional); baseline numbers stored in REPORTS/benchmarks with commentary.
+  - _Acceptance Criteria_: Benchmarks runnable locally/CI (optional); baseline numbers stored in `reports/benchmarks/` with commentary.
   - _Blast Radius_: Tests only.
   - _Rollback Plan_: Remove benchmark suite.
   - _Prerequisites_: M3.TEST.1 infrastructure.
@@ -297,9 +297,9 @@ _Objective_: Deliver a polished, reproducible developer experience and automated
   - _Status_: Planned.
 
 #### Workstream: Final Audit & Hand-off
-- **Task M6.DOC.1 – STATUS.md final update & recommendations** `[tags: docs]`
+- **Task M6.DOC.1 – Status digest final update & recommendations** `[tags: docs]`
   - _Goal_: Summarize modernization results, outstanding risks, recommended backlog; ensure REPORT/PLAN references aligned.
-  - _Acceptance Criteria_: STATUS.md updated post-final PR; links valid; final summary shared.
+  - _Acceptance Criteria_: `docs/reports/status.md` updated post-final PR; links valid; final summary shared.
   - _Blast Radius_: Docs only.
   - _Rollback Plan_: Revert STATUS changes.
   - _Prerequisites_: Completion of all milestones.
@@ -320,7 +320,7 @@ _Objective_: Deliver a polished, reproducible developer experience and automated
 ---
 
 ## Rollback Strategy Playbook
-- Maintain per-task revert documentation in PR descriptions and cross-link from STATUS.md.
+- Maintain per-task revert documentation in PR descriptions and cross-link from `docs/reports/status.md`.
 - Prefer additive feature flags (e.g., `ENABLE_STRUCTURED_LOGGING`, `ENABLE_UPLOAD_LIMITS`) until production soak proves stability.
 - Use Alembic downgrade scripts before merging schema-affecting changes; never rely on runtime DDL.
 - Keep `main` deployable: run `make qa` + targeted smoke tests locally before merging; document exceptions explicitly.
