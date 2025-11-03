@@ -2013,7 +2013,7 @@ Reduce root-level clutter, group documentation and reports into predictable dire
 
 ## Concrete Steps
 
-1. Rename `TASKSLIST.md` to `TASKLIST.md`, clean up encoding artefacts, and confirm completed items remain documented.
+1. Rename `TASKLIST.md` to `TASKLIST.md`, clean up encoding artefacts, and confirm completed items remain documented.
 2. Create new documentation subdirectories and move markdown sources, renaming files to consistent kebab-case names; relocate the patch file into `archive/patches/`.
 3. Consolidate `REPORTS/` content into the new `docs/reports/` tree and move prose reports out of `reports/`, leaving metrics artefacts behind.
 4. Sweep the repository for references to old paths and update cross-links in README, docs index files, and contributor guides.
