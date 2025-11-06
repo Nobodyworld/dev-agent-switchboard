@@ -191,7 +191,7 @@ The runner will register itself, lease the next task, maintain heartbeats while 
 
 ## Quickstart (Local)
 
-Requirements: Python 3.11+, Node not required. (UI is static HTML+HTMX.)
+Requirements: Python 3.11+. Node.js (v18+) is optional for the runtime but required to execute the websocket backoff pytest module.
 
 ### 1. Create & Activate a Virtual Environment
 
@@ -261,9 +261,7 @@ On Windows PowerShell:
 python .\scripts\run_uvicorn.py
 ```
 
-Unix-like shells also expose a convenience target: `make run`. (The Makefile
-uses POSIX-style activation; Windows users should rely on the Python helper
-instead.)
+Unix-like shells also expose convenience targets: `make run` or the new `make dev` alias. (The Makefile uses POSIX-style activation; Windows users should rely on the Python helper instead.)
 
 Open the admin UI: <http://localhost:8000/>
 
@@ -279,6 +277,8 @@ On Windows PowerShell:
 python .\scripts\run_pytest.py
 ```
 
+> **Node requirement:** Install Node.js v18+ to run the websocket backoff pytest module (`web/tests/test_ws_backoff.py`). The test suite skips gracefully when Node is unavailable.
+
 Unix-like shells can alternatively run `make test`. Additional quality
 automation is available through the following make targets:
 
@@ -288,6 +288,8 @@ automation is available through the following make targets:
 * `make security` — scan the server code with **bandit**.
 * `make qa` — run the full formatter, lint, type, test, and security suite.
 * `make config` — invoke `switchboard-cli config` against `$API_BASE` to inspect the live configuration snapshot.
+* `make build` — build the Docker Compose image (requires Docker).
+* `make deploy` — bring up the Docker Compose stack with `up --build --detach`.
 
 ## Configuration
 

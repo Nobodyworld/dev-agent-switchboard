@@ -2035,3 +2035,41 @@ Reduce root-level clutter, group documentation and reports into predictable dire
 
 - Repository navigation is significantly cleaner: the root now contains only active metadata, code, configuration, and the canonical task tracker, while documentation lives under purpose-specific subdirectories.
 - README, CONTRIBUTING, and the changelog reflect the new layout, giving contributors a single source of truth for where to find architecture guides, operations reports, and historical artifacts.
+
+# Stabilize websocket reconnect backoff and repository QA follow-up
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This repository implements the Switchboard service. This plan must be maintained in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+Validate the jittered websocket backoff feature end-to-end, remediate repo-level QA gaps (lint, type, security, docs), and ship comprehensive operator notes so the change can be trusted in production.
+
+## Progress
+
+- [x] Initial state captured.
+- [x] Repo audit scope enumerated.
+- [x] Baseline snapshot & dependency inventory drafted.
+- [x] Automation gaps and Makefile flows updated.
+- [x] QA evidence collected with docs, changelog, and TODOs recorded.
+
+## Surprises & Discoveries
+
+- Observation: Offline sandbox cannot fetch `fastapi==0.120.0`, so `make setup` fails before Bandit/pip-audit install.
+  Evidence: `make setup` reported `ProxyError` 403 responses while bootstrapping `server/requirements-dev.txt` (see shell transcript `494d55†L1-L5`).
+
+## Decision Log
+
+- Decision: Documented the bootstrap failure and captured remediation in `TECH_DEBT.md` instead of vendoring wheels in-repo.
+  Rationale: Keeps the repository lightweight while providing explicit operator guidance for connected environments.
+  Date/Author: 2025-11-06 / gpt-5-codex
+- Decision: Added Docker-guarded `make dev`, `make build`, and `make deploy` aliases to satisfy the one-command flow requirement without surprising environments lacking Docker.
+  Rationale: Enables consistent workflows while failing fast with actionable messaging when Docker is unavailable.
+  Date/Author: 2025-11-06 / gpt-5-codex
+
+## Outcomes & Retrospective
+
+- Published a comprehensive audit report, security notes, and technical debt backlog so operators understand the websocket backoff follow-up status.
+- Hardened the websocket backoff pytest harness, refreshed README guidance, and updated the Makefile to streamline local QA and deployment flows.
+

@@ -1,3 +1,5 @@
+import { BackoffController } from './ws_backoff.js';
+
 const state = {
   tasks: [],
   tasksById: new Map(),
@@ -23,16 +25,20 @@ const state = {
 
 let ws;
 let wsPingTimer;
-let reconnectAttempts = 0;
 
 const PING_INTERVAL_MS = 30000;
-const WS_RECONNECT_DELAY_MS = 2000;
 const STATUS_BADGE_CLASSES = {
   pending: 'bg-yellow-100 text-yellow-800',
   in_progress: 'bg-blue-100 text-blue-800',
   completed: 'bg-green-100 text-green-800',
 };
 const ADMIN_TOKEN_STORAGE_KEY = 'switchboardAdminToken';
+const wsBackoff = new BackoffController({
+  initialDelayMs: 2000,
+  maxDelayMs: 30000,
+  multiplier: 2,
+  jitterRatio: 0.2,
+});
 
 function escapeHtml(value) {
   if (value == null) return '';
@@ -1073,12 +1079,13 @@ function connectWS() {
   ws = new WebSocket(`${scheme}${window.location.host}/ws/plan`);
 
   ws.onopen = () => {
-    if (reconnectAttempts > 0) {
-      console.log(`ws reconnected after ${reconnectAttempts} attempt${reconnectAttempts === 1 ? '' : 's'}`);
+    if (wsBackoff.attempts > 0) {
+      const attempts = wsBackoff.attempts;
+      console.log(`ws reconnected after ${attempts} attempt${attempts === 1 ? '' : 's'}`);
     } else {
       console.log('ws open');
     }
-    reconnectAttempts = 0;
+    wsBackoff.reset();
     startPing();
   };
 
@@ -1105,10 +1112,11 @@ function connectWS() {
 
   ws.onclose = () => {
     stopPing();
-    reconnectAttempts += 1;
-    console.warn(`ws closed; reconnecting in ${WS_RECONNECT_DELAY_MS / 1000}s (attempt #${reconnectAttempts})`);
-    // TODO(P1, 1d) - Switch to exponential backoff with jitter to avoid synchronized reconnect storms.
-    setTimeout(connectWS, WS_RECONNECT_DELAY_MS);
+    const delay = wsBackoff.nextDelay();
+    const attempts = wsBackoff.attempts;
+    const seconds = delay % 1000 === 0 ? (delay / 1000).toString() : (delay / 1000).toFixed(1);
+    console.warn(`ws closed; reconnecting in ${seconds}s (attempt #${attempts})`);
+    setTimeout(connectWS, delay);
   };
 }
 
