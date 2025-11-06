@@ -97,7 +97,12 @@
 - Hardened developer helper scripts: `scripts/run_pytest.py` now shells directly into pytest, while `scripts/run_uvicorn.py` starts uvicorn via the library API and binds to loopback by default for safer local testing.
 - Coverage workflow captured in `coverage.txt` to document current package-level coverage baselines.
 
+- Websocket backoff follow-up audit detailing runtime baselines, CI gates, and dependency/license inventory (docs/reports/audit-2025-11-06-websocket-backoff.md).
+- Root-level SECURITY_NOTES.md and TECH_DEBT.md summarising security follow-ups and prioritised technical debt from the audit.
+
 ### Changed
+- Makefile exposes `make dev`, `make build`, and `make deploy` flows with Docker availability guards and corrected tab indentation.
+- Hardened the websocket backoff pytest harness to use an absolute Node path, shared constants, and lint-compliant messaging.
 - Renamed legacy documentation to lowercase paths (`docs/ai-interface.md`,
   `docs/dependencies.md`, `docs/navigation-index.md`, `docs/portal-status.md`)
   and updated cross-links across README, docs navigation, and contributor

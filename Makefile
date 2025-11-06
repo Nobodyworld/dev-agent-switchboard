@@ -6,7 +6,7 @@ PLAN_REMOTE_PATH?=docs/PLANS.md
 VENV?=.venv
 ACTIVATE=. $(VENV)/bin/activate &&
 
-.PHONY: setup venv run test test-unit test-integration test-e2e openapi publish-plan docker-up lint fmt typecheck security qa coverage dev-bootstrap release-bump todo-check verify config
+.PHONY: setup venv run dev test test-unit test-integration test-e2e openapi publish-plan build deploy docker-up lint fmt typecheck security qa coverage dev-bootstrap release-bump todo-check verify config
 
 $(VENV)/.bootstrapped: server/requirements-dev.txt
 	@if [ ! -d "$(VENV)" ]; then \
@@ -21,9 +21,10 @@ setup: venv
 
 run: venv
 	$(ACTIVATE) uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
+dev: run
 
 test: venv
-        $(ACTIVATE) pytest server/tests
+	$(ACTIVATE) pytest server/tests
 
 test-unit: venv
 	$(ACTIVATE) pytest -m unit
@@ -88,6 +89,20 @@ config: venv
 publish-plan:
 	curl -X PUT $(API_BASE)/api/files/$(PLAN_REMOTE_PATH) \
 		-H "Content-Type: text/markdown" --data-binary @$(PLAN_FILE)
+
+build:
+	@if ! command -v docker >/dev/null 2>&1; then \
+		echo 'docker is required for "make build"' >&2; \
+		exit 1; \
+	fi
+	docker compose -f ops/docker-compose.yml build
+
+deploy:
+	@if ! command -v docker >/dev/null 2>&1; then \
+		echo 'docker is required for "make deploy"' >&2; \
+		exit 1; \
+	fi
+	docker compose -f ops/docker-compose.yml up --build --detach
 
 docker-up:
 	docker compose -f ops/docker-compose.yml up --build

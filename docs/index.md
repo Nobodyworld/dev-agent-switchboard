@@ -147,6 +147,7 @@ Follow these steps to process a task locally:
 - [Incident Response Runbook](incident-response.md)
 - [Future-Proofing Guide](future-proofing.md)
 - [Dependency & License Audit](dependencies.md)
+- [Websocket Backoff Follow-up Audit (2025-11-06)](reports/audit-2025-11-06-websocket-backoff.md)
 - [README](../README.md)
 - [CHANGELOG](../CHANGELOG.md)
 - [Task Backlog](../TASKLIST.md)
