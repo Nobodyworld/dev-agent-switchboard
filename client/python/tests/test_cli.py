@@ -329,7 +329,7 @@ class ProcessTaskTests(TestCase):
                 task_id,
                 interval,
                 *,
-                max_heartbeats=None,
+                _max_heartbeats=None,
             ):
                 self.client = client
                 self.task_id = task_id
@@ -406,7 +406,7 @@ class ProcessTaskTests(TestCase):
         )
 
     def test_process_task_handles_manual_commands(self) -> None:
-        loop, patcher = self._install_loop()
+        _loop, patcher = self._install_loop()
         inputs = [
             "heartbeat",
             "status",
@@ -429,7 +429,7 @@ class ProcessTaskTests(TestCase):
         printer.assert_any_call("Unknown command: unknown")
 
     def test_process_task_auto_abandons_on_limit(self) -> None:
-        loop, patcher = self._install_loop(limit_reached=True)
+        _loop, patcher = self._install_loop(limit_reached=True)
         self.client.abandon.return_value = True
         with patcher, mock.patch("switchboard_cli.print") as printer:
             self.assertTrue(
@@ -445,7 +445,7 @@ class ProcessTaskTests(TestCase):
         )
 
     def test_process_task_aborts_on_loop_error(self) -> None:
-        loop, patcher = self._install_loop(error="Server rejected heartbeat")
+        _loop, patcher = self._install_loop(error="Server rejected heartbeat")
         with patcher, mock.patch("switchboard_cli.print") as printer:
             self.assertFalse(
                 switchboard_cli.process_task(self.client, self.task, 10.0)

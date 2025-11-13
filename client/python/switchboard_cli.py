@@ -6,7 +6,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 import requests
 from switchboard_client import SwitchboardClient
@@ -245,7 +245,7 @@ class HeartbeatLoop(threading.Thread):
         self._task_id = task_id
         self._interval = interval
         self._stop = threading.Event()
-        self._error: Optional[str] = None
+        self._error: str | None = None
         self._heartbeats_sent = 0
         self._max_heartbeats = (
             max_heartbeats if max_heartbeats and max_heartbeats > 0 else None
@@ -281,7 +281,7 @@ class HeartbeatLoop(threading.Thread):
         self._stop.set()
 
     @property
-    def error(self) -> Optional[str]:
+    def error(self) -> str | None:
         """Return the last error encountered by the heartbeat loop, if any."""
 
         return self._error
@@ -312,7 +312,7 @@ def format_task(task: TaskPayload) -> str:
     return "\n".join(lines)
 
 
-def process_task(
+def process_task(  # noqa: PLR0912 - CLI flow intentionally branches on user commands
     client: SwitchboardClient,
     task: TaskPayload,
     heartbeat_interval: float,
@@ -342,7 +342,7 @@ def process_task(
         f"({heartbeat_note}). "
         "Type 'help' for options."
     )
-    notes: Optional[str] = None
+    notes: str | None = None
 
     def finalize(action: str) -> bool:
         nonlocal notes
@@ -540,7 +540,7 @@ def configuration_command(args: argparse.Namespace) -> int:
 
 
 def confirm_completion(
-    client: SwitchboardClient, task_id: int, notes: Optional[str]
+    client: SwitchboardClient, task_id: int, notes: str | None
 ) -> bool:
     """Attempt to mark ``task_id`` complete, returning the server status."""
 
@@ -833,7 +833,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Entry point for console scripts and ``python -m`` execution."""
 
     parser = build_parser()

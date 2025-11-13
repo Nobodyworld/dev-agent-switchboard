@@ -2,7 +2,7 @@
 
 import argparse
 import time
-from typing import Any, Optional
+from typing import Any
 
 from switchboard_client import SwitchboardClient
 
@@ -59,7 +59,7 @@ def dry_run(client: SwitchboardClient, args: argparse.Namespace) -> None:
     agent = client.agent_id
     print(f"[dry-run] Would POST {base}/api/agents with {{'agent_name': '{agent}'}}")
 
-    planned_task: Optional[dict[str, Any]] = None
+    planned_task: dict[str, Any] | None = None
     try:
         tasks = client.list_tasks()
         for task in tasks:
