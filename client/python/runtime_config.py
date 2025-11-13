@@ -160,7 +160,7 @@ def compute_backoff_interval(
     return min(max_interval, max(candidate, base_interval, 0.0))
 
 
-def derive_runtime_configuration(  # noqa: PLR0913 - CLI config derivation requires explicit knobs
+def derive_runtime_configuration(  # noqa: PLR0912, PLR0913 - CLI config derivation requires explicit knobs
     *,
     requested_heartbeat_interval: float | None,
     poll_interval: float,
