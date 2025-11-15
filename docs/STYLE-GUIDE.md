@@ -1,179 +1,361 @@
 # Global Style Guide
 
-Last Updated: November 03, 2025
+Last Updated: November 13, 2025
 
 This document is a concise, drop-in style and process guide for any repository in this organization. It emphasizes reliability, maintainability, reproducibility, and security. Use this as a baseline and tailor via ADRs where justified.
 
-## Organization Constants
+---
 
-- **Organization**: Nobody Production
-- **GitHub Org**: Nobodyworld
-- **Maintainer**: Nobody
-- **License**: Proprietary (see LICENSE file)
-- **Solo Developer**: Yes - all repositories are maintained by a single developer
+## 0. Stack Policy (Hard Rules)
 
-## Expected Stack Classifications
+**New applications must use a TypeScript + React stack by default.**
 
-All repositories should use one of the following primary stacks:
+- **UI Layer (all new apps):**
+  - Must be **TypeScript + React**.
+  - No new vanilla JS, jQuery, or framework-of-the-month UIs.
+- **Desktop Apps:**
+  - **Preferred:** Tauri (Rust + TS + React + Vite).
+  - **Allowed:** Electron (Node + TS + React) when Tauri is insufficient or blocked.
+- **Web Apps:**
+  - SPA/PWA: React + TS + Vite.
+  - SSR/ISR: Next.js (React + TS) only when SSR/SEO/edge behavior is actually needed.
 
-- **Tauri** (Rust + TypeScript + React + Vite) - Preferred for desktop apps with web UI
-- **Electron** (Node + TypeScript + React) - For complex desktop applications
-- **React + Vite** (SPA/PWA) - For web applications
-- **Next.js** (SSR/ISR) - For server-rendered web apps
-- **Python service/app** - For backend services and data processing
-- **Rust CLI/service** - For high-performance CLI tools and services
-- **Other** - Document justification in SPEC.md
+**Other languages are allowed only for specific roles:**
 
-## 0. Core Root Files (Do Not Remove)
+- **Python:** AI/ML, data processing, or where a mature library ecosystem is required (e.g., scientific stack). Existing Django projects are grandfathered; no new Django apps without an ADR.
+- **Rust:** Tauri shells, high-performance services, low-level engines, or systems work.
+- **C#, C++:** Game engines, performance-critical modules, or platform-specific integrations.
+- **C/other systems languages:** Only for kernel-adjacent, driver-like, or FFI bindings.
 
-- **NEVER REMOVE** `README.md`, `SPEC.md`, or `TASKLIST.md` from the repository root.
-
-- Purposes:
-  - `README.md` — Repository overview and getting-started instructions.
-  - `SPEC.md` — Canonical repository specification. Keep concise and authoritative.
-  - `TASKLIST.md` — The single authoritative task and lightweight reporting file for the repo; one line per task; oldest-first ordering.
-
-## 1. Repository Organization
-
-- Typical directories (each must include a README describing scope)
-  - `src/` — source code ([src/README.md](src/README.md))
-  - `tests/` — automated tests mirroring `src/` structure ([tests/README.md](tests/README.md))
-  - `docs/` — documentation ([docs/README.md](docs/README.md))
-  - `.github/` — workflows and templates
-  - `scripts/` — developer tooling ([scripts/README.md](scripts/README.md))
-  - `assets/` — small static assets (icons, images) needed at build/runtime
-  - `data/` — small sample/test data only (large datasets belong in storage)
-- Naming
-  - Directories: `kebab-case` (e.g., `ui-components`)
-  - Files (JS/TS/Go/Rust): `camelCase.ts|.go|.rs` where idiomatic; Python: `snake_case.py`
-  - Components/Types: `PascalCase` (e.g., `UserCard.tsx`)
-  - Constants: `UPPER_SNAKE_CASE`
-- Binary artifacts
-  - Do not commit compiled binaries, archives, large images/models/datasets.
-  - Use Git LFS or external object storage and add ignore rules.
-
-## 1.1 Tasks and Reporting (Consolidated)
-
-We standardize on a single file for tasks and lightweight reporting: `TASKLIST.md`.
-
-- TASKLIST.md rules
-  - Keep tasks one line each; oldest first; check off when done.
-  - Include a Task Unique Identifier (e.g., `TK-YYYYMMDD-###`).
-  - When a task is completed, update the task line to indicate completion and append a brief report as an indented sub-bullet containing:
-    - completion date, PR or link to changes, short summary (1–2 lines).
-  - Example:
-    - `- [x] Add CI for Node/TS — TK-2025-10-29-001`
-      - `Completed: 2025-11-01 — PR: https://github.com/org/repo/pull/123 — Added check-only lint/test workflows.`
-
-### Notes
-
-- `REPORTS.md` and `TASK.md` are deprecated. Do not create or rely on them. Keep all task state and lightweight reports inside `TASKLIST.md` so reviewers and automation only need to look in one place.
-
-- For long-form post-mortems or extensive reports, link to a `docs/` file from the TASKLIST entry rather than creating a separate ad-hoc task/report file in the repo root.
-
-## 2. Code Quality Standards (Polyglot)
-
-- Formatting & linting
-  - JS/TS: Prettier + ESLint (typescript‑eslint)
-  - Python: Black + Ruff + isort
-  - Rust: rustfmt + clippy
-  - Shell: shfmt + shellcheck
-- Error handling
-  - No silent failures; return typed/structured errors with context.
-  - Add timeouts, retries with backoff, and circuit breakers for I/O.
-- Logging
-  - Structured logs (JSON fields where possible); avoid PII; include correlation/trace IDs.
-  - Use appropriate observability libraries for CLI and automation surfaces; wrap long-running operations in tracing spans.
-- Imports
-  - Order: stdlib → third‑party → local; avoid unused imports/exports.
-- Dependencies
-  - Prefer small, well‑maintained libraries; remove unused deps; pin/tool versions where appropriate.
-
-### Language specifics
-
-- TypeScript/React
-  - Functional components; hooks for reusable logic; effect cleanups required.
-  - Strict TS; avoid `any`; define props/interfaces; aim for stable component APIs.
-  - Accessibility: keyboard support, labels, focus management, color contrast.
-- Python
-  - Type hints; docstrings (Google or NumPy style); explicit virtualenv; deterministic tests.
-- Rust
-  - Prefer `Result` with context via `anyhow`/custom errors; small modules; trait‑based boundaries.
-- Go
-  - Use `gofmt`; follow effective Go guidelines; error handling with explicit returns; keep packages small and focused.
-
-## 3. Testing Strategy
-
-- Pyramid: unit > integration > e2e; fast, deterministic, hermetic tests.
-- Naming: `.test.*`/`.spec.*` (JS/TS), `test_*` (Py), `*_test.rs` (Rust).
-- Coverage: target meaningful coverage; prioritize critical paths and regressions.
-- Mocks: isolate external I/O; freeze time/randomness.
-
-## 4. Configuration & Environments
-
-- Environment variables
-  - Document in `README` with required/optional flags and sane defaults.
-  - Validate at startup; never commit secrets.
-- Separation
-  - Distinguish build vs runtime config; keep local overrides out of VCS with `*.example` files.
-
-## 5. Documentation
-
-- README (at least): Overview, Setup, Development, Testing, Release, Troubleshooting, Support.
-- Inline docs
-  - Public APIs require doc comments (JSDoc/TSDoc, Python docstrings, Rust doc comments).
-  - Comment complex logic with rationale and invariants; keep comments current.
-- Architecture & APIs
-  - Maintain ADRs for significant decisions; include diagrams (e.g., Mermaid) as helpful.
-
-## 6. Security & Compliance
-
-- Input validation, output encoding, and least privilege by default.
-- Secret management via environment/secret stores; no credentials in code or history.
-- Automated scanning in CI (secrets, SAST, dependency vulns, license checks).
-- Privacy & accessibility: follow data handling policies and WCAG 2.1 AA for UIs.
-
-## 7. Performance & Reliability
-
-- Set lightweight budgets (bundle size, latency, memory) and track in CI/monitoring.
-- Frontend: code‑split; lazy load; optimize assets; cache wisely.
-- Backend: timeouts on external calls; idempotent retries; index queries; health checks.
-
-## 8. CI/CD
-
-- Check‑only by default: format/lint/typecheck/test/security must run in CI.
-- Reuse organization workflows where available (`workflow_call`); keep pipelines fast and cached.
-- Releases: semantic versioning; changelog updates; rollback plan; feature flags when feasible.
-
-## 9. Collaboration & Process
-
-- Branch naming: `feat/`, `fix/`, `chore/`, `docs/`, `refactor/`.
-- Conventional Commits; small, reviewable PRs with clear scope and checklist.
-- Code reviews: required; use a short, consistent checklist.
-- Issue tracking: all work via issues; keep docs/README updated with changes.
-
-## 10. Planning & Tasks
-
-- Planning docs: keep high‑level plan in `SPEC.md`; decisions via ADRs.
-- Tasks: ONLY `TASKLIST.md` (one per active directory). No other TODO files in the repo root — keep all task state here.
-- Outputs: paste check‑only results into PRs and update `TASKLIST.md` with completion details and a PR link.
-- Reporting: include short completion notes inline in `TASKLIST.md` (see 1.1). For longer reports, add a document under `docs/` and link to it from the task entry.
-
-## 11. Exceptions
-
-- Deviations from this guide require an ADR (or equivalent) with rationale, impact, and a plan to reconcile or permanently diverge.
-
-## 12. Continuous Improvement
-
-- Track: test coverage, performance metrics, security findings, defect rates.
-- Retrospectives for process updates; periodic toolchain reviews; ongoing training.
+Any deviation from “TS + React for new app UIs” requires a short ADR explaining why.
 
 ---
 
-Appendix: Tooling References
+## 1. Organization Constants
 
-- TypeScript: eslint, typescript‑eslint, prettier, vitest/jest
-- Python: ruff, black, isort, pytest
-- Rust: rustfmt, clippy, cargo test
-- Shell: shfmt, shellcheck
-- Diagrams: Mermaid (in Markdown)
+- **Organization**: Nobody Production  
+- **GitHub Org**: Nobodyworld  
+- **Maintainer**: Nobody  
+- **License**: Proprietary (see LICENSE file)  
+- **Solo Developer**: Yes — all repositories are maintained by a single developer  
+
+---
+
+## 2. Expected Stack Classifications
+
+All repositories must declare a primary stack in `SPEC.md`. Approved primary stacks:
+
+### 2.1 UI / App Stacks (Preferred)
+
+- **Tauri (Preferred for Desktop)**
+  - Stack: Rust + TypeScript + React + Vite
+  - Use for: desktop apps needing native packaging and good perf.
+
+- **Electron (Allowed for Desktop)**
+  - Stack: Node + TypeScript + React
+  - Use for: desktop apps when Tauri is blocked by ecosystem/tools.
+
+- **React + Vite (SPA/PWA)**
+  - Stack: TypeScript + React + Vite
+  - Use for: browser-only apps, dashboards, admin tools, PWAs.
+
+- **Next.js (SSR/ISR Web)**
+  - Stack: TypeScript + React + Next.js
+  - Use for: SEO-sensitive, SSR/ISR-heavy, or edge-deployed web apps.
+  - Don’t use Next.js “just because” — justify SSR in `SPEC.md`.
+
+### 2.2 Backend / Service Stacks
+
+- **TypeScript Backend**
+  - Node/TS (e.g. Express/Fastify/Nest or serverless functions).
+  - Default choice for new CRUD-style or API services.
+- **Python Service/App**
+  - Role: AI/ML, data science, heavy processing, or when Python libraries are clearly superior.
+  - Django/Flask/FastAPI allowed only with justification:
+    - **Existing Django projects**: continue as-is; document as “legacy stack” in `SPEC.md`.
+    - **New Django apps**: require an ADR with a strong reason (libraries, ecosystem, hard constraints).
+- **Rust Service/CLI**
+  - Role: high-performance CLI tools, background workers, or systems-level services.
+- **C#/C++/C**
+  - Role: engines, game runtimes, FFI bindings, or platform-specific native code.
+  - UI should still be TS + React where possible (Tauri/Electron shells around these).
+
+- **Other**
+  - Any stack not listed above requires a short ADR in `docs/adr/` explaining why.
+
+---
+
+## 3. Core Root Files (Do Not Remove)
+
+The following files must exist at the repository root and must not be removed:
+
+- `README.md` — Repository overview and getting-started instructions.
+- `SPEC.md` — Canonical repository specification. Keep concise and authoritative.
+- `TASKLIST.md` — Single authoritative task and lightweight reporting file; one line per task; oldest-first ordering.
+
+If any of these are missing, they must be created before substantial new work.
+
+---
+
+## 4. Repository Organization
+
+Standard directories (each must include a `README.md` describing scope):
+
+- `src/` — Source code ([src/README.md](src/README.md))
+- `tests/` — Automated tests mirroring `src/` structure ([tests/README.md](tests/README.md))
+- `docs/` — Documentation ([docs/README.md](docs/README.md))
+- `.github/` — Workflows and templates
+- `scripts/` — Developer tooling ([scripts/README.md](scripts/README.md))
+- `assets/` — Small static assets (icons, images) needed at build/runtime
+- `data/` — Small sample/test data only (large datasets belong in storage)
+
+**Naming:**
+
+- Directories: `kebab-case` (e.g., `ui-components`)
+- Files (TS/JS/Rust/Go): idiomatic but consistent; e.g. `featureName.ts`, `userCard.tsx`
+- Python files: `snake_case.py`
+- Components/Types: `PascalCase` (e.g., `UserCard.tsx`)
+- Constants: `UPPER_SNAKE_CASE`
+
+**Binary artifacts:**
+
+- Do **not** commit compiled binaries, archives, large images/models/datasets.
+- Use Git LFS or external storage and add ignore rules.
+
+---
+
+## 5. Tasks and Reporting
+
+`TASKLIST.md` is the **only** root-level task and lightweight reporting file.
+
+Rules:
+
+- One line per task, oldest-first.
+- Include a Task Unique Identifier (e.g., `TK-YYYYMMDD-###`).
+- On completion:
+  - Mark `[x]`.
+  - Add a short, indented sub-bullet with:
+    - completion date
+    - link to PR/commit
+    - 1–2 line summary
+
+Example:
+
+- `[x] Add CI for Node/TS — TK-2025-10-29-001`  
+  - `Completed: 2025-11-01 — PR: https://github.com/org/repo/pull/123 — Added check-only lint/test workflows.`
+
+Deprecated: `REPORTS.md`, `TASK.md`, and other ad hoc task files. Do not create new ones.
+
+For long-form post-mortems or reports, put them in `docs/` and link from `TASKLIST.md`.
+
+---
+
+## 6. Code Quality Standards (Polyglot)
+
+### **Formatting & linting**
+
+- **TypeScript/React**
+  - Prettier + ESLint (`typescript-eslint`)
+  - Strict TypeScript (`"strict": true`); avoid `any`.
+- **Python**
+  - Black + Ruff + isort
+- **Rust**
+  - `rustfmt` + `clippy`
+- **Shell**
+  - `shfmt` + `shellcheck`
+
+### **Error handling**
+
+- No silent failures.
+- Prefer typed/structured errors with context.
+- For I/O: timeouts, retries with backoff, and circuit breakers.
+
+### **Logging**
+
+- Use structured logs where reasonable (JSON fields).
+- Avoid PII in logs.
+- Include correlation/trace IDs for multi-step flows.
+
+### **Imports**
+
+- Order: stdlib → third-party → local.
+- Remove unused imports/exports aggressively.
+
+### **Dependencies**
+
+- Prefer small, well-maintained libraries.
+- Remove unused deps regularly.
+- Pin/tool versions where appropriate.
+
+### 6.1 TypeScript/React specifics
+
+- Use functional components and hooks.
+- Clean up effects (`useEffect`) properly.
+- Define typed props/interfaces; stable component APIs.
+- Accessibility:
+  - Keyboard support
+  - Labels for form controls
+  - Focus management
+  - WCAG-aligned contrast
+
+### 6.2 Python specifics
+
+- Use type hints.
+- Docstrings (Google or NumPy style).
+- Explicit virtualenv.
+- Deterministic tests.
+
+### 6.3 Rust specifics
+
+- Use `Result` with context (`anyhow` or custom errors).
+- Keep modules small and focused.
+- Trait-based boundaries; avoid giant god-modules.
+
+---
+
+## 7. Testing Strategy
+
+- Favor: unit > integration > e2e (pyramid, not ice cream cone).
+- Naming:
+  - JS/TS: `*.test.ts` / `*.spec.ts`
+  - Python: `test_*.py`
+  - Rust: `*_test.rs`
+- Tests should be:
+  - Fast
+  - Deterministic
+  - Hermetic (no hidden external dependencies)
+- Mock external I/O; freeze time/randomness where needed.
+- Prioritize tests for:
+  - Core logic
+  - Data transformations
+  - Critical regressions
+
+---
+
+## 8. Configuration & Environments
+
+- Use environment variables for secrets and environment-specific settings.
+- Document env vars in `README.md` (required vs optional, defaults).
+- Validate env vars at startup.
+- Use `*.example` files to show config structure and keep actual secrets out of VCS.
+- Separate **build-time** and **runtime** config clearly.
+
+---
+
+## 9. Documentation
+
+Minimum:
+
+- `README.md` with:
+  - Overview
+  - Setup
+  - Development
+  - Testing
+  - Release
+  - Troubleshooting
+  - Support/contact
+
+Inline docs:
+
+- Public APIs: TSDoc/JSDoc, Python docstrings, Rust doc comments.
+- Complex logic: brief comments explaining rationale and invariants.
+
+Architecture & APIs:
+
+- ADRs for major decisions (`docs/adr/`).
+- Use diagrams (e.g., Mermaid) when helpful.
+
+---
+
+## 10. Security & Compliance
+
+- Validate inputs; encode outputs.
+- Principle of least privilege (APIs, DB, file access).
+- Secret management via env/secret stores; no secrets in code or history.
+- CI should include:
+  - Secret scans
+  - SAST/lint checks
+  - Dependency vulnerability scans
+- For UIs, aim for WCAG 2.1 AA accessibility.
+
+---
+
+## 11. Performance & Reliability
+
+- Set lightweight budgets:
+  - Bundle size
+  - Latency
+  - Memory usage (where relevant)
+- Frontend:
+  - Code-splitting
+  - Lazy-loading
+  - Asset optimization
+  - Caching
+- Backend:
+  - Timeouts on external calls
+  - Idempotent retries
+  - Indexed queries
+  - Health checks / readiness probes
+
+---
+
+## 12. CI/CD
+
+- CI must run (at minimum):
+  - Format
+  - Lint
+  - Typecheck
+  - Tests
+  - Security checks (where applicable)
+- Prefer reusable org workflows (`workflow_call`) where possible.
+- Keep pipelines fast with caching.
+- Releases:
+  - Semantic versioning
+  - Changelog updates
+  - Rollback plan
+  - Feature flags when feasible
+
+---
+
+## 13. Collaboration & Process
+
+- Branch naming:
+  - `feat/...`, `fix/...`, `chore/...`, `docs/...`, `refactor/...`
+- Conventional Commits for messages.
+- Small, reviewable PRs with clear scope.
+- All work should map to an issue or a `TASKLIST.md` entry.
+- Keep docs and READMEs updated as part of the same PR when behavior changes.
+
+---
+
+## 14. Exceptions & Legacy Code
+
+- Any deviation from:
+  - **TS + React as default UI**, or
+  - **Approved stacks in Section 2**
+
+  must have an ADR with:
+  - Reason
+  - Impact
+  - Long-term plan (keep vs migrate).
+
+- Legacy projects (e.g., existing Django apps) must:
+  - Mark their status in `SPEC.md` as `legacy-stack: true`.
+  - Either:
+    - Be maintained as-is with minimal churn, or  
+    - Have a gradual migration plan documented.
+
+---
+
+## 15. Continuous Improvement
+
+- Track over time (where practical):
+  - Test coverage
+  - Performance metrics
+  - Security issues
+  - Defect rates
+- Periodically:
+  - Review toolchains
+  - Clean dependencies
+  - Improve templates and bootstrap scripts
+- Use retrospectives on significant issues to feed back into this guide.
