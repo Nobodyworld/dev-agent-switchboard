@@ -1,8 +1,9 @@
 
 # Switchboard — Real‑Time Agent Task Switchboard & Live File Host
 
-[![CI](https://github.com/openai/switchboard/actions/workflows/ci.yml/badge.svg)](https://github.com/openai/switchboard/actions/workflows/ci.yml)
-[![Commitlint](https://github.com/openai/switchboard/actions/workflows/commitlint.yml/badge.svg)](https://github.com/openai/switchboard/actions/workflows/commitlint.yml)
+[![CI](https://github.com/Nobodyworld/dev-agent-switchboard/actions/workflows/ci.yml/badge.svg)](https://github.com/Nobodyworld/dev-agent-switchboard/actions/workflows/ci.yml)
+
+[![Commitlint](https://github.com/Nobodyworld/dev-agent-switchboard/actions/workflows/commitlint.yml/badge.svg)](https://github.com/Nobodyworld/dev-agent-switchboard/actions/workflows/commitlint.yml)
 
 ## What
 
