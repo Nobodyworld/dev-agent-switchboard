@@ -112,16 +112,20 @@ Potential blockers for next phases:
 ## Next-Phase Remediation Plan
 
 1. Phase 2 (CI/build integrity)
+
 - Run and harden local quality gates under owner policy where Actions may be disabled.
 - Verify tests are fatal and security scans are not advisory-only in release path.
 
-2. Phase 3 (critical fixes)
+1. Phase 3 (critical fixes)
+
 - Address switchboard-specific P0 controls (leases, concurrency, auth, live-file security).
 
-3. Phase 4 (employer-facing docs)
+1. Phase 4 (employer-facing docs)
+
 - Update README/docs to only claim verified behavior.
 
-4. Phase 5 (clean-clone validation)
+1. Phase 5 (clean-clone validation)
+
 - Execute full documented process from clean clone and record objective outcomes.
 
 ## Commands Executed During Audit
