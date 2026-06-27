@@ -81,6 +81,12 @@ async def test_checkout_heartbeat_expiry_and_recheckout():
             lease_before = await _get_lease(task_id)
             assert lease_before is not None
 
+            wrong_agent_heartbeat = await client.post(
+                f"/api/tasks/{task_id}/heartbeat", params={"agent_id": "beta"}
+            )
+            assert wrong_agent_heartbeat.status_code == HTTPStatus.OK
+            assert wrong_agent_heartbeat.json() == {"ok": False}
+
             heartbeat = await client.post(
                 f"/api/tasks/{task_id}/heartbeat", params={"agent_id": "alpha"}
             )
@@ -92,6 +98,12 @@ async def test_checkout_heartbeat_expiry_and_recheckout():
             assert lease_after.expires_at > lease_before.expires_at
 
             await _force_expire(task_id)
+
+            expired_heartbeat = await client.post(
+                f"/api/tasks/{task_id}/heartbeat", params={"agent_id": "alpha"}
+            )
+            assert expired_heartbeat.status_code == HTTPStatus.OK
+            assert expired_heartbeat.json() == {"ok": False}
 
             recheckout = await client.post(
                 "/api/tasks/checkout", params={"agent_id": "beta"}
@@ -123,6 +135,12 @@ async def test_abandon_releases_task_to_other_agent():
             assert unavailable.status_code == HTTPStatus.OK
             assert unavailable.json()["task"] is None
             assert unavailable.json()["reason"] == "no_available_tasks"
+
+            wrong_agent_abandon = await client.post(
+                f"/api/tasks/{task_id}/abandon", params={"agent_id": "beta"}
+            )
+            assert wrong_agent_abandon.status_code == HTTPStatus.OK
+            assert wrong_agent_abandon.json() == {"ok": False}
 
             abandon = await client.post(
                 f"/api/tasks/{task_id}/abandon", params={"agent_id": "alpha"}

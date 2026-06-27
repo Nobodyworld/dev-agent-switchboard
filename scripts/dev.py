@@ -225,9 +225,25 @@ def cmd_check_todos(args: argparse.Namespace) -> None:
     """Enforce priority/effort metadata on TODO and FIXME markers."""
 
     root = Path(args.root).resolve()
+    excluded_directories = {
+        ".git",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".tmp-test",
+        "node_modules",
+    }
     violations: list[tuple[Path, int, str]] = []
     for path in root.rglob("*"):
         if not path.is_file():
+            continue
+        relative_parts = path.relative_to(root).parts
+        if any(
+            part in excluded_directories
+            or part == ".venv"
+            or part.startswith(".venv")
+            for part in relative_parts
+        ):
             continue
         if path.suffix in {".pyc", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico"}:
             continue

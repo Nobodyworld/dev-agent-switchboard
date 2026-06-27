@@ -1,5 +1,8 @@
 # Switchboard Project Status Report (October 15, 2025)
 
+> Historical snapshot. For current release-readiness results, see
+> [status.md](status.md) and [PUBLIC_RELEASE_AUDIT.md](../../PUBLIC_RELEASE_AUDIT.md).
+
 ## Project Overview
 
 Switchboard is a robust FastAPI-based service for real-time agent task coordination and live file hosting. It features:

@@ -48,6 +48,23 @@ def test_full_path_rejects_malicious_paths(malicious: str) -> None:
         file_store.full_path(malicious)
 
 
+def test_full_path_rejects_symlink_escape(monkeypatch, tmp_path):
+    root = tmp_path / "store"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    link = root / "escape"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+
+    monkeypatch.setattr(file_store, "FILES_ROOT", root)
+
+    with pytest.raises(HTTPException):
+        file_store.full_path("escape/secret.txt")
+
+
 def test_ensure_root_detects_unwritable(monkeypatch, tmp_path):
     root = tmp_path / "store"
     monkeypatch.setattr(file_store, "FILES_ROOT", root)

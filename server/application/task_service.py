@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Iterable, Mapping, Sequence
-from typing import Callable, Literal
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from typing import Literal
 
 from server.application.exceptions import (
     MissingDependenciesError,
@@ -110,8 +110,11 @@ class TaskService:
                 lease=lease,
                 now=now,
             ):
-                in_progress = task.with_status(TaskStatus.IN_PROGRESS)
-                saved = await self._tasks.save(in_progress)
+                saved = await self._tasks.claim_pending(task.id)
+                if saved is None:
+                    if task_id is not None:
+                        break
+                    continue
                 await self._leases.delete(task.id)
                 new_lease = self._lease_policy.new_lease(
                     task_id=task.id, agent_id=agent.agent_id, now=now
@@ -132,11 +135,14 @@ class TaskService:
 
         now = self._clock()
         lease = await self._leases.for_task(task_id)
-        if not self._lease_policy.can_heartbeat(lease, agent_id):
+        if not self._lease_policy.can_heartbeat(lease, agent_id, now=now):
             result = HeartbeatResult(ok=False, task_id=task_id)
             await self._notify("on_heartbeat", agent_id=agent_id, result=result)
             return result
-        assert lease is not None  # mypy hint; guarded above
+        if lease is None:  # defensive type narrowing; policy rejects this case
+            result = HeartbeatResult(ok=False, task_id=task_id)
+            await self._notify("on_heartbeat", agent_id=agent_id, result=result)
+            return result
         refreshed = self._lease_policy.refresh(lease, now=now)
         await self._leases.save(refreshed)
         result = HeartbeatResult(ok=True, task_id=task_id)

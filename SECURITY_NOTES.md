@@ -1,5 +1,26 @@
 # Security Notes
 
+## 2026-06-27 — Public-Release Hardening
+
+### Verified
+
+- `pip-audit` initially identified 14 advisories in four pinned packages.
+  FastAPI, Starlette, the metrics instrumentator, python-multipart, pytest,
+  pytest-asyncio, Black, and Pydantic were upgraded as a compatible set.
+- The final Python 3.11 audit reported no known vulnerabilities.
+- Bandit passed against production server code; test assertions are excluded.
+- Live-file writes now honor configured admin authentication and a streaming
+  upload-size limit.
+- Atomic task claiming, lease ownership, and expired-heartbeat behavior have
+  regression coverage.
+
+### Remaining
+
+- Execute the symlink-escape test on Linux; local Windows policy prevented
+  symlink creation.
+- Strict mypy remains red and is tracked as a quality gap rather than a
+  confirmed vulnerability.
+
 ## 2025-11-06 — Websocket Backoff Follow-up Audit
 
 ### Findings

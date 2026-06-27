@@ -30,6 +30,10 @@ class TaskRepository(Protocol):
 
     async def get(self, task_id: int) -> TaskRecord | None: ...
 
+    async def claim_pending(self, task_id: int) -> TaskRecord | None:
+        """Atomically move a pending task to in progress when still available."""
+        ...
+
     async def save(self, task: TaskRecord) -> TaskRecord: ...
 
     async def create(

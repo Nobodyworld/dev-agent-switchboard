@@ -7,10 +7,10 @@ import logging
 import math
 import os
 import time
-from collections.abc import Awaitable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any
 
 try:  # pragma: no cover - optional dependency for metrics exposure
     from prometheus_client import Counter, Gauge  # type: ignore
@@ -174,9 +174,9 @@ def describe_readiness_metrics() -> dict[str, Any]:
     status = None
     last_checked = None
     if enabled:
-        for labels, value in _collect_samples(_READINESS_METRICS.overall_status):
+        for _, value in _collect_samples(_READINESS_METRICS.overall_status):
             status = value
-        for labels, value in _collect_samples(
+        for _, value in _collect_samples(
             _READINESS_METRICS.last_checked_timestamp
         ):
             last_checked = value

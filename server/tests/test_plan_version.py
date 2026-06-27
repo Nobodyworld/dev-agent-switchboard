@@ -1,5 +1,3 @@
-from typing import Optional
-
 import pytest
 from starlette.requests import Request
 
@@ -28,7 +26,7 @@ async def _fetch_plan(session):
 
 
 def _make_request(body: bytes) -> Request:
-    payload: Optional[bytes] = body
+    payload: bytes | None = body
 
     async def receive() -> dict:
         nonlocal payload

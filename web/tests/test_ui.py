@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import os
-import shutil
 import socket
 import subprocess
 import sys
@@ -52,20 +51,20 @@ def _wait_for_server(base_url: str, timeout: float = 15.0) -> None:
 
 
 @pytest.fixture(scope="session")
-def app_server() -> str:
+def app_server(tmp_path_factory: pytest.TempPathFactory) -> str:
     port = _find_free_port()
     base_url = f"http://127.0.0.1:{port}"
 
-    db_path = ROOT / "switchboard.db"
-    if db_path.exists():
-        db_path.unlink()
-    storage_root = ROOT / "storage"
-    if storage_root.exists():
-        shutil.rmtree(storage_root)
+    runtime_root = tmp_path_factory.mktemp("ui-runtime")
+    db_path = runtime_root / "switchboard.db"
+    storage_root = runtime_root / "storage"
 
     env = os.environ.copy()
     existing = env.get("PYTHONPATH")
     env["PYTHONPATH"] = f"{ROOT}{os.pathsep}{existing}" if existing else str(ROOT)
+    env["DATABASE_URL"] = f"sqlite+aiosqlite:///{db_path.as_posix()}"
+    env["STORAGE_ROOT"] = str(storage_root)
+    env["FILES_ROOT"] = str(storage_root / "files")
 
     process = subprocess.Popen(  # noqa: S603
         [

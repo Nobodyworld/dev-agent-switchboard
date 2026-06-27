@@ -4,7 +4,7 @@ import datetime as dt
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.domain.entities import (
@@ -104,6 +104,34 @@ class SqlAlchemyTaskRepository(TaskRepository):
         task = await self._session.get(Task, task_id)
         if task is None:
             return None
+        dependency_map = await self._dependency_map((task_id,))
+        return self._to_record(task, dependency_map.get(task_id, ()))
+
+    async def claim_pending(self, task_id: int) -> TaskRecord | None:
+        """Atomically claim a task only if it remains pending."""
+
+        result = await self._session.execute(
+            update(Task)
+            .where(
+                Task.id == task_id,
+                Task.status == TaskStatus.PENDING,
+            )
+            .values(
+                status=TaskStatus.IN_PROGRESS,
+                updated_at=utcnow_naive(),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            return None
+
+        task = (
+            await self._session.execute(
+                select(Task)
+                .where(Task.id == task_id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
         dependency_map = await self._dependency_map((task_id,))
         return self._to_record(task, dependency_map.get(task_id, ()))
 
@@ -444,7 +472,8 @@ class SqlAlchemyPlanVersionRepository(PlanVersionRepository):
         if row.updated_at is None:
             await self._session.flush()
             await self._session.refresh(row)
-        assert row.updated_at is not None
+        if row.updated_at is None:
+            raise RuntimeError("plan version timestamp was not populated")
         return PlanVersionSnapshot(value=row.value, updated_at=row.updated_at)
 
     async def _ensure_row(self) -> PlanVersion:
@@ -463,7 +492,16 @@ class SqlAlchemySystemStateRepository(SystemStateRepository):
         self._session = session
 
     async def get_state(self) -> SystemState:
-        row = await self._ensure_row()
+        row = (
+            await self._session.execute(select(SystemStateModel).limit(1))
+        ).scalar_one_or_none()
+        if row is None:
+            return SystemState(
+                maintenance_mode=False,
+                message=None,
+                updated_at=utcnow_naive(),
+                version=0,
+            )
         return self._to_entity(row)
 
     async def update_state(

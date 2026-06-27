@@ -38,11 +38,11 @@ Switchboard is a small, production‑leaning FastAPI service that:
 
 ## Repository Essentials
 
-- [SPEC.md](SPEC.md) captures the canonical project snapshot, governance
+- [SPEC.md](docs/SPEC.md) captures the canonical project snapshot, governance
   expectations, and operational defaults.
-- [STYLE-GUIDE.md](STYLE-GUIDE.md) documents the coding conventions shared by
+- [STYLE-GUIDE.md](docs/STYLE-GUIDE.md) documents the coding conventions shared by
   the server, client, and web dashboards.
-- [TASKLIST.md](TASKLIST.md) is the authoritative backlog used to track ongoing
+- [TASKLIST.md](docs/TASKLIST.md) is the authoritative backlog used to track ongoing
   work.
 - [docs/README.md](docs/README.md) links to architecture deep dives, guides, and
   reports grouped by purpose.
@@ -64,7 +64,7 @@ Start with the [documentation hub](docs/index.md) for a curated quick start, mes
 | Testing & quality reports | [docs/testing_report.md](docs/testing_report.md) |
 | Documentation status & backlog | [docs/portal-status.md](docs/portal-status.md) |
 
-Each document now shares terminology and links back to this README so contributors can pivot between operational, architectural, and API-focused guidance without guessing where to look. The refreshed [task backlog](TASKLIST.md) captures follow-up work discovered during the orchestration router stabilization.
+Each document now shares terminology and links back to this README so contributors can pivot between operational, architectural, and API-focused guidance without guessing where to look. The refreshed [task backlog](docs/TASKLIST.md) captures follow-up work discovered during the orchestration router stabilization.
 
 Documentation is grouped by purpose: architecture references live under `docs/architecture/`, contributor handbooks and runbooks live under `docs/guides/`, reports and status digests live under `docs/reports/`, and historical artifacts are tucked into `docs/history/` for posterity.
 
@@ -125,7 +125,7 @@ Operators can trace how a request moves from CLI to FastAPI to persistence by re
 | `/api/configuration` | `GET` | Retrieve a comprehensive configuration snapshot (settings, storage, database, runtime, warnings). |
 | `/api/diagnostics` | `GET` | Retrieve runtime metadata, package versions, feature toggles, and system state for operators and UI diagnostics. |
 | `/api/system-state` | `GET`, `PUT` | Inspect or toggle global maintenance mode. `PUT` requires the admin token when `SWITCHBOARD_ADMIN_TOKEN` is set. |
-| `/api/files/{path}` | `PUT` | Upload live documentation available under `/live/<path>`. |
+| `/api/files/{path}` | `PUT` | Upload live documentation available under `/live/<path>`; admin-token protected when configured and size limited. |
 | `/ws/plan` | `GET` (WebSocket) | Stream plan version updates and deltas for UI/agent sync. |
 
 See [docs/ai-interface.md](docs/ai-interface.md) for payload schemas, curl examples, and integration tips.
@@ -306,6 +306,10 @@ behavior:
 * `SWITCHBOARD_LEASE_SECONDS` — task lease duration in seconds (default `300`).
   Must be a positive integer; API clients adjust heartbeat cadence based on this
   value.
+* `SWITCHBOARD_ADMIN_TOKEN` — bearer token required for privileged mutations,
+  including live-file uploads, when configured.
+* `SWITCHBOARD_MAX_LIVE_FILE_BYTES` — maximum live-file upload size in bytes
+  (default `10485760`, or 10 MiB). Must be a positive integer.
 * Optional observability controls such as `SWITCHBOARD_LOGGING_LEVEL`,
   `SWITCHBOARD_METRICS_PATH`, and `SWITCHBOARD_TRACING_EXPORTER`.
 
@@ -383,6 +387,7 @@ curl -X POST "http://localhost:8000/api/tasks/1/complete?agent_id=codex-1" \
 # write/update a live file from a local source file
 curl -X PUT http://localhost:8000/api/files/docs/AGENTS.md \
   -H "Content-Type: text/markdown" \
+  -H "Authorization: Bearer $SWITCHBOARD_ADMIN_TOKEN" \
   --data-binary @AGENTS.md
 
 # fetch latest version

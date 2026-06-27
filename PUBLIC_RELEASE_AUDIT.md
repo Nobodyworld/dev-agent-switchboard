@@ -68,10 +68,14 @@ Status: Partial
 
 ### 6) Dependency vulnerabilities
 
-- Security tooling in Makefile includes bandit.
-- Full vulnerability/audit output is not yet recorded in this phase.
+- Python 3.11 audit initially found 14 advisories across Black, pytest,
+  python-multipart, and Starlette.
+- Runtime and development pins were upgraded, including the compatible
+  FastAPI/Starlette and instrumentation set.
+- Final `pip-audit --progress-spinner=off`: no known vulnerabilities.
+- `bandit -q -r server -x server/tests`: passed.
 
-Status: Not Yet Verified
+Status: Verified locally (2026-06-27)
 
 ### 7) Licensing
 
@@ -89,25 +93,38 @@ Status: Not Yet Verified
 ### 9) Build and runtime instructions
 
 - README quickstart targets Python 3.11+.
-- Makefile defaults to POSIX shell venv activation path (`$(VENV)/bin/...`), which may be frictional on Windows unless adapted.
+- Isolated Python 3.11.14 validation completed on Windows with pinned
+  dependencies. The Makefile remains POSIX-oriented; Windows validation used
+  direct virtual-environment commands.
 
-Status: Partial
+Status: Verified for direct Windows commands; Makefile portability remains partial
 
 ### 10) CI/build truth and quality gates
 
 - CI workflow exists and runs on push/pull_request with build + test flow.
-- Local gate in Makefile includes lint/typecheck/test/security/coverage/todo checks.
+- Local Python 3.11 results:
+  - pytest: 226 passed, 2 skipped.
+  - Ruff: passed.
+  - Bandit: passed after excluding test assertions from the production scan.
+  - TODO metadata check: passed after excluding virtual environments.
+  - Coverage thresholds: passed.
+  - pip-audit: no known vulnerabilities.
+  - strict mypy: failed with 76 errors in 27 files.
 
-Status: Partial
+Status: Partial (strict typing remains a release-quality gap)
 
 ### 11) Public-release blockers (initial)
 
 Potential blockers for next phases:
 
-- P0 candidate: validate lease ownership, concurrency guarantees, and dependency unlocking behavior with objective tests and documented outcomes.
-- P0 candidate: verify privileged endpoint and live-file handling security assumptions (admin token paths, write scopes, path safety).
+- Resolved: atomic checkout, lease ownership/expiry, and dependency unlocking now
+  have objective regression coverage.
+- Resolved: configured admin authentication protects live-file writes and a
+  configurable streaming upload limit rejects oversized bodies.
+- Pending Linux verification: symlink-escape regression (Windows account could
+  not create symlinks).
 - P1 candidate: simplify employer-facing narrative while preserving operational truth.
-- P1 candidate: ensure documented coverage scope and observability claims are reproducible in local validation mode.
+- P1 blocker: resolve or deliberately scope the strict-mypy backlog.
 
 ## Next-Phase Remediation Plan
 

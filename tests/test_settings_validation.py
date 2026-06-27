@@ -6,16 +6,20 @@ from server.settings import (
     ENABLE_BUILTIN_EXTENSIONS_ENV,
     EXTENSION_MODULES_ENV,
     LEASE_SECONDS_ENV,
+    MAX_LIVE_FILE_BYTES_ENV,
     RATE_LIMIT_REQUESTS_ENV,
     RATE_LIMIT_WINDOW_ENV,
     ExtensionConfigurationError,
+    FileUploadConfigurationError,
     LeaseConfigurationError,
     RateLimitConfigurationError,
     get_lease_settings,
+    get_max_live_file_bytes,
     get_rate_limit_settings,
     get_settings_bundle,
     reload_extension_settings,
     reload_lease_settings,
+    reload_max_live_file_bytes,
     reload_rate_limit_settings,
     reload_settings_bundle,
 )
@@ -77,6 +81,17 @@ def test_positive_lease_env_updates_setting(monkeypatch):
     monkeypatch.delenv(LEASE_SECONDS_ENV, raising=False)
     restored = reload_lease_settings()
     assert restored.duration_seconds == get_lease_settings().duration_seconds
+
+
+def test_live_file_limit_requires_positive_integer(monkeypatch):
+    monkeypatch.setenv(MAX_LIVE_FILE_BYTES_ENV, "0")
+    with pytest.raises(FileUploadConfigurationError, match="positive integer"):
+        reload_max_live_file_bytes()
+    monkeypatch.setenv(MAX_LIVE_FILE_BYTES_ENV, "4096")
+    assert reload_max_live_file_bytes() == 4096
+    assert get_max_live_file_bytes() == 4096
+    monkeypatch.delenv(MAX_LIVE_FILE_BYTES_ENV, raising=False)
+    reload_max_live_file_bytes()
 
 
 def test_settings_bundle_tracks_current_configuration(monkeypatch):

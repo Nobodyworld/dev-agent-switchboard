@@ -83,6 +83,7 @@ class ConfigurationService:
         "SWITCHBOARD_LEASE_SECONDS",
         "SWITCHBOARD_EXTENSIONS",
         "SWITCHBOARD_ENABLE_BUILTIN_EXTENSIONS",
+        "SWITCHBOARD_MAX_LIVE_FILE_BYTES",
         "FILES_ROOT",
         "STORAGE_ROOT",
     )

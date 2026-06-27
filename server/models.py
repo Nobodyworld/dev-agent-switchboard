@@ -1,7 +1,7 @@
 """Database models for Switchboard."""
 
 import datetime as dt
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -46,7 +46,9 @@ class Task(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(Text, default="")
-    priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False, index=True)
+    priority: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, index=True
+    )
     status: Mapped[TaskStatus] = mapped_column(
         SAEnum(
             TaskStatus,
@@ -62,7 +64,7 @@ class Task(Base):
     updated_at: Mapped[dt.datetime] = mapped_column(
         DateTime, default=dt.datetime.utcnow, onupdate=dt.datetime.utcnow
     )
-    completed_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    completed_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class TaskDependency(Base):
@@ -126,7 +128,7 @@ class SystemState(Base):
     maintenance_mode: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
     )
-    message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[dt.datetime] = mapped_column(
         DateTime, default=dt.datetime.utcnow, onupdate=dt.datetime.utcnow
     )
@@ -144,9 +146,9 @@ class ExecPlanRegistry(Base):
     generated_at: Mapped[dt.datetime] = mapped_column(
         DateTime, default=dt.datetime.utcnow
     )
-    source_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
-    source_etag: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
-    extensions: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(
+    source_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    source_etag: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    extensions: Mapped[list[dict[str, Any]] | None] = mapped_column(
         JSON, nullable=True
     )
     created_at: Mapped[dt.datetime] = mapped_column(
@@ -170,24 +172,24 @@ class ExecPlan(Base):
         String(255), unique=True, nullable=False, index=True
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
-    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
-    lifecycle_created_at: Mapped[Optional[dt.datetime]] = mapped_column(
+    lifecycle_created_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime, nullable=True
     )
-    lifecycle_updated_at: Mapped[Optional[dt.datetime]] = mapped_column(
+    lifecycle_updated_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime, nullable=True
     )
-    lifecycle_target_completion: Mapped[Optional[dt.datetime]] = mapped_column(
+    lifecycle_target_completion: Mapped[dt.datetime | None] = mapped_column(
         DateTime, nullable=True
     )
-    owners: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON, nullable=True)
-    tags: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True)
-    scope: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    owners: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    tags: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    scope: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     links: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
-    metrics: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
-    changelog_token: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
-    extensions: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(
+    metrics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    changelog_token: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    extensions: Mapped[list[dict[str, Any]] | None] = mapped_column(
         JSON, nullable=True
     )
     created_at: Mapped[dt.datetime] = mapped_column(

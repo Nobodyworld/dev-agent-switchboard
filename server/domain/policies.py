@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from .entities import LeaseRecord, TaskRecord
 from .task_status import TaskStatus
@@ -39,8 +39,18 @@ class LeasePolicy:
     def deadline(self, *, now: dt.datetime) -> dt.datetime:
         return now + dt.timedelta(seconds=self.lease_duration_seconds())
 
-    def can_heartbeat(self, lease: LeaseRecord | None, agent_id: str) -> bool:
-        return lease is not None and lease.agent_id == agent_id
+    def can_heartbeat(
+        self,
+        lease: LeaseRecord | None,
+        agent_id: str,
+        *,
+        now: dt.datetime,
+    ) -> bool:
+        return (
+            lease is not None
+            and lease.agent_id == agent_id
+            and lease.expires_at > now
+        )
 
     def can_complete(
         self, lease: LeaseRecord | None, agent_id: str, *, now: dt.datetime

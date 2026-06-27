@@ -6,19 +6,21 @@ import inspect
 import os
 from collections.abc import Awaitable, Callable
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.api.dependencies import (
     OptionalSessionDependency,
     OptionalTaskServiceDependency,
+    require_admin_token,
     resolve_task_service,
 )
 from server.api.plan import broadcast_plan
 from server.application import TaskService
 from server.file_store import full_path, put_file
 from server.schema import FileUploadResponse
+from server.settings import get_max_live_file_bytes
 
 try:  # optional live file ETag helper
     from server.file_store import etag_for_path as _etag_for_path
@@ -46,7 +48,30 @@ async def _resolve_etag(path: str) -> str | None:
     return candidate
 
 
-@router.put("/api/files/{path:path}", response_model=FileUploadResponse)
+async def _read_bounded_body(request: Request) -> bytes:
+    limit = get_max_live_file_bytes()
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            declared_size = int(content_length)
+        except ValueError:
+            declared_size = None
+        if declared_size is not None and declared_size > limit:
+            raise HTTPException(status_code=413, detail="live file exceeds size limit")
+
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > limit:
+            raise HTTPException(status_code=413, detail="live file exceeds size limit")
+        data.extend(chunk)
+    return bytes(data)
+
+
+@router.put(
+    "/api/files/{path:path}",
+    response_model=FileUploadResponse,
+    dependencies=[Depends(require_admin_token)],
+)
 async def put_live_file(
     path: str,
     request: Request,
@@ -55,7 +80,7 @@ async def put_live_file(
 ) -> FileUploadResponse:
     db_session = _require_session(session)
     resolved: TaskService = resolve_task_service(service, db_session)
-    data = await request.body()
+    data = await _read_bounded_body(request)
     write_result = await put_file(db_session, path, data)
     await db_session.flush()
     version = await resolved.increment_plan_version()

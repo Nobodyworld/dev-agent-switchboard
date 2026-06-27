@@ -5,8 +5,13 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 
 from server.app import app
+from server.settings import (
+    reload_admin_token,
+    reload_max_live_file_bytes,
+)
 
 
 @pytest.fixture
@@ -16,6 +21,8 @@ def anyio_backend():
 
 HTTP_OK = 200
 HTTP_NOT_MODIFIED = 304
+HTTP_UNAUTHORIZED = 401
+HTTP_CONTENT_TOO_LARGE = 413
 
 
 def build_scope(
@@ -118,3 +125,81 @@ async def test_live_file_returns_304_on_matching_if_none_match(files_root: Path)
     assert mismatch_status == HTTP_OK
     assert mismatch_headers.get("etag") == etag
     assert mismatch_body == content
+
+
+@pytest.mark.anyio
+async def test_live_file_write_requires_configured_admin_token(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("SWITCHBOARD_ADMIN_TOKEN", "test-admin-token")
+    reload_admin_token()
+    transport = ASGITransport(app=app)
+
+    try:
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+        ) as client:
+            missing = await client.put(
+                "/api/files/tests/protected.txt",
+                content=b"blocked",
+            )
+            assert missing.status_code == HTTP_UNAUTHORIZED
+
+            invalid = await client.put(
+                "/api/files/tests/protected.txt",
+                content=b"blocked",
+                headers={"Authorization": "Bearer wrong-token"},
+            )
+            assert invalid.status_code == HTTP_UNAUTHORIZED
+
+            authorized = await client.put(
+                "/api/files/tests/protected.txt",
+                content=b"allowed",
+                headers={"Authorization": "Bearer test-admin-token"},
+            )
+            assert authorized.status_code == HTTP_OK
+            assert authorized.json()["ok"] is True
+    finally:
+        monkeypatch.delenv("SWITCHBOARD_ADMIN_TOKEN", raising=False)
+        reload_admin_token()
+
+
+@pytest.mark.anyio
+async def test_live_file_write_remains_open_without_configured_token():
+    reload_admin_token()
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.put(
+            "/api/files/tests/unprotected.txt",
+            content=b"allowed",
+        )
+
+    assert response.status_code == HTTP_OK
+    assert response.json()["ok"] is True
+
+
+@pytest.mark.anyio
+async def test_live_file_write_rejects_body_over_configured_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    files_root: Path,
+):
+    monkeypatch.setenv("SWITCHBOARD_MAX_LIVE_FILE_BYTES", "4")
+    reload_max_live_file_bytes()
+    transport = ASGITransport(app=app)
+
+    try:
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+        ) as client:
+            response = await client.put(
+                "/api/files/tests/oversized.txt",
+                content=b"12345",
+            )
+        assert response.status_code == HTTP_CONTENT_TOO_LARGE
+        assert not (files_root / "tests" / "oversized.txt").exists()
+    finally:
+        monkeypatch.delenv("SWITCHBOARD_MAX_LIVE_FILE_BYTES", raising=False)
+        reload_max_live_file_bytes()

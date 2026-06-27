@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import defaultdict, deque
-from collections.abc import Awaitable
-from typing import Callable, cast
+from collections.abc import Awaitable, Callable
+from typing import cast
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request

@@ -22,19 +22,25 @@ class ExtensionConfigurationError(ValueError):
     """Raised when extension environment variables are invalid."""
 
 
+class FileUploadConfigurationError(ValueError):
+    """Raised when live-file upload settings are invalid."""
+
+
 RATE_LIMIT_REQUESTS_ENV = "SWITCHBOARD_RATE_LIMIT_REQUESTS"
 RATE_LIMIT_WINDOW_ENV = "SWITCHBOARD_RATE_LIMIT_WINDOW_SECONDS"
 RATE_LIMIT_TRUSTED_ENV = "SWITCHBOARD_RATE_LIMIT_TRUSTED_BYPASS"
 RATE_LIMIT_TRUSTED_PROXIES_ENV = "SWITCHBOARD_RATE_LIMIT_TRUSTED_PROXIES"
 
 LEASE_SECONDS_ENV = "SWITCHBOARD_LEASE_SECONDS"
-ADMIN_TOKEN_ENV = "SWITCHBOARD_ADMIN_TOKEN"  # noqa: S105 - environment variable name
+ADMIN_TOKEN_ENV = "SWITCHBOARD_ADMIN_TOKEN"  # noqa: S105  # nosec B105
 EXTENSION_MODULES_ENV = "SWITCHBOARD_EXTENSIONS"
 ENABLE_BUILTIN_EXTENSIONS_ENV = "SWITCHBOARD_ENABLE_BUILTIN_EXTENSIONS"
+MAX_LIVE_FILE_BYTES_ENV = "SWITCHBOARD_MAX_LIVE_FILE_BYTES"
 
 _DEFAULT_REQUESTS = 120
 _DEFAULT_WINDOW_SECONDS = 60
 _DEFAULT_LEASE_SECONDS = 300
+_DEFAULT_MAX_LIVE_FILE_BYTES = 10 * 1024 * 1024
 
 
 _EXTENSION_NAME_PATTERN = re.compile(
@@ -254,3 +260,23 @@ def reload_admin_token() -> str | None:
 
     get_admin_token.cache_clear()
     return get_admin_token()
+
+
+@lru_cache(maxsize=1)
+def get_max_live_file_bytes() -> int:
+    """Return the maximum accepted live-file upload size."""
+
+    return _parse_int(
+        MAX_LIVE_FILE_BYTES_ENV,
+        os.getenv(MAX_LIVE_FILE_BYTES_ENV),
+        _DEFAULT_MAX_LIVE_FILE_BYTES,
+        error_type=FileUploadConfigurationError,
+        allow_zero=False,
+    )
+
+
+def reload_max_live_file_bytes() -> int:
+    """Clear the cached live-file limit and return the refreshed value."""
+
+    get_max_live_file_bytes.cache_clear()
+    return get_max_live_file_bytes()

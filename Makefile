@@ -45,7 +45,7 @@ typecheck: venv
 	$(ACTIVATE) mypy --strict server/file_store.py client/python/switchboard_client.py
 
 security: venv
-	$(ACTIVATE) bandit -q -r server
+	$(ACTIVATE) bandit -q -r server -x server/tests
 
 todo-check:
 	$(PYTHON) scripts/dev.py check-todos --root .

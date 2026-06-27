@@ -8,25 +8,24 @@ pulled from `server/requirements*.txt` and `client/python/pyproject.toml`.
 
 | Package | Version | License | Notes |
 | --- | --- | --- | --- |
-| fastapi | 0.120.0 | MIT | Primary web framework. |
-| starlette | 0.48.0 | BSD | FastAPI dependency, provides ASGI tooling. |
+| fastapi | 0.138.1 | MIT | Primary web framework. |
+| starlette | 1.3.1 | BSD | FastAPI dependency, provides ASGI tooling. |
 | uvicorn | 0.38.0 | BSD | ASGI server used by the packaged runner. |
 | SQLAlchemy | 2.0.44 | MIT | ORM/SQL toolkit backing persistence layer. |
 | aiosqlite | 0.21.0 | MIT | Async driver for SQLite-based development setups. |
 | jinja2 | 3.1.6 | BSD | Template engine for operator UI. |
 | httpx | 0.28.1 | BSD | Internal HTTP client for outbound callbacks. |
 | python-json-logger | 4.0.0 | BSD | Structured logging. |
-| prometheus-fastapi-instrumentator | 7.1.0 | MIT | Metrics instrumentation. |
+| prometheus-fastapi-instrumentator | 8.0.2 | MIT | Metrics instrumentation. |
 | opentelemetry-sdk | 1.38.0 | Apache-2.0 | Telemetry pipeline. |
 | opentelemetry-exporter-otlp | 1.38.0 | Apache-2.0 | Sends traces/metrics to OTLP endpoints. |
 | opentelemetry-instrumentation-fastapi | 0.59b0 | Apache-2.0 | FastAPI auto-instrumentation. |
 | PyYAML | 6.0.3 | MIT | Configuration parsing. |
-| python-multipart | 0.0.20 | Apache-2.0 | Upload handling for live files. |
+| python-multipart | 0.0.32 | Apache-2.0 | Upload handling for live files. |
 | greenlet | 3.2.4 | MIT | Required by SQLAlchemy. |
 
-All listed versions are current as of this audit and match upstream security
-advisories (no CVEs affecting these versions were published at the time of
-review in November 2024).
+These pins were refreshed during the 2026-06-27 public-release audit. The
+authoritative vulnerability result is recorded in `PUBLIC_RELEASE_AUDIT.md`.
 
 ## Client Runtime
 
@@ -41,9 +40,9 @@ do not require extra dependencies beyond `requests`.
 
 | Package | Version | License | Notes |
 | --- | --- | --- | --- |
-| pytest | 8.4.2 | MIT | Unit test runner. |
-| pytest-asyncio | 1.2.0 | Apache-2.0 | Async test support for server components. |
-| black | 25.9.0 | MIT | Code formatter. |
+| pytest | 9.1.1 | MIT | Unit test runner. |
+| pytest-asyncio | 1.4.0 | Apache-2.0 | Async test support for server components. |
+| black | 26.5.1 | MIT | Code formatter. |
 | ruff | 0.14.2 | MIT | Linter and import organiser. |
 | mypy | 1.18.2 | MIT | Static type checker. |
 | bandit | 1.8.6 | Apache-2.0 | Security linter for Python code. |
@@ -63,8 +62,4 @@ do not require extra dependencies beyond `requests`.
 - Renovate (`renovate.json`) files automated upgrade PRs; monitor its dashboards
   to keep telemetry and security tooling current.
 
-Document last updated during Codex repo perfection chain Step 7.
-
----
-
-Switchboard Proprietary — Internal Use Only
+Document last updated during the 2026-06-27 public-release hardening pass.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Awaitable, Callable, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -192,17 +193,23 @@ class ExtensionBundle:
                 await result
 
     def attach(self, app: FastAPI) -> None:
-        """Register startup hooks on ``app`` and return immediately."""
+        """Compose extension startup hooks into the application lifespan."""
 
-        for hook in self.startup_hooks:
-            async def runner(
-                h: StartupHook = hook,
-            ) -> None:  # pragma: no cover - async closure
-                outcome = h(app)
-                if inspect.isawaitable(outcome):
-                    await outcome
+        if not self.startup_hooks:
+            return
 
-            app.add_event_handler("startup", runner)
+        original_lifespan = app.router.lifespan_context
+
+        @asynccontextmanager
+        async def extension_lifespan(target: FastAPI):
+            async with original_lifespan(target):
+                for hook in self.startup_hooks:
+                    outcome = hook(target)
+                    if inspect.isawaitable(outcome):
+                        await outcome
+                yield
+
+        app.router.lifespan_context = extension_lifespan
 
 
 class ExtensionLoadError(RuntimeError):
