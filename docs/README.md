@@ -14,5 +14,6 @@ Curated subdirectories:
   analytics snapshots.
 - [`history/`](history/) — archived narratives preserved for provenance.
 
-Cross-cutting references include the [specification](../SPEC.md), the
-[style guide](../STYLE-GUIDE.md), and the living [task list](../TASKLIST.md).
+Cross-cutting references include the [specification](SPEC.md), the
+[API reference](API.md), the [style guide](STYLE-GUIDE.md), and the living
+[task list](TASKLIST.md).

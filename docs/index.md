@@ -35,6 +35,11 @@ how to integrate agents safely.
    a task when `--auto-complete` is supplied. See the [end-to-end
    example](#end-to-end-example) for a fuller walkthrough.
 
+5. **Review the endpoint reference**
+
+   Start with [API.md](API.md) for the endpoint index, then use
+   [ai-interface.md](ai-interface.md) for payload details.
+
 ## Architecture Overview
 
 Switchboard is intentionally modular:
@@ -138,6 +143,7 @@ Follow these steps to process a task locally:
 ## Additional Resources
 
 - [Architecture](architecture.md)
+- [API reference](API.md)
 - [Architecture overview](architecture/architecture-overview.md)
 - [Message Schema](message-schema.md)
 - [Failure Modes](failure-modes.md)
@@ -150,6 +156,6 @@ Follow these steps to process a task locally:
 - [Websocket Backoff Follow-up Audit (2025-11-06)](reports/audit-2025-11-06-websocket-backoff.md)
 - [README](../README.md)
 - [CHANGELOG](../CHANGELOG.md)
-- [Task Backlog](../TASKLIST.md)
+- [Task Backlog](TASKLIST.md)
 
 For historical documents that have not yet been migrated, see `docs/navigation-index.md`.

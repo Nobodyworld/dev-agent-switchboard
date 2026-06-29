@@ -100,7 +100,9 @@ def app_server(tmp_path_factory: pytest.TempPathFactory) -> str:
         process.wait(timeout=10)
 
 
-def test_task_lifecycle_with_feedback(app_server: str) -> None:  # noqa: PLR0915 - E2E smoke covers many interactions
+def test_task_lifecycle_with_feedback(
+    app_server: str,
+) -> None:  # noqa: PLR0915 - E2E smoke covers many interactions
     with sync_playwright() as p:
         try:
             browser = p.chromium.launch(headless=True)
@@ -124,7 +126,7 @@ def test_task_lifecycle_with_feedback(app_server: str) -> None:  # noqa: PLR0915
 
             page.fill('input[name="title"]', "Broken task")
             page.click('button:has-text("Add")')
-            toast = page.wait_for_selector('.toast', timeout=5000)
+            toast = page.wait_for_selector(".toast", timeout=5000)
             expect(toast).to_contain_text("Request POST /api/tasks failed")
 
             page.fill('input[name="title"]', "Task A")
@@ -143,21 +145,21 @@ def test_task_lifecycle_with_feedback(app_server: str) -> None:  # noqa: PLR0915
 
             page.wait_for_function(
                 "el => !el.classList.contains('hidden')",
-                page.locator('#planMeta'),
+                page.locator("#planMeta"),
             )
-            expect(page.locator('#planVersion')).not_to_have_text('—')
-            expect(page.locator('#planUpdated')).not_to_have_text('—')
+            expect(page.locator("#planVersion")).not_to_have_text("—")
+            expect(page.locator("#planUpdated")).not_to_have_text("—")
 
             page.wait_for_function(
                 "() => document.querySelector('#analyticsSummary') && "
                 "document.querySelector('#analyticsSummary').textContent."
                 "includes('2 tasks')"
             )
-            expect(page.locator('#analyticsCards')).to_contain_text('Ready')
+            expect(page.locator("#analyticsCards")).to_contain_text("Ready")
 
             dep_chip = page.locator('tr:has-text("Task B") .tooltip-chip').first
             expect(dep_chip).to_be_visible()
-            tooltip = dep_chip.get_attribute('data-tooltip')
+            tooltip = dep_chip.get_attribute("data-tooltip")
             assert tooltip and "Task A (#1)" in tooltip
 
             dialog_messages = []
@@ -182,11 +184,123 @@ def test_task_lifecycle_with_feedback(app_server: str) -> None:  # noqa: PLR0915
 
             expect(page.locator('tr:has-text("Task A")')).to_be_visible()
 
-            page.click('#toggleDiagnostics')
-            page.wait_for_selector('#diagnosticsPanel:not(.hidden)')
-            page.wait_for_selector('#diagnosticsPackages tr')
-            expect(page.locator('#diagnosticsPackages')).to_contain_text('fastapi')
-            summary = page.locator('#diagnosticsSummary')
-            expect(summary).not_to_have_text('Diagnostics have not been loaded yet.')
+            page.click("#toggleDiagnostics")
+            page.wait_for_selector("#diagnosticsPanel:not(.hidden)")
+            page.wait_for_selector("#diagnosticsPackages tr")
+            expect(page.locator("#diagnosticsPackages")).to_contain_text("fastapi")
+            summary = page.locator("#diagnosticsSummary")
+            expect(summary).not_to_have_text("Diagnostics have not been loaded yet.")
+        finally:
+            browser.close()
+
+
+def test_two_agent_dependency_flow_updates_dashboard(app_server: str) -> None:
+    with sync_playwright() as p:
+        try:
+            browser = p.chromium.launch(headless=True)
+        except PlaywrightError as exc:
+            if "Executable doesn't exist" in str(exc):
+                pytest.skip(
+                    "Playwright browsers are not installed; run 'playwright install'."
+                )
+            raise
+        page = browser.new_page()
+        try:
+            page.goto(f"{app_server}/", wait_until="domcontentloaded")
+            page.wait_for_selector("#tasks")
+
+            task_ids = page.evaluate("""async () => {
+                                        const jsonHeaders = { 'Content-Type': 'application/json' };
+                                        const postJson = async (url, payload) => {
+                                            const response = await fetch(url, {
+                                                method: 'POST',
+                                                headers: jsonHeaders,
+                                                body: JSON.stringify(payload),
+                                            });
+                                            if (!response.ok) {
+                                                throw new Error(`${url} failed with ${response.status}`);
+                                            }
+                                            return response.json();
+                                        };
+
+                                        await postJson('/api/agents', { agent_name: 'agent-one' });
+                                        await postJson('/api/agents', { agent_name: 'agent-two' });
+
+                                        const taskA = await postJson('/api/tasks', {
+                                            title: 'Task A',
+                                            description: 'Ready root task',
+                                            depends_on: [],
+                                        });
+                                        const taskB = await postJson('/api/tasks', {
+                                            title: 'Task B',
+                                            description: 'Unlocks after Task A',
+                                            depends_on: [taskA.id],
+                                        });
+
+                                        return { taskAId: taskA.id, taskBId: taskB.id };
+                                }""")
+
+            page.wait_for_selector('tr:has-text("Task A")')
+            page.wait_for_selector('tr:has-text("Task B")')
+            page.wait_for_function(
+                "() => document.querySelector('#analyticsSummary') && "
+                "document.querySelector('#analyticsSummary').textContent.includes('1 blocked')"
+            )
+            initial_version = page.locator("#planVersion").inner_text()
+
+            results = page.evaluate(
+                """async ({ taskAId }) => {
+                                        const post = async (url, body = undefined) => {
+                                            const options = { method: 'POST' };
+                                            if (body !== undefined) {
+                                                options.headers = { 'Content-Type': 'application/json' };
+                                                options.body = JSON.stringify(body);
+                                            }
+                                            const response = await fetch(url, options);
+                                            if (!response.ok) {
+                                                throw new Error(`${url} failed with ${response.status}`);
+                                            }
+                                            return response.json();
+                                        };
+
+                                        const firstCheckout = await post('/api/tasks/checkout?agent_id=agent-one');
+                                        const blockedCheckout = await post('/api/tasks/checkout?agent_id=agent-two');
+                                        const heartbeat = await post(`/api/tasks/${taskAId}/heartbeat?agent_id=agent-one`);
+                                        const completion = await post(`/api/tasks/${taskAId}/complete?agent_id=agent-one`, {
+                                            notes: 'Task A finished',
+                                        });
+                                        const secondCheckout = await post('/api/tasks/checkout?agent_id=agent-two');
+
+                                        return {
+                                            firstCheckout,
+                                            blockedCheckout,
+                                            heartbeat,
+                                            completion,
+                                            secondCheckout,
+                                        };
+                                }""",
+                task_ids,
+            )
+
+            assert results["firstCheckout"]["task"]["id"] == task_ids["taskAId"]
+            assert results["blockedCheckout"]["task"] is None
+            assert results["blockedCheckout"]["reason"] == "no_available_tasks"
+            assert results["heartbeat"] == {"ok": True}
+            assert results["completion"]["ok"] is True
+            assert results["secondCheckout"]["task"]["id"] == task_ids["taskBId"]
+
+            task_a_row = page.locator("tbody tr").filter(
+                has=page.locator(f'td:text-is("{task_ids["taskAId"]}")')
+            )
+            task_b_row = page.locator("tbody tr").filter(
+                has=page.locator(f'td:text-is("{task_ids["taskBId"]}")')
+            )
+
+            expect(task_a_row).to_contain_text("completed")
+            expect(task_b_row).to_contain_text("in progress")
+            expect(page.locator("#analyticsSummary")).to_contain_text("0 blocked")
+            expect(page.locator("#analyticsCards")).to_contain_text("Completed")
+            expect(page.locator("#analyticsCards")).to_contain_text("In progress")
+            expect(page.locator("#planVersion")).not_to_have_text(initial_version)
         finally:
             browser.close()

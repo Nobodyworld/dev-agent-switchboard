@@ -13,6 +13,10 @@ sections:
   - title: "Agents & Automation"
     description: "Teach human and autonomous agents how to interact with Switchboard."
     items:
+      - title: "API Reference"
+        path: "docs/API.md"
+        summary: "Concise index of REST, health, observability, and websocket endpoints."
+        keywords: ["api", "endpoints", "websocket"]
       - title: "AI Interface Guide"
         path: "docs/ai-interface.md"
         summary: "REST, WebSocket, and Python SDK reference for agents."

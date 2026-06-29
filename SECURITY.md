@@ -6,13 +6,20 @@ Security fixes are applied to the `main` branch. Please deploy from the latest c
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability, **do not** open a public issue. Instead, email the Switchboard maintainers at <security@openai.com> with the following information:
+If you discover a security vulnerability, **do not** open a public issue. Instead, email the Switchboard maintainers at <Nobody@NobodyWorld.com> with the following information:
 
 - A description of the vulnerability and its potential impact.
 - Steps to reproduce the issue or proof-of-concept code.
 - Any known mitigations or workarounds.
 
 We aim to acknowledge new reports within two business days. After triage, we will provide regular status updates until the issue is resolved.
+
+## Public Security Posture
+
+- Privileged runtime mutations are protected by `SWITCHBOARD_ADMIN_TOKEN` when configured.
+- Live-file uploads are bounded by `SWITCHBOARD_MAX_LIVE_FILE_BYTES` and inherit admin-token protection when enabled.
+- The default support target is the latest commit on `main`; older snapshots may not receive fixes.
+- Dependency review and local reproduction guidance live in [docs/dependencies.md](docs/dependencies.md).
 
 ## Coordinated Disclosure
 

@@ -10,7 +10,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 router = APIRouter()
 
-TEMPLATE_ROOT = Path(__file__).resolve().parents[3] / "web" / "templates"
+TEMPLATE_ROOT = Path(__file__).resolve().parents[3] / "web"
 templates = Environment(
     loader=FileSystemLoader(str(TEMPLATE_ROOT)),
     autoescape=select_autoescape(enabled_extensions=("html", "xml")),

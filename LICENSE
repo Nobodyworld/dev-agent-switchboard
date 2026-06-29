@@ -1,30 +1,18 @@
-# Proprietary License
+# Switchboard Proprietary License
 
-Copyright (c) 2025 Nobody Production
-
-This software and its associated documentation are proprietary and confidential. All rights reserved.
-
-## Terms and Conditions
-
-1. **Ownership**: This software is owned by Nobody Production and is protected by copyright laws and international treaties.
-
-2. **License Grant**: This software is licensed, not sold, to the licensee for use only under the terms of this license.
-
-3. **Restrictions**:
-   - You may not copy, modify, distribute, or create derivative works of this software without explicit written permission from Nobody Production.
-   - You may not reverse engineer, decompile, or disassemble the software.
-   - You may not remove or alter any copyright, trademark, or other proprietary notices.
-
-4. **Confidentiality**: The software contains trade secrets and confidential information. You agree to maintain the confidentiality of the software and not disclose it to any third party.
-
-5. **No Warranty**: This software is provided "as is" without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement.
-
-6. **Limitation of Liability**: In no event shall Nobody Production be liable for any damages arising out of the use or inability to use this software.
-
-7. **Termination**: This license is effective until terminated. Your rights under this license will terminate automatically without notice if you fail to comply with any term(s) of this license.
-
-8. **Governing Law**: This license shall be governed by and construed in accordance with the laws of [Jurisdiction], without regard to its conflict of law provisions.
-
-For licensing inquiries, please contact: <Nobody@NobodyWorld.com>
-
+Copyright (c) 2025 Nobody Production.
 All rights reserved.
+
+This repository, the Switchboard software, and its associated documentation are proprietary and confidential.
+No right to use, copy, modify, distribute, sublicense, publish, disclose, or create derivative works is granted except through prior written permission from Nobody Production.
+
+You may not:
+
+- remove or alter proprietary notices;
+- reverse engineer, decompile, or disassemble the software except where applicable law prohibits that restriction;
+- disclose non-public source, documentation, credentials, or operational details to third parties without written authorization.
+
+The software is provided "as is", without warranties of any kind, express or implied, including merchantability, fitness for a particular purpose, and non-infringement.
+In no event will Nobody Production be liable for any claim, damages, or other liability arising from or connected to the software or its use.
+
+For licensing, commercial use, or redistribution inquiries, contact <Nobody@NobodyWorld.com>.
