@@ -10,14 +10,20 @@ Use this page as the concise endpoint index; use [ai-interface.md](ai-interface.
 | `/api/agents` | `POST` | Register or idempotently confirm an agent identifier. |
 | `/api/tasks` | `GET` | List tasks with dependency metadata; filter via `status`. |
 | `/api/tasks` | `POST` | Create a task and optional dependency edges. |
+| `/api/tasks/{id}` | `PUT`, `PATCH` | Update title, description, status, priority, or dependency edges. |
+| `/api/tasks/{id}` | `DELETE` | Delete a task and refresh plan version if a record was removed. |
 | `/api/tasks/checkout` | `POST` | Lease the next available task; failures include a `reason`. |
 | `/api/tasks/{id}/heartbeat` | `POST` | Extend the active lease for the agent that checked out the task. |
 | `/api/tasks/{id}/complete` | `POST` | Mark a task complete and store optional notes. |
 | `/api/tasks/{id}/abandon` | `POST` | Release the lease without completion. |
 | `/api/tasks/analytics` | `GET` | Return aggregated task analytics including ready and blocked counts. |
+| `/api/plan` | `GET` | Return current plan snapshot used by agents and dashboard. |
+| `/api/execplans/index` | `GET` | Return ExecPlan registry index in JSON (default) or YAML based on query/header negotiation. |
 | `/health/live` | `GET` | Liveness probe returning process and probe observations. |
 | `/health/ready` | `GET` | Readiness probe validating database and storage access. Returns HTTP 503 on failure. |
-| `/api/health` | `GET` | Combined liveness and readiness envelope. Returns HTTP 503 when readiness fails. |
+| `/health` | `GET` | Plaintext liveness heartbeat (`OK`). |
+| `/api/health` | `GET` | Combined liveness and readiness envelope. Requires admin token when configured and returns HTTP 503 when readiness fails. |
+| `/api/observability/overview` | `GET` | Aggregated observability overview for operators. Requires admin token when configured. |
 | `/api/observability/telemetry` | `GET` | Logging, metrics, tracing, runtime metadata, and observability notes. Requires admin token when configured. |
 | `/api/observability/metrics` | `GET` | Prometheus analytics catalog and latest sample metadata. |
 | `/api/observability/health` | `GET` | Aggregated observability health view. Requires admin token when configured. |
