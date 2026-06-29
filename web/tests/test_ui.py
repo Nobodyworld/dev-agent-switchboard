@@ -233,7 +233,8 @@ def test_two_agent_dependency_flow_updates_dashboard(
         page.goto(f"{app_server}/", wait_until="domcontentloaded")
         page.wait_for_selector("#tasks")
 
-        task_ids = page.evaluate("""async () => {
+        task_ids = page.evaluate(
+            """async () => {
                                         const jsonHeaders = {
                                             'Content-Type': 'application/json',
                                         };
@@ -273,7 +274,8 @@ def test_two_agent_dependency_flow_updates_dashboard(
                                         });
 
                                         return { taskAId: taskA.id, taskBId: taskB.id };
-                                }""")
+                                }"""
+        )
 
         page.wait_for_selector('tr:has-text("Task A")')
         page.wait_for_selector('tr:has-text("Task B")')
