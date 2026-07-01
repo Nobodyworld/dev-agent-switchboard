@@ -102,9 +102,10 @@ class RunCommandTests(TestCase):
         client.get_settings.return_value = {"lease": {"duration_seconds": 300}}
         client.checkout.return_value = None
 
-        with mock.patch(
-            "switchboard_cli.SwitchboardClient", return_value=client
-        ), mock.patch("switchboard_cli.time.sleep", side_effect=KeyboardInterrupt):
+        with (
+            mock.patch("switchboard_cli.SwitchboardClient", return_value=client),
+            mock.patch("switchboard_cli.time.sleep", side_effect=KeyboardInterrupt),
+        ):
             self.assertEqual(0, switchboard_cli.run_command(self.args))
         client.close.assert_called_once()
         client.get_settings.assert_called_once()
@@ -116,9 +117,10 @@ class RunCommandTests(TestCase):
         client.checkout.side_effect = [{"id": 1}]
         self.args.heartbeat_interval = 500.0
 
-        with mock.patch(
-            "switchboard_cli.SwitchboardClient", return_value=client
-        ), mock.patch("switchboard_cli.process_task", return_value=False) as proc:
+        with (
+            mock.patch("switchboard_cli.SwitchboardClient", return_value=client),
+            mock.patch("switchboard_cli.process_task", return_value=False) as proc,
+        ):
             self.assertEqual(1, switchboard_cli.run_command(self.args))
         proc.assert_called_once()
         called_args, called_kwargs = proc.call_args
@@ -133,10 +135,10 @@ class RunCommandTests(TestCase):
         client.get_settings.return_value = {"lease": {"duration_seconds": 300}}
         client.checkout.side_effect = [{"id": 1}, None]
 
-        with mock.patch(
-            "switchboard_cli.SwitchboardClient", return_value=client
-        ), mock.patch("switchboard_cli.process_task", return_value=True), mock.patch(
-            "switchboard_cli.time.sleep", side_effect=KeyboardInterrupt
+        with (
+            mock.patch("switchboard_cli.SwitchboardClient", return_value=client),
+            mock.patch("switchboard_cli.process_task", return_value=True),
+            mock.patch("switchboard_cli.time.sleep", side_effect=KeyboardInterrupt),
         ):
             self.assertEqual(0, switchboard_cli.run_command(self.args))
         client.close.assert_called_once()
@@ -159,9 +161,7 @@ class RunCommandTests(TestCase):
         client.get_settings.assert_called_once()
         client.get_system_state.assert_called_once()
         warning_calls = [
-            call
-            for call in printer.call_args_list
-            if "Warning: failed" in str(call)
+            call for call in printer.call_args_list if "Warning: failed" in str(call)
         ]
         self.assertTrue(warning_calls)
 
@@ -178,9 +178,7 @@ class RunCommandTests(TestCase):
             self.assertEqual(0, switchboard_cli.run_command(self.args))
 
         warnings = [
-            call
-            for call in printer.call_args_list
-            if "non-positive" in str(call)
+            call for call in printer.call_args_list if "non-positive" in str(call)
         ]
         self.assertTrue(warnings)
         client.get_system_state.assert_called_once()
@@ -230,9 +228,7 @@ class ConfigurationCommandTests(TestCase):
             "switchboard_cli.SwitchboardClient",
             side_effect=requests.RequestException("boom"),
         ):
-            self.assertEqual(
-                1, switchboard_cli.configuration_command(self.args)
-            )
+            self.assertEqual(1, switchboard_cli.configuration_command(self.args))
 
     def test_configuration_command_prints_summary(self) -> None:
         client = _make_context_client()
@@ -308,6 +304,7 @@ class ConfigurationCommandTests(TestCase):
         client.get_configuration.assert_called_once()
         printer.assert_called_once()
 
+
 class ProcessTaskTests(TestCase):
     def setUp(self) -> None:
         self.task = {
@@ -319,9 +316,7 @@ class ProcessTaskTests(TestCase):
         self.client = mock.Mock()
         self.client.heartbeat.return_value = True
 
-    def _install_loop(
-        self, error: str | None = None, *, limit_reached: bool = False
-    ):
+    def _install_loop(self, error: str | None = None, *, limit_reached: bool = False):
         class DummyLoop:
             def __init__(
                 self,
@@ -367,21 +362,22 @@ class ProcessTaskTests(TestCase):
 
     def test_process_task_complete_flow(self) -> None:
         loop, patcher = self._install_loop()
-        with patcher, mock.patch(
-            "switchboard_cli.confirm_completion", return_value=True
-        ) as confirm, mock.patch(
-            "switchboard_cli.input",
-            side_effect=["complete", "All done"],
-        ), mock.patch("switchboard_cli.print"):
-            self.assertTrue(
-                switchboard_cli.process_task(self.client, self.task, 30.0)
-            )
+        with (
+            patcher,
+            mock.patch(
+                "switchboard_cli.confirm_completion", return_value=True
+            ) as confirm,
+            mock.patch(
+                "switchboard_cli.input",
+                side_effect=["complete", "All done"],
+            ),
+            mock.patch("switchboard_cli.print"),
+        ):
+            self.assertTrue(switchboard_cli.process_task(self.client, self.task, 30.0))
 
         self.assertTrue(loop.started)
         self.assertTrue(loop.stopped)
-        self.assertEqual(
-            loop.joined_with, switchboard_cli.HEARTBEAT_SHUTDOWN_TIMEOUT
-        )
+        self.assertEqual(loop.joined_with, switchboard_cli.HEARTBEAT_SHUTDOWN_TIMEOUT)
         confirm.assert_called_once()
         self.assertEqual(
             confirm.call_args[0], (self.client, self.task["id"], "All done")
@@ -391,19 +387,19 @@ class ProcessTaskTests(TestCase):
     def test_process_task_abandon_flow(self) -> None:
         loop, patcher = self._install_loop()
         self.client.abandon.return_value = True
-        with patcher, mock.patch(
-            "switchboard_cli.input",
-            side_effect=["abandon"],
-        ), mock.patch("switchboard_cli.print"):
-            self.assertTrue(
-                switchboard_cli.process_task(self.client, self.task, 30.0)
-            )
+        with (
+            patcher,
+            mock.patch(
+                "switchboard_cli.input",
+                side_effect=["abandon"],
+            ),
+            mock.patch("switchboard_cli.print"),
+        ):
+            self.assertTrue(switchboard_cli.process_task(self.client, self.task, 30.0))
 
         self.client.abandon.assert_called_once_with(self.task["id"])
         self.assertTrue(loop.stopped)
-        self.assertEqual(
-            loop.joined_with, switchboard_cli.HEARTBEAT_SHUTDOWN_TIMEOUT
-        )
+        self.assertEqual(loop.joined_with, switchboard_cli.HEARTBEAT_SHUTDOWN_TIMEOUT)
 
     def test_process_task_handles_manual_commands(self) -> None:
         _loop, patcher = self._install_loop()
@@ -418,12 +414,12 @@ class ProcessTaskTests(TestCase):
             "abandon",
         ]
         self.client.abandon.return_value = True
-        with patcher, mock.patch(
-            "switchboard_cli.input", side_effect=inputs
-        ), mock.patch("switchboard_cli.print") as printer:
-            self.assertTrue(
-                switchboard_cli.process_task(self.client, self.task, 10.0)
-            )
+        with (
+            patcher,
+            mock.patch("switchboard_cli.input", side_effect=inputs),
+            mock.patch("switchboard_cli.print") as printer,
+        ):
+            self.assertTrue(switchboard_cli.process_task(self.client, self.task, 10.0))
 
         self.client.heartbeat.assert_called_once_with(self.task["id"])
         printer.assert_any_call("Unknown command: unknown")
@@ -447,9 +443,7 @@ class ProcessTaskTests(TestCase):
     def test_process_task_aborts_on_loop_error(self) -> None:
         _loop, patcher = self._install_loop(error="Server rejected heartbeat")
         with patcher, mock.patch("switchboard_cli.print") as printer:
-            self.assertFalse(
-                switchboard_cli.process_task(self.client, self.task, 10.0)
-            )
+            self.assertFalse(switchboard_cli.process_task(self.client, self.task, 10.0))
 
         printer.assert_any_call("Server rejected heartbeat", file=sys.stderr)
 
@@ -571,8 +565,8 @@ class AnalyticsCommandTests(TestCase):
 
         printer.assert_called_once()
         printed_payload = printer.call_args[0][0]
-        self.assertIn("\"total_tasks\"", printed_payload)
-        self.assertIn("\"ready_tasks\"", printed_payload)
+        self.assertIn('"total_tasks"', printed_payload)
+        self.assertIn('"ready_tasks"', printed_payload)
 
     def test_stats_command_handles_request_errors(self) -> None:
         args = argparse.Namespace(base="http://example.test", agent="stats", json=False)
@@ -621,9 +615,7 @@ class LeaseExtractionTests(TestCase):
         self.assertTrue(any("not numeric" in message for message in warnings))
 
     def test_handles_missing_duration(self) -> None:
-        lease_seconds, warnings = switchboard_cli.extract_lease_duration(
-            {"lease": {}}
-        )
+        lease_seconds, warnings = switchboard_cli.extract_lease_duration({"lease": {}})
 
         self.assertIsNone(lease_seconds)
         self.assertTrue(any("missing" in message for message in warnings))
@@ -673,9 +665,7 @@ class HelperFunctionTests(TestCase):
     def test_confirm_completion_success(self) -> None:
         client = mock.Mock()
         client.complete.return_value = True
-        self.assertTrue(
-            switchboard_cli.confirm_completion(client, 9, notes="done")
-        )
+        self.assertTrue(switchboard_cli.confirm_completion(client, 9, notes="done"))
         client.complete.assert_called_once_with(9, notes="done")
 
     def test_confirm_completion_handles_http_error(self) -> None:
@@ -683,9 +673,7 @@ class HelperFunctionTests(TestCase):
         client.complete.side_effect = requests.HTTPError("fail")
 
         with mock.patch("switchboard_cli.print") as printer:
-            self.assertFalse(
-                switchboard_cli.confirm_completion(client, 9, notes=None)
-            )
+            self.assertFalse(switchboard_cli.confirm_completion(client, 9, notes=None))
 
         printer.assert_called()
 
@@ -696,9 +684,10 @@ class MainFunctionTests(TestCase):
         parser.parse_args.return_value = argparse.Namespace(func=None)
         parser.print_help.return_value = None
 
-        with mock.patch.object(
-            switchboard_cli, "build_parser", return_value=parser
-        ), mock.patch.object(parser, "print_help") as help_mock:
+        with (
+            mock.patch.object(switchboard_cli, "build_parser", return_value=parser),
+            mock.patch.object(parser, "print_help") as help_mock,
+        ):
             self.assertEqual(1, switchboard_cli.main([]))
 
         help_mock.assert_called_once()

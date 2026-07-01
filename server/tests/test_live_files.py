@@ -67,7 +67,7 @@ async def call_live(
 
 
 def collect_response(
-    events: list[dict[str, object]]
+    events: list[dict[str, object]],
 ) -> tuple[int, dict[str, str], bytes]:
     status = events[0]["status"]
     headers = {

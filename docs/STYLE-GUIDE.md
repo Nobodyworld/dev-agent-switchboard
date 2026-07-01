@@ -33,11 +33,11 @@ Any deviation from “TS + React for new app UIs” requires a short ADR explain
 
 ## 1. Organization Constants
 
-- **Organization**: Nobody Production  
-- **GitHub Org**: Nobodyworld  
-- **Maintainer**: Nobody  
-- **License**: Proprietary (see LICENSE file)  
-- **Solo Developer**: Yes — all repositories are maintained by a single developer  
+- **Organization**: Nobodyworld
+- **GitHub Org**: Nobodyworld
+- **Maintainer**: Nobody
+- **License**: Apache-2.0 (see [LICENSE](../LICENSE))
+- **Solo Developer**: Yes — all repositories are maintained by a single developer
 
 ---
 
@@ -101,11 +101,11 @@ If any of these are missing, they must be created before substantial new work.
 
 Standard directories (each must include a `README.md` describing scope):
 
-- `src/` — Source code ([src/README.md](src/README.md))
-- `tests/` — Automated tests mirroring `src/` structure ([tests/README.md](tests/README.md))
-- `docs/` — Documentation ([docs/README.md](docs/README.md))
+- `src/` — Source code when a project uses a dedicated source root
+- `tests/` — Automated tests mirroring `src/` structure ([tests/README.md](../tests/README.md))
+- `docs/` — Documentation ([docs/README.md](README.md))
 - `.github/` — Workflows and templates
-- `scripts/` — Developer tooling ([scripts/README.md](scripts/README.md))
+- `scripts/` — Developer tooling ([scripts/README.md](../scripts/README.md))
 - `assets/` — Small static assets (icons, images) needed at build/runtime
 - `data/` — Small sample/test data only (large datasets belong in storage)
 
@@ -141,7 +141,7 @@ Rules:
 
 Example:
 
-- `[x] Add CI for Node/TS — TK-2025-10-29-001`  
+- `[x] Add CI for Node/TS — TK-2025-10-29-001`
   - `Completed: 2025-11-01 — PR: https://github.com/org/repo/pull/123 — Added check-only lint/test workflows.`
 
 Deprecated: `REPORTS.md`, `TASK.md`, and other ad hoc task files. Do not create new ones.
@@ -342,7 +342,7 @@ Architecture & APIs:
 - Legacy projects (e.g., existing Django apps) must:
   - Mark their status in `SPEC.md` as `legacy-stack: true`.
   - Either:
-    - Be maintained as-is with minimal churn, or  
+    - Be maintained as-is with minimal churn, or
     - Have a gradual migration plan documented.
 
 ---

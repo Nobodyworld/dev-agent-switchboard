@@ -90,9 +90,10 @@ async def collect_observability_overview(
     liveness = build_liveness_payload(version=app_version)
     readiness = await build_readiness_payload(session, version=app_version)
     telemetry = get_telemetry_report(app_version=app_version, include_diagnostics=True)
-    diagnostics = telemetry.get("diagnostics") or collect_diagnostics(
-        app_version=app_version
-    ).as_dict()
+    diagnostics = (
+        telemetry.get("diagnostics")
+        or collect_diagnostics(app_version=app_version).as_dict()
+    )
     metrics_catalog = describe_task_metrics()
     bundle = get_extension_bundle()
     runtime = get_runtime_snapshot(version=app_version).model_dump()

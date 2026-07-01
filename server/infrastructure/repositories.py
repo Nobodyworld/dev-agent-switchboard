@@ -96,8 +96,7 @@ class SqlAlchemyTaskRepository(TaskRepository):
 
         dependency_map = await self._dependency_map(task.id for task in tasks)
         return [
-            self._to_record(task, dependency_map.get(task.id, ()))
-            for task in tasks
+            self._to_record(task, dependency_map.get(task.id, ())) for task in tasks
         ]
 
     async def get(self, task_id: int) -> TaskRecord | None:
@@ -311,9 +310,7 @@ class SqlAlchemyTaskRepository(TaskRepository):
 
         without_dependencies = total_tasks - with_dependencies
         average_dependencies = (
-            float(dependency_edges) / float(total_tasks)
-            if total_tasks
-            else 0.0
+            float(dependency_edges) / float(total_tasks) if total_tasks else 0.0
         )
 
         return TaskAnalytics(
@@ -338,9 +335,11 @@ class SqlAlchemyTaskRepository(TaskRepository):
             id=task.id,
             title=task.title,
             description=task.description,
-            status=task.status
-            if isinstance(task.status, TaskStatus)
-            else TaskStatus(task.status),
+            status=(
+                task.status
+                if isinstance(task.status, TaskStatus)
+                else TaskStatus(task.status)
+            ),
             priority=task.priority,
             depends_on=dependencies,
             completed_notes=task.completed_notes,
@@ -368,8 +367,7 @@ class SqlAlchemyTaskRepository(TaskRepository):
             collected[task_id].add(depends_on)
 
         return {
-            task_id: tuple(sorted(collected.get(task_id, ())))
-            for task_id in unique_ids
+            task_id: tuple(sorted(collected.get(task_id, ()))) for task_id in unique_ids
         }
 
 
@@ -524,9 +522,7 @@ class SqlAlchemySystemStateRepository(SystemStateRepository):
         await self._session.flush()
         return self._to_entity(row)
 
-    async def _ensure_row(
-        self, *, for_update: bool = False
-    ) -> SystemStateModel:
+    async def _ensure_row(self, *, for_update: bool = False) -> SystemStateModel:
         stmt = select(SystemStateModel)
         if for_update:
             stmt = stmt.with_for_update()

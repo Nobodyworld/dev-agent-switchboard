@@ -2072,4 +2072,3 @@ Validate the jittered websocket backoff feature end-to-end, remediate repo-level
 
 - Published a comprehensive audit report, security notes, and technical debt backlog so operators understand the websocket backoff follow-up status.
 - Hardened the websocket backoff pytest harness, refreshed README guidance, and updated the Makefile to streamline local QA and deployment flows.
-

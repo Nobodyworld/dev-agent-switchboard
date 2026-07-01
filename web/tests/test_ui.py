@@ -85,7 +85,7 @@ def app_server(tmp_path_factory: pytest.TempPathFactory) -> Generator[str, None,
     env["STORAGE_ROOT"] = str(storage_root)
     env["FILES_ROOT"] = str(storage_root / "files")
 
-    process = subprocess.Popen(  # noqa: S603 - test harness launches local uvicorn
+    process = subprocess.Popen(
         [
             sys.executable,
             "-m",

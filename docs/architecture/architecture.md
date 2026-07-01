@@ -73,4 +73,4 @@ The database schema revolves around four primary tables:
 - **Local automation:** `Makefile` targets wrap setup (`make setup`), execution (`make run`), and quality checks (`make qa`). Windows users can rely on the Python helper scripts in `scripts/` for parity.
 - **Docker Compose:** `ops/docker-compose.yml` runs the API, applies environment variables from `ops/.env`, and mounts persistent volumes for SQLite and live files. Observability helpers (`ops/logging.ini`, `ops/otel.yaml`) plug directly into the instrumentation modules when enabled.
 
-Refer to [docs/architecture.md](docs/architecture.md) for an even deeper exploration, including CLI interactions, testing boundaries, and operational considerations for multi-agent deployments.
+Refer to [../architecture.md](../architecture.md) for an even deeper exploration, including CLI interactions, testing boundaries, and operational considerations for multi-agent deployments.

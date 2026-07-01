@@ -83,7 +83,6 @@ class TelemetryState:
         }
 
 
-
 class _TelemetryStateCache:
     """Container for the most recently captured telemetry state."""
 
@@ -158,11 +157,13 @@ def bootstrap_observability(app: FastAPI) -> TelemetryState:
             warnings=tuple(
                 warning
                 for warning in [
-                    None
-                    if configured_logging or request_id_enabled
-                    else (
-                        "Logging left at Python defaults; install "
-                        "SWITCHBOARD_ENABLE_STRUCTURED_LOGGING to improve parity."
+                    (
+                        None
+                        if configured_logging or request_id_enabled
+                        else (
+                            "Logging left at Python defaults; install "
+                            "SWITCHBOARD_ENABLE_STRUCTURED_LOGGING to improve parity."
+                        )
                     )
                 ]
                 if warning
@@ -180,11 +181,13 @@ def bootstrap_observability(app: FastAPI) -> TelemetryState:
             warnings=tuple(
                 warning
                 for warning in [
-                    None
-                    if metrics_enabled
-                    else (
-                        "Prometheus instrumentation disabled; set "
-                        "SWITCHBOARD_ENABLE_METRICS=1 to expose /metrics."
+                    (
+                        None
+                        if metrics_enabled
+                        else (
+                            "Prometheus instrumentation disabled; set "
+                            "SWITCHBOARD_ENABLE_METRICS=1 to expose /metrics."
+                        )
                     )
                 ]
                 if warning
@@ -200,11 +203,13 @@ def bootstrap_observability(app: FastAPI) -> TelemetryState:
             warnings=tuple(
                 warning
                 for warning in [
-                    None
-                    if tracing_enabled
-                    else (
-                        "OpenTelemetry instrumentation disabled; set "
-                        "SWITCHBOARD_ENABLE_TRACING=1 for distributed tracing."
+                    (
+                        None
+                        if tracing_enabled
+                        else (
+                            "OpenTelemetry instrumentation disabled; set "
+                            "SWITCHBOARD_ENABLE_TRACING=1 for distributed tracing."
+                        )
                     )
                 ]
                 if warning

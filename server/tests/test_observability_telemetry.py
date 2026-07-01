@@ -10,6 +10,7 @@ def test_bootstrap_observability_tracks_enabled_subsystems(monkeypatch):
     monkeypatch.setenv("SWITCHBOARD_ENABLE_STRUCTURED_LOGGING", "1")
 
     monkeypatch.setattr(telemetry, "configure_logging", lambda: True)
+
     def fake_setup_logging(app, header_name=None):
         _ = app
         return header_name == DEFAULT_REQUEST_ID_HEADER
@@ -49,6 +50,7 @@ def test_telemetry_report_surfaces_warnings(monkeypatch):
         monkeypatch.delenv(key, raising=False)
 
     monkeypatch.setattr(telemetry, "configure_logging", lambda: False)
+
     def disabled_setup_logging(app, header_name=None):
         _ = (app, header_name)
         return False
@@ -68,6 +70,6 @@ def test_telemetry_report_surfaces_warnings(monkeypatch):
     assert any("Prometheus" in warning for warning in payload["metrics"]["warnings"])
     assert payload["tracing"]["enabled"] is False
     assert any("OpenTelemetry" in warning for warning in payload["tracing"]["warnings"])
-    assert payload["logging"]["warnings"], (
-        "Logging warnings should surface when not configured"
-    )
+    assert payload["logging"][
+        "warnings"
+    ], "Logging warnings should surface when not configured"

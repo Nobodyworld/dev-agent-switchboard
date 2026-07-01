@@ -1,13 +1,13 @@
 --- a/server/app.py
 +++ b/server/app.py
 @@ -784,11 +784,11 @@ async def execplan_index(
- 
- 
+
+
  @app.get("/api/plan", response_model=PlanOut)
 -async def get_plan(session: AsyncSession = Depends(get_session)):
 +async def get_plan(service: TaskService = Depends(get_task_service)):
      """Return the full task plan, including version metadata."""
- 
+
 -    plan_dict = await _serialize_plan(session)
 +    plan_dict = await _serialize_plan(service)
      if hasattr(PlanOut, "model_validate"):

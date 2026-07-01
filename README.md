@@ -1,9 +1,6 @@
 
 # Switchboard — Real-Time Agent Task Switchboard & Live File Host
 
-[![CI](https://github.com/Nobodyworld/dev-agent-switchboard/actions/workflows/ci.yml/badge.svg)](https://github.com/Nobodyworld/dev-agent-switchboard/actions/workflows/ci.yml)
-[![Commitlint](https://github.com/Nobodyworld/dev-agent-switchboard/actions/workflows/commitlint.yml/badge.svg)](https://github.com/Nobodyworld/dev-agent-switchboard/actions/workflows/commitlint.yml)
-
 Switchboard coordinates agent work against a shared task graph.
 It provides a FastAPI backend, a dashboard, REST and WebSocket APIs, a Python client, and live-file hosting for agent-readable docs.
 
@@ -118,6 +115,11 @@ See [docs/architecture/architecture.md](docs/architecture/architecture.md) and [
 - `scripts/dev.py coverage-gate` validates coverage JSON against CI thresholds.
 - `scripts/dev.py extensions` lists loaded extensions and observability registrations.
 - `scripts/dev.py bump-version` updates versioned release surfaces.
+
+## License
+
+Switchboard is licensed under the [Apache License 2.0](LICENSE).
+
 - `make qa` runs formatting, linting, typing, tests, security scans, and coverage gates.
 
 ## Governance

@@ -149,6 +149,6 @@ Follow these steps to process a task locally:
 - [Dependency & License Audit](dependencies.md)
 - [README](../README.md)
 - [CHANGELOG](../CHANGELOG.md)
-- [Task Backlog](../TASKLIST.md)
+- [Task Backlog](TASKLIST.md)
 
 For historical documents that have not yet been migrated, see [`docs/history/`](history/) and [`archive/`](../archive/).

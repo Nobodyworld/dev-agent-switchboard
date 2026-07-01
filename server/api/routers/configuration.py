@@ -166,4 +166,3 @@ async def read_diagnostics(
         warnings=list(report.warnings),
         generated_at=report.generated_at,
     )
-

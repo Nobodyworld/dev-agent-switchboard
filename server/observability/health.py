@@ -176,9 +176,7 @@ def describe_readiness_metrics() -> dict[str, Any]:
     if enabled:
         for _, value in _collect_samples(_READINESS_METRICS.overall_status):
             status = value
-        for _, value in _collect_samples(
-            _READINESS_METRICS.last_checked_timestamp
-        ):
+        for _, value in _collect_samples(_READINESS_METRICS.last_checked_timestamp):
             last_checked = value
 
     probe_status: dict[str, float] = {}

@@ -104,8 +104,10 @@ async def test_complete_releases_lease_and_records_notes() -> None:
         assert result.notes == "ok"
 
         lease_count = (
-            await session.execute(select(Lease).where(Lease.task_id == task.id))
-        ).scalars().all()
+            (await session.execute(select(Lease).where(Lease.task_id == task.id)))
+            .scalars()
+            .all()
+        )
         assert lease_count == []
 
         persisted = await session.get(Task, task.id)
@@ -160,8 +162,10 @@ async def test_abandon_returns_task_to_pending_and_clears_lease() -> None:
         assert response.ok is True
 
         lease_rows = (
-            await session.execute(select(Lease).where(Lease.task_id == task.id))
-        ).scalars().all()
+            (await session.execute(select(Lease).where(Lease.task_id == task.id)))
+            .scalars()
+            .all()
+        )
         assert lease_rows == []
 
         persisted = await session.get(Task, task.id)

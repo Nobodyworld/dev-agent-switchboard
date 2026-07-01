@@ -36,7 +36,7 @@ patch -p1 < PLAN_ENDPOINTS_FIX.patch
 ### 3. FIXED_ENDPOINTS_REFERENCE.py
 Reference implementation showing the corrected code with detailed comments explaining each fix.
 
-### 4. test_plan_endpoint_fixes.py  
+### 4. test_plan_endpoint_fixes.py
 Test cases that should be added to PR #73 after applying the fixes. These tests verify:
 - The `/api/plan` endpoint works correctly
 - The `/ws/plan` WebSocket initializes properly
@@ -58,7 +58,7 @@ Test cases that should be added to PR #73 after applying the fixes. These tests 
    # Before:
    async def get_plan(session: AsyncSession = Depends(get_session)):
        plan_dict = await _serialize_plan(session)
-   
+
    # After:
    async def get_plan(service: TaskService = Depends(get_task_service)):
        plan_dict = await _serialize_plan(service)
@@ -69,7 +69,7 @@ Test cases that should be added to PR #73 after applying the fixes. These tests 
    # Before:
    async with AsyncSessionLocal() as session:
        plan_payload = await _serialize_plan(session)
-   
+
    # After:
    async with AsyncSessionLocal() as session:
        service = build_task_service(session)
@@ -80,7 +80,7 @@ Test cases that should be added to PR #73 after applying the fixes. These tests 
    ```bash
    # Run existing tests
    pytest server/tests/ -v
-   
+
    # Test the specific endpoints
    make run  # In one terminal
    curl http://localhost:8000/api/plan  # In another terminal
@@ -128,14 +128,14 @@ An `AsyncSession` object doesn't have `list_tasks()` or `plan_version_snapshot()
 ## Impact
 
 - **Severity:** High - Both endpoints are completely broken without this fix
-- **Affected APIs:** `/api/plan` and `/ws/plan`  
+- **Affected APIs:** `/api/plan` and `/ws/plan`
 - **User Impact:** Any client trying to fetch the plan or connect to the plan WebSocket will fail
 - **Fix Complexity:** Low - Only 2 lines need to be changed
 
 ## Related Files in PR #73
 
 - `server/app.py` - Contains the endpoints that need fixing
-- `server/application/task_service.py` - Defines the `TaskService` class  
+- `server/application/task_service.py` - Defines the `TaskService` class
 - `server/application/factory.py` - Provides `build_task_service()` helper
 
 ## Questions?

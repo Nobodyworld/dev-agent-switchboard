@@ -148,9 +148,7 @@ class ExecPlanRegistry(Base):
     )
     source_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     source_etag: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    extensions: Mapped[list[dict[str, Any]] | None] = mapped_column(
-        JSON, nullable=True
-    )
+    extensions: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime, default=dt.datetime.utcnow, nullable=False
     )
@@ -189,9 +187,7 @@ class ExecPlan(Base):
     links: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     metrics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     changelog_token: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    extensions: Mapped[list[dict[str, Any]] | None] = mapped_column(
-        JSON, nullable=True
-    )
+    extensions: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime, default=dt.datetime.utcnow, nullable=False
     )

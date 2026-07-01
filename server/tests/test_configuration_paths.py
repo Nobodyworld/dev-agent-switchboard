@@ -42,7 +42,7 @@ print(json.dumps({
     env["STORAGE_ROOT"] = str(custom_storage)
     env["FILES_ROOT"] = str(custom_files)
 
-    completed = subprocess.run(  # noqa: S603 - executes controlled in-repo script
+    completed = subprocess.run(
         [sys.executable, "-c", script],
         check=True,
         capture_output=True,

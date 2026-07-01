@@ -44,7 +44,7 @@ def _sample_plan() -> ExecPlan:
         metrics={"tasks_total": 5, "tasks_completed": 2},
         changelog_token="test-token",  # noqa: S106 - fixture token
         extensions=[{"name": "switchboard:beta", "url": "https://example.com/beta"}],
-      )
+    )
 
 
 pytestmark = pytest.mark.asyncio

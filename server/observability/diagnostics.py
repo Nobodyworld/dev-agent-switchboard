@@ -85,9 +85,7 @@ class DiagnosticsReport:
     system_state: SystemState | None
     features: dict[str, Any] = field(default_factory=dict)
     warnings: tuple[str, ...] = ()
-    generated_at: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def as_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable representation of the report."""
@@ -138,9 +136,7 @@ def collect_diagnostics(
 
 @lru_cache(maxsize=1)
 def _load_required_versions() -> dict[str, str]:
-    requirements_path = (
-        Path(__file__).resolve().parents[1] / "requirements.txt"
-    )
+    requirements_path = Path(__file__).resolve().parents[1] / "requirements.txt"
     versions: dict[str, str] = {}
     if not requirements_path.exists():
         return versions
@@ -253,4 +249,3 @@ def _module_available(import_path: str) -> bool:
         return importlib.util.find_spec(import_path) is not None
     except (ImportError, AttributeError):
         return False
-

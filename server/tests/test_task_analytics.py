@@ -88,9 +88,9 @@ async def test_task_analytics_captures_status_and_dependency_breakdown():
             "missing_dependency_edges": 0,
         }
         _assert_analytics_counts(analytics, expected_counts)
-        expected_average = expected_counts["dependency_edges"] / expected_counts[
-            "total_tasks"
-        ]
+        expected_average = (
+            expected_counts["dependency_edges"] / expected_counts["total_tasks"]
+        )
         assert analytics.average_dependencies == pytest.approx(
             expected_average, rel=1e-6
         )
@@ -138,9 +138,9 @@ async def test_task_analytics_reports_missing_dependencies():
             "missing_dependency_edges": 1,
         }
         _assert_analytics_counts(analytics, expected_counts)
-        expected_average = expected_counts["dependency_edges"] / expected_counts[
-            "total_tasks"
-        ]
+        expected_average = (
+            expected_counts["dependency_edges"] / expected_counts["total_tasks"]
+        )
         assert analytics.average_dependencies == pytest.approx(
             expected_average, rel=1e-6
         )

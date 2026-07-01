@@ -47,9 +47,7 @@ class LeasePolicy:
         now: dt.datetime,
     ) -> bool:
         return (
-            lease is not None
-            and lease.agent_id == agent_id
-            and lease.expires_at > now
+            lease is not None and lease.agent_id == agent_id and lease.expires_at > now
         )
 
     def can_complete(

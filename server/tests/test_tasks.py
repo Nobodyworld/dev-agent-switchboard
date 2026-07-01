@@ -136,9 +136,7 @@ async def test_delete_prerequisite_cleans_dependencies() -> None:
         outbound_deps = (
             (
                 await session.execute(
-                    select(TaskDependency).where(
-                        TaskDependency.task_id == dependent.id
-                    )
+                    select(TaskDependency).where(TaskDependency.task_id == dependent.id)
                 )
             )
             .scalars()
@@ -218,9 +216,7 @@ async def test_list_tasks_filters_by_status() -> None:
         )
 
         pending_only = await list_tasks(status=TaskStatus.PENDING, session=session)
-        completed_only = await list_tasks(
-            status=TaskStatus.COMPLETED, session=session
-        )
+        completed_only = await list_tasks(status=TaskStatus.COMPLETED, session=session)
 
         assert {task.id for task in pending_only} == {pending.id}
         assert {task.id for task in completed_only} == {completed.id}

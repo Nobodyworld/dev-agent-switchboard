@@ -59,7 +59,9 @@ class FailingSession:
 
 
 def test_put_file_uses_custom_timeout() -> None:
-    session = RecordingSession(response=DummyResponse(payload={"url": "http://example/live/foo"}))
+    session = RecordingSession(
+        response=DummyResponse(payload={"url": "http://example/live/foo"})
+    )
     client = SwitchboardClient(
         "http://example",
         "agent",

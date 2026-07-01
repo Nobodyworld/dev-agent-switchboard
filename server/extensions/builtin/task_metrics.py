@@ -23,11 +23,9 @@ if TYPE_CHECKING:  # pragma: no cover - imported for typing only
 class CounterLike(Protocol):
     """Protocol describing the subset of Prometheus counter APIs we exercise."""
 
-    def labels(self, **labels: str) -> Self:
-        ...
+    def labels(self, **labels: str) -> Self: ...
 
-    def inc(self) -> None:
-        ...
+    def inc(self) -> None: ...
 
 
 CounterFactory = Callable[[str, str, tuple[str, ...]], CounterLike]

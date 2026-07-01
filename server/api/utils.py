@@ -1,4 +1,5 @@
 """Shared utilities for Switchboard FastAPI routers."""
+
 from __future__ import annotations
 
 import json
@@ -48,4 +49,3 @@ def system_state_to_out(state: SystemState) -> SystemStateOut:
         updated_at=state.updated_at,
         version=state.version,
     )
-

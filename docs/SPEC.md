@@ -11,24 +11,24 @@ and operational expectations.
 
 - **Primary stack:** Python 3.11, FastAPI, SQLAlchemy, Prometheus instrumentation.
 - **Client tooling:** Python SDK and CLI (`client/python/`, `switchboard_cli.py`).
-- **UI:** Static dashboard in [`web/`](web/) served directly by FastAPI.
+- **UI:** Static dashboard in [`web/`](../web/) served directly by FastAPI.
 - **Persistence:** SQLAlchemy ORM with SQLite defaults for local development.
 - **Task tracking:** [`TASKLIST.md`](TASKLIST.md) (single source of truth).
-- **ExecPlans:** Maintained under [`.agent/PLANS.md`](.agent/PLANS.md).
+- **ExecPlans:** Maintained under [`.agent/PLANS.md`](../.agent/PLANS.md).
 
 ## Directory Layout
 
 | Path | Purpose |
 | --- | --- |
-| [`server/`](server/) | FastAPI routers, domain logic, observability stack, extension runtime. |
-| [`client/`](client/) | Client libraries for agents, including the packaged Python SDK. |
-| [`web/`](web/) | Operator dashboard HTML/CSS/JS and accompanying UI tests. |
-| [`scripts/`](scripts/) | Developer utilities (`dev.py`, coverage gates, local runner). |
-| [`tests/`](tests/) | Black-box tests for CLI, SDK, and configuration parsing. |
-| [`docs/`](docs/) | Architecture references, guides, reports, and historical archives. |
-| [`reports/`](reports/) | Machine-generated metrics (coverage, complexity, performance). |
-| [`ops/`](ops/) | Deployment aides (Docker Compose, logging config, OpenTelemetry collector). |
-| [`archive/`](archive/) | Frozen patches and legacy task snapshots kept for provenance. |
+| [`server/`](../server/) | FastAPI routers, domain logic, observability stack, extension runtime. |
+| [`client/`](../client/) | Client libraries for agents, including the packaged Python SDK. |
+| [`web/`](../web/) | Operator dashboard HTML/CSS/JS and accompanying UI tests. |
+| [`scripts/`](../scripts/) | Developer utilities (`dev.py`, coverage gates, local runner). |
+| [`tests/`](../tests/) | Black-box tests for CLI, SDK, and configuration parsing. |
+| [`docs/`](.) | Architecture references, guides, reports, and historical archives. |
+| [`reports/`](../reports/) | Machine-generated metrics (coverage, complexity, performance). |
+| [`ops/`](../ops/) | Deployment aides (Docker Compose, logging config, OpenTelemetry collector). |
+| [`archive/`](../archive/) | Frozen patches and legacy task snapshots kept for provenance. |
 
 Each directory now includes a `README.md` describing its scope and linking to
 supporting references.
@@ -49,24 +49,23 @@ supporting references.
 ## Configuration & Environment
 
 - Server configuration is sourced from environment variables defined in
-  [`server/settings.py`](server/settings.py). Rate limit, lease, and extension
+  [`server/settings.py`](../server/settings.py). Rate limit, lease, and extension
   overrides are validated aggressively and cached for reuse.
-- Operational manifests live in [`ops/`](ops/) and are mirrored in
-  [`docs/configuration.md`](docs/configuration.md) and the
-  [operations report](docs/reports/operations-report.md).
+- Operational manifests live in [`ops/`](../ops/) and are mirrored in
+  [`docs/configuration.md`](configuration.md).
 - Use `python scripts/dev.py verify` before committing to ensure configuration
   parsing tests pass with any new defaults.
 
 ## Documentation & Process
 
-- Start with [`docs/README.md`](docs/README.md) → [`docs/index.md`](docs/index.md)
-  for curated navigation. [`docs/navigation-index.md`](docs/navigation-index.md)
+- Start with [`docs/README.md`](README.md) -> [`docs/index.md`](index.md)
+  for curated navigation. [`docs/navigation-index.md`](navigation-index.md)
   retains the legacy map for archival completeness.
-- Architectural deep dives: [`docs/architecture/`](docs/architecture/).
-- Automation & support playbooks: [`docs/guides/`](docs/guides/).
-- Reports & retrospectives: [`docs/reports/`](docs/reports/).
-- Historical context: [`docs/history/`](docs/history/) and [`archive/`](archive/).
-- Update [`CHANGELOG.md`](CHANGELOG.md) and [`RELEASE_NOTES.md`](RELEASE_NOTES.md)
+- Architectural deep dives: [`docs/architecture/`](architecture/).
+- Automation & support playbooks: [`docs/guides/`](guides/).
+- Reports & retrospectives: [`docs/reports/`](reports/).
+- Historical context: [`docs/history/`](history/) and [`archive/`](../archive/).
+- Update [`CHANGELOG.md`](../CHANGELOG.md) and [`RELEASE_NOTES.md`](RELEASE_NOTES.md)
   with user-visible changes.
 
 ## Planning & Governance
@@ -74,7 +73,7 @@ supporting references.
 - All active work must be represented in [`TASKLIST.md`](TASKLIST.md) with a
   completion note when finished.
 - Significant refactors or multi-step deliveries require an ExecPlan entry in
-  [`.agent/PLANS.md`](.agent/PLANS.md) kept in sync with the live Switchboard copy.
+  [`.agent/PLANS.md`](../.agent/PLANS.md) kept in sync with the live Switchboard copy.
 - Follow the conventions in [`STYLE-GUIDE.md`](STYLE-GUIDE.md) and ensure new
   modules include docstrings and type hints for non-trivial logic.
 

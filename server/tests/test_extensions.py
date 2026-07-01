@@ -190,9 +190,7 @@ async def test_builtin_metrics_hook_increments_counters(monkeypatch):
         agent=Agent(agent_id="x"),
         result=SimpleNamespace(task=object(), reason=None),
     )
-    await metrics_hook.on_complete(
-        agent_id="x", result=SimpleNamespace(ok=True)
-    )
+    await metrics_hook.on_complete(agent_id="x", result=SimpleNamespace(ok=True))
     after_checkout = {
         sample.labels.get("outcome"): sample.value
         for metric in checkout_counter.collect()
@@ -206,12 +204,10 @@ async def test_builtin_metrics_hook_increments_counters(monkeypatch):
         if not sample.name.endswith("_created")
     }
     assert (
-        after_checkout.get("granted", 0.0)
-        - before_checkout.get("granted", 0.0)
+        after_checkout.get("granted", 0.0) - before_checkout.get("granted", 0.0)
     ) == pytest.approx(1.0)
     assert (
-        after_complete.get("completed", 0.0)
-        - before_complete.get("completed", 0.0)
+        after_complete.get("completed", 0.0) - before_complete.get("completed", 0.0)
     ) == pytest.approx(1.0)
     reload_extension_settings()
 
@@ -328,10 +324,10 @@ def test_activity_feed_extension_registers_and_emits():
     bundle = registry.freeze()
 
     assert any(
-        descriptor.name == "builtin.activity_feed"
-        for descriptor in bundle.descriptors
+        descriptor.name == "builtin.activity_feed" for descriptor in bundle.descriptors
     )
     assert any("Activity feed" in note for note in bundle.contract.notes)
+
 
 def test_load_extension_bundle_skips_missing_modules(monkeypatch, caplog):
     monkeypatch.setenv("SWITCHBOARD_EXTENSIONS", "does.not.exist")
@@ -342,12 +338,10 @@ def test_load_extension_bundle_skips_missing_modules(monkeypatch, caplog):
         for record in caplog.records
     )
     assert any(
-        descriptor.name == "builtin.task_metrics"
-        for descriptor in bundle.descriptors
+        descriptor.name == "builtin.task_metrics" for descriptor in bundle.descriptors
     )
     assert any(
-        descriptor.name == "builtin.plan_metrics"
-        for descriptor in bundle.descriptors
+        descriptor.name == "builtin.plan_metrics" for descriptor in bundle.descriptors
     )
 
 
@@ -432,12 +426,9 @@ def test_load_extension_bundle_skips_generic_failures(monkeypatch, caplog):
     monkeypatch.setitem(sys.modules, module_name, module)
     caplog.set_level("ERROR")
     bundle = load_extension_bundle(modules=(module_name,), enable_builtin=False)
-    assert not any(
-        descriptor.name == module_name for descriptor in bundle.descriptors
-    )
+    assert not any(descriptor.name == module_name for descriptor in bundle.descriptors)
     assert any(
-        "failed during registration" in record.message
-        for record in caplog.records
+        "failed during registration" in record.message for record in caplog.records
     )
 
 

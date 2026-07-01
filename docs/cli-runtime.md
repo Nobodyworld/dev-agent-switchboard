@@ -60,4 +60,4 @@ This keeps heartbeats predictable even when operators configure short leases.
 
 ---
 
-Switchboard Proprietary — Internal Use Only
+Switchboard is licensed under the Apache License 2.0.

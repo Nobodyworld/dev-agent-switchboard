@@ -1,5 +1,32 @@
 # Public Release Audit
 
+## Release-Readiness Addendum — 2026-06-30
+
+- Clean environment: `C:\Users\Nobod\Documents\GitHub\dev-agent-switchboard-release`.
+- Baseline SHA: `fc9ccae35366094b34c035a7e19ece4d87e7703b`.
+- Original dirty workspace: preserved; not used as the validation source.
+- Hosted CI: workflows are active, but repository Actions are disabled by owner policy (`actions/permissions.enabled=false`). Clean-clone validation is authoritative until Actions is re-enabled.
+- License: replaced proprietary/confidential notice with Apache License 2.0 and `Copyright 2026 Travis William Jones`; Python client metadata declares `Apache-2.0`.
+
+Clean-clone gate results recorded during this remediation pass:
+
+- `pre-commit run --all-files --show-diff-on-failure`: passed after formatting, lint, and synthetic secret-fixture remediation.
+- `ruff check server client scripts tests web switchboard_cli.py switchboard_client.py`: passed.
+- `black --check server client scripts tests web switchboard_cli.py switchboard_client.py`: passed.
+- `mypy --config-file mypy.ini server client scripts`: passed for the configured supported type-check surface; optional instrumentation and observability adapters are explicitly scoped in `mypy.ini`.
+- `pytest -q`: 229 passed, 1 skipped.
+- `SWITCHBOARD_STRICT_PLAYWRIGHT=1 pytest web/tests/test_ui.py -rA`: 2 passed, 0 skipped.
+- Coverage gate: passed after collecting and enforcing thresholds for `server/extensions`, `server.observability`, `server.application.configuration_service`, and `server.application.task_service`.
+- `bandit -q -r server -x server/tests`: passed.
+- `pip-audit --progress-spinner=off -r server/requirements-dev.txt`: no known vulnerabilities.
+- Gitleaks full-history scan: passed.
+- Lychee documentation-link validation for `README.md` and `docs/**/*.md`: passed.
+
+Residual warnings:
+
+- Full pytest emits Starlette/httpx and websockets deprecation warnings from dependencies.
+- Hosted CI cannot report until GitHub Actions is re-enabled for this repository.
+
 - Repository: dev-agent-switchboard
 - Audit date: 2026-06-22
 - Branch audited: main

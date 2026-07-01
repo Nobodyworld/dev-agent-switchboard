@@ -116,28 +116,14 @@ class ConfigurationService:
     def _collect_storage(self) -> tuple[StorageSnapshot, list[str]]:
         root = Path(FILES_ROOT)
         warnings: list[str] = []
-        try:
-            exists = root.exists()
-        except OSError:
-            exists = False
+        exists = self._path_exists(root)
+        if not exists:
             warnings.append(
-                
-                    "Failed to inspect live file storage root; "
-                    "permission denied or path invalid."
-                
+                "Failed to inspect live file storage root; "
+                "permission denied or path invalid."
             )
 
-        writable = False
-        if exists:
-            try:
-                writable = os.access(root, os.W_OK | os.X_OK)
-            except OSError:
-                writable = False
-        else:
-            try:
-                writable = os.access(root.parent, os.W_OK | os.X_OK)
-            except OSError:
-                writable = False
+        writable = self._is_writable(root if exists else root.parent)
 
         total_bytes: int | None = None
         free_bytes: int | None = None
@@ -166,10 +152,8 @@ class ConfigurationService:
             )
         if exists and not writable:
             warnings.append(
-
-                    "Live file storage root is not writable; "
-                    "uploads will fail until permissions are corrected."
-                
+                "Live file storage root is not writable; "
+                "uploads will fail until permissions are corrected."
             )
         if (
             free_bytes is not None
@@ -178,10 +162,8 @@ class ConfigurationService:
             and writable
         ):
             warnings.append(
-                
-                    "Live file storage free space is below 256 MiB; "
-                    "consider increasing disk capacity."
-                
+                "Live file storage free space is below 256 MiB; "
+                "consider increasing disk capacity."
             )
 
         snapshot = StorageSnapshot(
@@ -192,6 +174,20 @@ class ConfigurationService:
             free_bytes=free_bytes,
         )
         return snapshot, warnings
+
+    @staticmethod
+    def _path_exists(path: Path) -> bool:
+        try:
+            return path.exists()
+        except OSError:
+            return False
+
+    @staticmethod
+    def _is_writable(path: Path) -> bool:
+        try:
+            return os.access(path, os.W_OK | os.X_OK)
+        except OSError:
+            return False
 
     def _collect_database(self) -> DatabaseSnapshot:
         raw_url = DATABASE_URL

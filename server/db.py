@@ -25,6 +25,7 @@ if _files_root_env:
 else:
     FILES_ROOT = (STORAGE_ROOT / "files").resolve()
 
+
 class DatabaseConfigurationError(RuntimeError):
     """Raised when environment configuration for the database is invalid."""
 
@@ -50,9 +51,7 @@ def _parse_int(value: str, *, param: str, minimum: int = 0) -> int:
             f"{param} must be an integer; got {value!r}."
         ) from exc
     if parsed < minimum:
-        raise DatabaseConfigurationError(
-            f"{param} must be >= {minimum}; got {parsed}."
-        )
+        raise DatabaseConfigurationError(f"{param} must be >= {minimum}; got {parsed}.")
     return parsed
 
 
@@ -64,9 +63,7 @@ def _parse_float(value: str, *, param: str, minimum: float = 0.0) -> float:
             f"{param} must be a float; got {value!r}."
         ) from exc
     if parsed < minimum:
-        raise DatabaseConfigurationError(
-            f"{param} must be >= {minimum}; got {parsed}."
-        )
+        raise DatabaseConfigurationError(f"{param} must be >= {minimum}; got {parsed}.")
     return parsed
 
 

@@ -32,7 +32,7 @@ This document proposes a portable YAML/JSON index format for describing ExecPlan
 version: 1
 registry_id: switchboard-default
 generated_at: "2024-05-01T12:00:00Z"
-source: 
+source:
   url: "https://switchboard.example.com/api/execplans/index.yaml"
   etag: "W/\"4f927ab\""
 plans:

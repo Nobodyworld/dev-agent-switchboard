@@ -120,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
     int
         Process exit code (``0`` on success).
     """
- 
+
     args = parse_args(argv)
     logging.basicConfig(
         level=logging.INFO,
@@ -165,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
                 break
 
     return 0
- 
+
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry point
     sys.exit(main())

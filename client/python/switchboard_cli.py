@@ -114,10 +114,7 @@ def _render_storage_section(storage: Mapping[str, Any]) -> list[str]:
     free_bytes = _format_bytes(storage.get("free_bytes"))
     total_bytes = _format_bytes(storage.get("total_bytes"))
     return [
-        (
-            "Storage root: "
-            f"{root} (exists: {exists}, writable: {writable})"
-        ),
+        ("Storage root: " f"{root} (exists: {exists}, writable: {writable})"),
         f"Storage free: {free_bytes} / {total_bytes}",
     ]
 
@@ -138,9 +135,7 @@ def _render_database_section(database: Mapping[str, Any]) -> list[str]:
 
     options = database.get("engine_options") or {}
     if options:
-        rendered = ", ".join(
-            f"{key}={value}" for key, value in sorted(options.items())
-        )
+        rendered = ", ".join(f"{key}={value}" for key, value in sorted(options.items()))
         lines.append(f"  Engine options: {rendered}")
     return lines
 
@@ -197,9 +192,7 @@ def _render_runtime_section(runtime: Mapping[str, Any]) -> list[str]:
     metadata = runtime.get("metadata") or {}
     if metadata:
         lines.append("Runtime metadata:")
-        lines.extend(
-            f"  - {key}: {value}" for key, value in sorted(metadata.items())
-        )
+        lines.extend(f"  - {key}: {value}" for key, value in sorted(metadata.items()))
     return lines
 
 
@@ -212,9 +205,7 @@ def _render_warnings_section(warnings: Sequence[str]) -> list[str]:
     return lines
 
 
-def _render_environment_section(
-    environment: Sequence[Mapping[str, Any]]
-) -> list[str]:
+def _render_environment_section(environment: Sequence[Mapping[str, Any]]) -> list[str]:
     if not environment:
         return []
     sorted_entries = sorted(environment, key=lambda item: item.get("name", ""))
@@ -312,7 +303,7 @@ def format_task(task: TaskPayload) -> str:
     return "\n".join(lines)
 
 
-def process_task(  # noqa: PLR0912 - CLI flow intentionally branches on user commands
+def process_task(  # - CLI flow intentionally branches on user commands
     client: SwitchboardClient,
     task: TaskPayload,
     heartbeat_interval: float,
@@ -338,9 +329,7 @@ def process_task(  # noqa: PLR0912 - CLI flow intentionally branches on user com
     if max_heartbeats is not None and max_heartbeats > 0:
         heartbeat_note += f"; auto-abandon after {max_heartbeats} heartbeats"
     print(
-        "Heartbeat thread started "
-        f"({heartbeat_note}). "
-        "Type 'help' for options."
+        "Heartbeat thread started " f"({heartbeat_note}). " "Type 'help' for options."
     )
     notes: str | None = None
 
@@ -421,11 +410,11 @@ def process_task(  # noqa: PLR0912 - CLI flow intentionally branches on user com
 def display_runtime_configuration(config: RuntimeConfiguration) -> None:
     """Print a formatted configuration summary for the active session."""
 
-    maintenance_summary = 'Enabled' if config.maintenance_mode else 'Disabled'
+    maintenance_summary = "Enabled" if config.maintenance_mode else "Disabled"
     if config.maintenance_mode and config.maintenance_message:
         maintenance_summary = f"Enabled — {config.maintenance_message}"
     elif config.maintenance_mode:
-        maintenance_summary = 'Enabled — checkouts are paused'
+        maintenance_summary = "Enabled — checkouts are paused"
 
     rows: list[tuple[str, str]] = [
         ("Maintenance mode", maintenance_summary),
@@ -538,7 +527,6 @@ def configuration_command(args: argparse.Namespace) -> int:
     return 0
 
 
-
 def confirm_completion(
     client: SwitchboardClient, task_id: int, notes: str | None
 ) -> bool:
@@ -552,15 +540,15 @@ def confirm_completion(
 
 
 def _print_system_state(payload: Mapping[str, Any]) -> None:
-    status = 'enabled' if payload.get('maintenance_mode') else 'disabled'
+    status = "enabled" if payload.get("maintenance_mode") else "disabled"
     print(f"Maintenance mode {status}.")
-    message = payload.get('message')
+    message = payload.get("message")
     if isinstance(message, str) and message.strip():
         print(f"Message: {message.strip()}")
-    updated_at = payload.get('updated_at')
+    updated_at = payload.get("updated_at")
     if updated_at:
         print(f"Updated at: {updated_at}")
-    version = payload.get('version')
+    version = payload.get("version")
     if version is not None:
         print(f"Version: {version}")
 
@@ -605,7 +593,9 @@ def maintenance_command(args: argparse.Namespace) -> int:
         return 1
 
 
-def run_command(args: argparse.Namespace) -> int:  # noqa: PLR0912 - CLI loop handles multiple failure modes
+def run_command(
+    args: argparse.Namespace,
+) -> int:  # - CLI loop handles multiple failure modes
     """Execute the interactive agent loop using parsed arguments."""
 
     try:
@@ -649,9 +639,7 @@ def run_command(args: argparse.Namespace) -> int:  # noqa: PLR0912 - CLI loop ha
                 )
 
             if config.maintenance_mode:
-                default_reason = (
-                    "maintenance mode is active; checkouts are disabled."
-                )
+                default_reason = "maintenance mode is active; checkouts are disabled."
                 reason = config.maintenance_message or default_reason
                 print(f"Checkout blocked: {reason}", file=sys.stderr)
                 return 2
@@ -679,8 +667,8 @@ def run_command(args: argparse.Namespace) -> int:  # noqa: PLR0912 - CLI loop ha
                         getattr(client, "last_checkout_message", None),
                     )
                     if reason_code:
-                        if reason_code == 'maintenance_mode':
-                            message = detail or 'Maintenance mode is active; exiting.'
+                        if reason_code == "maintenance_mode":
+                            message = detail or "Maintenance mode is active; exiting."
                             print(f"Checkout blocked: {message}", file=sys.stderr)
                             return 2
                         print(f"No task available ({reason_code}).")

@@ -75,4 +75,3 @@ Pending successful pytest execution once `httpx` dependency is available in the 
 
 - FastAPI `TestClient` from `fastapi.testclient`.
 - API endpoints: `/api/tasks/checkout`, `/api/tasks/{id}/heartbeat`, `/api/tasks/{id}/abandon`, `/api/tasks/{id}/complete`.
-

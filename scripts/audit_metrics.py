@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Collect repository health metrics for stewardship reporting."""
+
 from __future__ import annotations
 
 import argparse
@@ -104,8 +105,8 @@ def _collect_dependencies() -> DependencyMetrics:
     )
 
 
-def _collect_complexity() -> dict[str, float]:
-    complexities = []
+def _collect_complexity() -> dict[str, object]:
+    complexities: list[float] = []
     for file_path in _iter_python_files(SERVER_ROOT):
         with file_path.open(encoding="utf-8") as handle:
             source = handle.read()
@@ -169,12 +170,12 @@ def collect_metrics(output_dir: Path, force: bool) -> dict[str, object]:
     else:
         coverage = _load_coverage(output_dir)
         if coverage["duration_seconds"] == 0.0:
-            coverage["duration_seconds"] = None
+            coverage["duration_seconds"] = 0.0
 
     complexity = _collect_complexity()
     dependencies = _collect_dependencies()
 
-    metrics = {
+    metrics: dict[str, object] = {
         "coverage": coverage,
         "complexity": complexity,
         "dependencies": {

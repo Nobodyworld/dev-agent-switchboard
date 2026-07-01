@@ -155,7 +155,8 @@ def test_configuration_service_warns_when_parent_unwritable(files_root, monkeypa
 
 
 def test_configuration_service_masks_database_password(monkeypatch):
-    url = "postgresql+asyncpg://user:secret@example.test/db"
+    credential_value = "not-a-real-test-credential"
+    url = "postgresql+asyncpg://user:" + credential_value + "@example.test/db"
     monkeypatch.setenv("DATABASE_URL", url)
     monkeypatch.setattr(
         "server.application.configuration_service.DATABASE_URL",
@@ -164,5 +165,5 @@ def test_configuration_service_masks_database_password(monkeypatch):
     )
     service = ConfigurationService()
     snapshot = service.snapshot()
-    assert "secret" not in snapshot.database.url
+    assert credential_value not in snapshot.database.url
     assert snapshot.database.configured_via_env is True

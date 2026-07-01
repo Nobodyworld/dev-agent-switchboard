@@ -230,7 +230,7 @@ class SwitchboardClient:
             return False
         if self._retry_backoff <= 0:
             return True
-        delay = self._retry_backoff * (2 ** attempt)
+        delay = self._retry_backoff * (2**attempt)
         time.sleep(delay)
         return True
 
@@ -298,12 +298,8 @@ class SwitchboardClient:
     def get_configuration(self) -> dict[str, Any]:
         """Return a detailed configuration snapshot for the deployment."""
 
-        timeout = self._operation_timeouts.get(
-            "get_configuration", self._timeout
-        )
-        response = self._request(
-            "get", "/api/configuration", timeout=timeout
-        )
+        timeout = self._operation_timeouts.get("get_configuration", self._timeout)
+        response = self._request("get", "/api/configuration", timeout=timeout)
         return cast(dict[str, Any], response.json())
 
     def get_system_state(self) -> dict[str, Any]:

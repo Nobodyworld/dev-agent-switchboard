@@ -2,7 +2,7 @@
 
 ## Issue Reference
 - **Issue:** Update plan endpoints to pass TaskService to _serialize_plan
-- **Related PR:** #73 - Optimize task service data access and tests  
+- **Related PR:** #73 - Optimize task service data access and tests
 - **PR Commit:** `3d6d237d6d99247cbe3705d2e2bce81d0f01debf`
 - **Priority:** P1 (High) - Both endpoints completely broken
 
@@ -34,7 +34,7 @@ async def get_plan(service: TaskService = Depends(get_task_service)):
     plan_dict = await _serialize_plan(service)  # ✓
 ```
 
-### Fix #2: `/ws/plan` WebSocket  
+### Fix #2: `/ws/plan` WebSocket
 **Create TaskService from session:**
 ```python
 # Before:
@@ -120,7 +120,7 @@ snapshot = await service.plan_version_snapshot()  # TaskService method
 ### Why TaskService?
 PR #73 introduced clean architecture layers:
 - **Domain:** Pure business logic
-- **Application:** `TaskService` coordinates operations  
+- **Application:** `TaskService` coordinates operations
 - **Infrastructure:** `SqlAlchemyTaskRepository` handles persistence
 
 The `TaskService` provides high-level operations like `list_tasks()` that the endpoints need.
@@ -158,6 +158,6 @@ Reference:
 
 ---
 
-**Last Updated:** 2025-10-24  
-**Status:** Solution documented and ready to apply  
+**Last Updated:** 2025-10-24
+**Status:** Solution documented and ready to apply
 **Blockers:** None - all necessary information provided

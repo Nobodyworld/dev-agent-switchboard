@@ -52,5 +52,3 @@ def require_admin_token(request: Request) -> None:
 TaskServiceDependency = Annotated[TaskService, Depends(get_task_service)]
 OptionalSessionDependency = Annotated[AsyncSession | None, Depends(get_session)]
 OptionalTaskServiceDependency = Annotated[TaskService | None, Depends(get_task_service)]
-
-

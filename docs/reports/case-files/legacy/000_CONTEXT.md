@@ -42,4 +42,3 @@
 - `scripts/run_pytest.py` — orchestrates pytest execution.
 - `switchboard_cli.py` and `client/python/switchboard_cli.py` — CLI entry points for agents.
 - `server/app.py` — ASGI entry point for FastAPI application.
-

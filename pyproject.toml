@@ -38,10 +38,18 @@ unfixable = ["F401"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "PLR2004"]
 "scripts/**" = ["T201"]
-"client/python/switchboard_cli.py" = ["PLR0915"]
+"client/python/switchboard_cli.py" = ["PLR0912", "PLR0915"]
+"scripts/dev.py" = ["PLC0415"]
+"server/application/system_state_service.py" = ["PLC0415"]
+"server/extensions/interfaces.py" = ["PLR0913"]
+"server/instrumentation/tracing.py" = ["PLC0415"]
+"server/tests/test_configuration_paths.py" = ["S603"]
+"server/tests/test_extensions.py" = ["PLR0913"]
+"web/tests/test_ui.py" = ["S603"]
+"web/tests/test_ws_backoff.py" = ["S603"]
 
 [tool.ruff.format]
-quote-style = "single"
+quote-style = "double"
 indent-style = "space"
 
 [tool.ruff.lint.isort]

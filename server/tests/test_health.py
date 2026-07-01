@@ -43,9 +43,7 @@ def test_health_ready_reports_dependencies():
     assert any(obs["name"] == "database" for obs in payload["observations"])
 
 
-@pytest.mark.skipif(
-    ReadinessGauge is None, reason="prometheus_client not installed"
-)
+@pytest.mark.skipif(ReadinessGauge is None, reason="prometheus_client not installed")
 def test_health_ready_updates_metrics_when_enabled(monkeypatch):
     monkeypatch.setenv("SWITCHBOARD_ENABLE_METRICS", "1")
     _reset_readiness_metrics_for_testing()

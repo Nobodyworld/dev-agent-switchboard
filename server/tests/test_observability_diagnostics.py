@@ -56,6 +56,7 @@ def test_collect_diagnostics_reports_package_status(monkeypatch):
         "get_extension_bundle",
         lambda: fake_extension_bundle,
     )
+
     def fake_snapshot(*_args, **_kwargs):
         return fake_runtime
 

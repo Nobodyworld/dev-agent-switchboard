@@ -46,6 +46,7 @@ async def test_ensure_registry_handles_integrity_race(
         async def fake_execute(statement, *args, **kwargs):
             state["execute_calls"] += 1
             if state["execute_calls"] == 1:
+
                 class _Result:
                     def scalar_one_or_none(self) -> None:
                         return None

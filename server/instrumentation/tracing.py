@@ -42,7 +42,7 @@ def _apply_config_file() -> None:
         return
 
     try:
-        import yaml  # type: ignore  # noqa: PLC0415 - optional dependency
+        import yaml  # type: ignore  # - optional dependency
     except Exception:  # pragma: no cover - optional dependency
         logging.getLogger(__name__).warning(
             "PyYAML is required to load %s but is not installed", config_path
@@ -87,16 +87,16 @@ def setup_tracing(app: FastAPI) -> bool:
         return False
 
     try:
-        from opentelemetry import trace  # noqa: PLC0415
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # noqa: PLC0415
+        from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
             OTLPSpanExporter,
         )
-        from opentelemetry.instrumentation.fastapi import (  # noqa: PLC0415
+        from opentelemetry.instrumentation.fastapi import (
             FastAPIInstrumentor,
         )
-        from opentelemetry.sdk.resources import Resource  # noqa: PLC0415
-        from opentelemetry.sdk.trace import TracerProvider  # noqa: PLC0415
-        from opentelemetry.sdk.trace.export import (  # noqa: PLC0415
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import (
             BatchSpanProcessor,
             ConsoleSpanExporter,
         )

@@ -44,4 +44,3 @@ if [ -n "${INDEX_REMOTE_PATH}" ]; then
   trap - EXIT
   echo "Index available at ${BASE_URL}/live/${INDEX_REMOTE_PATH}"
 fi
-

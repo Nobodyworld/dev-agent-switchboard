@@ -19,13 +19,13 @@ Coordinate eight parallel workstreams that harden the API, leasing, plan version
 
 ## Surprises & Discoveries
 
-Observation: None recorded yet (populate as implementation reveals new information).  
+Observation: None recorded yet (populate as implementation reveals new information).
 Evidence: N/A at plan kickoff.
 
 ## Decision Log
 
-Decision: Maintain a single ExecPlan as the authoritative coordination artifact and mirror it via /api/files so every agent can observe updates.  
-Rationale: Complex, multi-branch efforts require a living plan per the agent guidance; mirroring keeps the live document reachable over /live/&lt;path&gt;.  
+Decision: Maintain a single ExecPlan as the authoritative coordination artifact and mirror it via /api/files so every agent can observe updates.
+Rationale: Complex, multi-branch efforts require a living plan per the agent guidance; mirroring keeps the live document reachable over /live/&lt;path&gt;.
 Date/Author: (update when executed)
 
 ## Outcomes & Retrospective

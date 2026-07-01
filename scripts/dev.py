@@ -78,9 +78,7 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
     if not venv_path.exists():
         _run_command([sys.executable, "-m", "venv", str(venv_path)])
     pip_executable = _resolve_executable("pip", venv_path)
-    _run_command(
-        [str(pip_executable), "install", "-r", "server/requirements-dev.txt"]
-    )
+    _run_command([str(pip_executable), "install", "-r", "server/requirements-dev.txt"])
     _run_command([str(pip_executable), "install", "pre-commit"])
     python_executable = _resolve_executable("python", venv_path)
     _run_command(
@@ -239,9 +237,7 @@ def cmd_check_todos(args: argparse.Namespace) -> None:
             continue
         relative_parts = path.relative_to(root).parts
         if any(
-            part in excluded_directories
-            or part == ".venv"
-            or part.startswith(".venv")
+            part in excluded_directories or part == ".venv" or part.startswith(".venv")
             for part in relative_parts
         ):
             continue
@@ -316,9 +312,9 @@ def cmd_observability_overview(args: argparse.Namespace) -> None:
     """Emit a consolidated observability snapshot."""
 
     async def _collect() -> dict[str, Any]:
-        from server.app import app  # noqa: PLC0415
-        from server.db import AsyncSessionLocal  # noqa: PLC0415
-        from server.observability.overview import (  # noqa: PLC0415
+        from server.app import app
+        from server.db import AsyncSessionLocal
+        from server.observability.overview import (
             collect_observability_overview,
         )
 
@@ -341,7 +337,7 @@ def cmd_observability_overview(args: argparse.Namespace) -> None:
 def cmd_list_extensions(_args: argparse.Namespace) -> None:
     """Print registered extensions and observability registrations."""
 
-    from server.extensions import (  # noqa: PLC0415 - lazy import for CLI startup
+    from server.extensions import (  # - lazy import for CLI startup
         get_extension_bundle,
         get_observability_registrations,
     )

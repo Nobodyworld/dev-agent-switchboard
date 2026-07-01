@@ -40,7 +40,7 @@ class SystemStateService:
                 expected_version=update.expected_version,
             )
         except Exception as exc:  # pragma: no cover - defensive catch refined below
-            from server.infrastructure.repositories import (  # noqa: PLC0415 - defer heavy import to failure path
+            from server.infrastructure.repositories import (
                 SystemStateConcurrencyError,
             )
 

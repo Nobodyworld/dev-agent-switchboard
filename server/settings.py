@@ -98,11 +98,7 @@ def _parse_int(
 ) -> int:
     if value is None:
         return default
-    requirement = (
-        "a non-negative integer"
-        if allow_zero
-        else "a positive integer"
-    )
+    requirement = "a non-negative integer" if allow_zero else "a positive integer"
     try:
         parsed = int(value)
     except (TypeError, ValueError) as exc:

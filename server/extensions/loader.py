@@ -12,6 +12,14 @@ from .interfaces import ExtensionBundle, ExtensionLoadError, ExtensionRegistry
 LOGGER = logging.getLogger(__name__)
 EXTENSION_ENV = "SWITCHBOARD_EXTENSIONS"
 ENABLE_BUILTIN_ENV = "SWITCHBOARD_ENABLE_BUILTIN_EXTENSIONS"
+BUILTIN_EXTENSION_MODULES = (
+    "server.extensions.builtin.task_metrics",
+    "server.extensions.builtin.webhook_notifier",
+    "server.extensions.builtin.plan_metrics",
+    "server.extensions.builtin.plan_latency",
+    "server.extensions.builtin.plan_snapshot",
+    "server.extensions.builtin.activity_feed",
+)
 
 
 def _truthy(value: str | None, *, default: bool = False) -> bool:
@@ -29,56 +37,16 @@ def _normalize_modules(raw: Iterable[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(modules))
 
 
-def load_extension_bundle(
-    *,
-    modules: Sequence[str] | None = None,
-    enable_builtin: bool | None = None,
-) -> ExtensionBundle:
-    """Return an :class:`ExtensionBundle` derived from the configured modules."""
+def _register_builtin_extensions(registry: ExtensionRegistry) -> None:
+    for module_name in BUILTIN_EXTENSION_MODULES:
+        module = importlib.import_module(module_name)
+        module.register(registry)
 
-    registry = ExtensionRegistry()
 
-    include_builtin = enable_builtin
-    if include_builtin is None:
-        include_builtin = _truthy(os.getenv(ENABLE_BUILTIN_ENV), default=True)
-
-    if include_builtin:
-        try:
-            task_metrics = importlib.import_module(
-                "server.extensions.builtin.task_metrics"
-            )
-            webhook_notifier = importlib.import_module(
-                "server.extensions.builtin.webhook_notifier"
-            )
-            plan_metrics = importlib.import_module(
-                "server.extensions.builtin.plan_metrics"
-            )
-            plan_latency = importlib.import_module(
-                "server.extensions.builtin.plan_latency"
-            )
-            plan_snapshot = importlib.import_module(
-                "server.extensions.builtin.plan_snapshot"
-            )
-            activity_feed = importlib.import_module(
-                "server.extensions.builtin.activity_feed"
-            )
-
-            task_metrics.register(registry)
-            webhook_notifier.register(registry)
-            plan_metrics.register(registry)
-            plan_latency.register(registry)
-            plan_snapshot.register(registry)
-            activity_feed.register(registry)
-        except Exception:  # pragma: no cover - builtin registration should succeed
-            LOGGER.exception("Failed to register builtin extensions")
-
-    configured_modules: tuple[str, ...]
-    if modules is not None:
-        configured_modules = tuple(modules)
-    else:
-        raw = os.getenv(EXTENSION_ENV, "")
-        configured_modules = _normalize_modules(raw.split(",")) if raw else ()
-
+def _register_configured_extensions(
+    registry: ExtensionRegistry,
+    configured_modules: Sequence[str],
+) -> None:
     for module_path in configured_modules:
         try:
             module = importlib.import_module(module_path)
@@ -103,6 +71,34 @@ def load_extension_bundle(
             LOGGER.exception(
                 "Extension %s failed during registration and was skipped", module_path
             )
-            continue
+
+
+def load_extension_bundle(
+    *,
+    modules: Sequence[str] | None = None,
+    enable_builtin: bool | None = None,
+) -> ExtensionBundle:
+    """Return an :class:`ExtensionBundle` derived from the configured modules."""
+
+    registry = ExtensionRegistry()
+
+    include_builtin = enable_builtin
+    if include_builtin is None:
+        include_builtin = _truthy(os.getenv(ENABLE_BUILTIN_ENV), default=True)
+
+    if include_builtin:
+        try:
+            _register_builtin_extensions(registry)
+        except Exception:  # pragma: no cover - builtin registration should succeed
+            LOGGER.exception("Failed to register builtin extensions")
+
+    configured_modules: tuple[str, ...]
+    if modules is not None:
+        configured_modules = tuple(modules)
+    else:
+        raw = os.getenv(EXTENSION_ENV, "")
+        configured_modules = _normalize_modules(raw.split(",")) if raw else ()
+
+    _register_configured_extensions(registry, configured_modules)
 
     return registry.freeze()
