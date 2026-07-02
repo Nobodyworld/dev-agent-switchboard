@@ -15,6 +15,7 @@ Switchboard coordinates multiple agents against a shared dependency graph while 
 ## Why It Matters
 
 Agents (Codex, Copilot Agents, LLMs, etc.) need a **single source of truth**:
+
 - A **plan that changes in flight** (tasks complete, dependencies unlock)
 - A **queue that respects dependencies** (no duplicate work, proper ordering)
 - A **place to publish documents** that any agent can fetch by URL
