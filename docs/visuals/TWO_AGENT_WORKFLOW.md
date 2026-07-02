@@ -38,10 +38,10 @@ sequenceDiagram
 
     Note over API: Lease extended to +60s
 
-    A2->>API: POST /checkout (Agent 2 - too early)
+    A2->>API: POST /api/tasks/checkout (Agent 2 - too early)
     API->>Plan: Find ready task
     Plan-->>API: None (A is leased, B blocked)
-    API-->>A2: {"task": null, "reason": "no_ready_tasks"}
+    API-->>A2: {"task": null, "reason": "no_available_tasks"}
 
     Note over A2: Agent 2 waits...
 
