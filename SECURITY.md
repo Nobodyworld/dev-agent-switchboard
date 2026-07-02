@@ -6,7 +6,7 @@ Security fixes are applied to the `main` branch. Please deploy from the latest c
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability, **do not** open a public issue. Instead, email the Switchboard maintainers at <Nobody@NobodyWorld.com> with the following information:
+If you discover a security vulnerability, **do not** open a public issue. Instead, follow the [GitHub Security Advisory](https://github.com/Nobodyworld/dev-agent-switchboard/security) process or contact the maintainers privately with the following information:
 
 - A description of the vulnerability and its potential impact.
 - Steps to reproduce the issue or proof-of-concept code.
