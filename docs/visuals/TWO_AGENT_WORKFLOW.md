@@ -5,6 +5,7 @@ This diagram shows the core Switchboard coordination pattern: how two agents saf
 ## Scenario
 
 **Initial State:**
+
 - Task A: "Prepare data" → ready (no dependencies)
 - Task B: "Process results" → blocked (depends on Task A)
 - Task C: "Report" → blocked (depends on Task B)
@@ -94,7 +95,9 @@ sequenceDiagram
 
 ## Test Coverage
 
-- Regression tests: [server/tests/test_task_lifecycle.py](../../server/tests/test_task_lifecycle.py)
+- Lease management: [server/tests/test_leases.py](../../server/tests/test_leases.py)
+- Task service logic: [server/tests/test_task_service.py](../../server/tests/test_task_service.py)
+- Concurrent checkout: [server/tests/test_checkout_concurrency.py](../../server/tests/test_checkout_concurrency.py)
 - WebSocket plan broadcasts: [server/tests/test_websocket_plan.py](../../server/tests/test_websocket_plan.py)
 - UI state sync: [web/tests/test_ui.py](../../web/tests/test_ui.py)
 
