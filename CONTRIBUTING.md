@@ -35,7 +35,7 @@ Participation in this project is governed by our [Code of Conduct](CODE_OF_CONDU
   runtime summaries change so operators have accurate guidance.
 - Record dependency upgrades, removals, or new packages in
   [docs/dependencies.md](docs/dependencies.md) and ensure licenses remain
-  compatible with the proprietary Switchboard distribution.
+  compatible with the Apache 2.0 license.
 - Mention documentation updates in your pull request description to keep
   reviewers aware of parallel doc changes.
 
@@ -106,7 +106,7 @@ Refer to `.github/labels.yml` for the authoritative list.
 
 ## Security Disclosures
 
-If you discover a vulnerability, please follow our [Security Policy](SECURITY.md) and contact us at <security@openai.com> instead of filing a public issue.
+If you discover a vulnerability, please follow our [Security Policy](SECURITY.md) and report it using [GitHub Security Advisories](https://docs.github.com/en/code-security/security-advisories) instead of filing a public issue.
 
 ## Support
 

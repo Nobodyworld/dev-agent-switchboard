@@ -14,14 +14,12 @@ Need help with Switchboard? Start with the resources below.
 If you are blocked or have questions that are not answered in the documentation:
 
 - Open a GitHub Discussion or issue with the appropriate label (`type/question`).
-- Reach out to the maintainer team via <support@openai.com> for operational incidents.
+- Report security-sensitive topics following the [Security Policy](../../SECURITY.md).
 
-Please include environment details, reproduction steps, and expected vs. actual results. For security-sensitive topics, follow the [Security Policy](../../SECURITY.md).
+Please include environment details, reproduction steps, and expected vs. actual results. The maintainer team responds to issues based on availability and priority.
 
-## Service Level Objectives
+## Support Model
 
-- **Initial triage**: within 2 business days.
-- **Bug fix acknowledgment**: within 5 business days.
-- **Critical incident response**: coordinated via on-call pager with immediate acknowledgment.
+Switchboard is maintained by volunteers. Response times and support depend on maintainer availability.
 
 Thank you for using Switchboard!

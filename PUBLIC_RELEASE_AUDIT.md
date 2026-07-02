@@ -55,6 +55,7 @@ This Phase-2 audit addresses the requirements from the public-release initiative
 ### Previous Audit Summary (2026-06-22)
 
 The baseline audit at commit `c63faa0` (tag: `public-release-baseline-2026-06-22`) recorded:
+
 - 229 pytest passed, 1 skipped
 - 2 Playwright tests passed (strict mode)
 - Configured Mypy passed
@@ -69,6 +70,7 @@ The baseline audit at commit `c63faa0` (tag: `public-release-baseline-2026-06-22
 ### Current Remediation (this session)
 
 **Changes made to current HEAD**:
+
 1. ✅ Removed local Windows path (`C:\Users\Nobod\...`) from PUBLIC_RELEASE_AUDIT.md
 2. ✅ Replaced personal name (`Travis William Jones`) in LICENSE with generic copyright
 3. ✅ Updated SECURITY.md to use GitHub Security Advisory process instead of personal email
@@ -85,6 +87,7 @@ The baseline audit at commit `c63faa0` (tag: `public-release-baseline-2026-06-22
 **Requirement**: Uploaded/served files must not escape the designated live-file root.
 
 **Verification Steps**:
+
 - [ ] Inspect [server/file_store.py](server/file_store.py) for path normalization
 - [ ] Confirm `os.path.realpath()` or equivalent is used to resolve symlinks
 - [ ] Test that `../` sequences in upload paths are rejected
@@ -97,6 +100,7 @@ The baseline audit at commit `c63faa0` (tag: `public-release-baseline-2026-06-22
 **Requirement**: Symlinks within the live-file tree must not allow traversal outside the root.
 
 **Verification Steps**:
+
 - [ ] Create test symlink pointing outside live-file root
 - [ ] Attempt file read via symlink path
 - [ ] Confirm file is not accessible (403 or equivalent)
@@ -109,6 +113,7 @@ The baseline audit at commit `c63faa0` (tag: `public-release-baseline-2026-06-22
 **Requirement**: Live-file uploads must be bounded by `SWITCHBOARD_MAX_LIVE_FILE_BYTES`.
 
 **Verification Steps**:
+
 - [ ] Locate size limit in [server/app.py](server/app.py) or [server/api](server/api)
 - [ ] Confirm limit is enforced before body buffering
 - [ ] Test upload exceeding limit is rejected with 413 or similar
@@ -121,6 +126,7 @@ The baseline audit at commit `c63faa0` (tag: `public-release-baseline-2026-06-22
 **Requirement**: Privileged mutations (write/delete live files, modify admin state) require valid `SWITCHBOARD_ADMIN_TOKEN`.
 
 **Verification Steps**:
+
 - [ ] Locate token check in live-file write endpoints
 - [ ] Attempt write without token → confirm 401/403
 - [ ] Attempt write with wrong token → confirm 401/403
@@ -133,6 +139,7 @@ The baseline audit at commit `c63faa0` (tag: `public-release-baseline-2026-06-22
 **Requirement**: Only the lease holder can update task state; concurrent checkouts are rejected.
 
 **Verification Steps**:
+
 - [ ] Inspect [server/application/task_service.py](server/application/task_service.py) lease logic
 - [ ] Test Agent A checks out Task T → lease issued with unique ID
 - [ ] Test Agent B attempts to update T → confirm rejection
@@ -145,6 +152,7 @@ The baseline audit at commit `c63faa0` (tag: `public-release-baseline-2026-06-22
 **Requirement**: Leases expire if heartbeat is not renewed within `LEASE_SECONDS`.
 
 **Verification Steps**:
+
 - [ ] Locate lease expiry logic
 - [ ] Confirm heartbeat endpoint exists and updates expiry time
 - [ ] Test expired lease allows re-checkout by different agent
@@ -157,6 +165,7 @@ The baseline audit at commit `c63faa0` (tag: `public-release-baseline-2026-06-22
 **Requirement**: Heartbeat from non-holder or expired lease is rejected.
 
 **Verification Steps**:
+
 - [ ] Test heartbeat with lease ID from different agent → confirm rejection
 - [ ] Test heartbeat after lease expiry → confirm rejection
 - [ ] Test heartbeat with valid lease → confirm success
@@ -168,6 +177,7 @@ The baseline audit at commit `c63faa0` (tag: `public-release-baseline-2026-06-22
 **Requirement**: Only lease holder can complete or abandon a task.
 
 **Verification Steps**:
+
 - [ ] Test non-holder attempts completion → confirm rejection
 - [ ] Test holder completes → confirm success and lease revoked
 - [ ] Test dependency-blocked task becomes ready after blocker completes
@@ -256,6 +266,7 @@ SWITCHBOARD_STRICT_PLAYWRIGHT=1 pytest web/tests/test_ui.py -rA
 **Target**: Minimum coverage thresholds
 
 **Areas**:
+
 - `server/extensions`
 - `server.observability`
 - `server.application.configuration_service`
@@ -355,6 +366,7 @@ lychee README.md docs/**/*.md
 **File**: [README.md](README.md)
 
 **Checklist**:
+
 - [ ] Quickstart is complete and reproducible
 - [ ] No local machine paths or usernames
 - [ ] Clear distinction between verified and demo features
@@ -367,6 +379,7 @@ lychee README.md docs/**/*.md
 **File**: [docs/API.md](docs/API.md)
 
 **Checklist**:
+
 - [ ] All endpoints documented
 - [ ] Endpoint authentication requirements specified
 - [ ] Live-file security model explained
@@ -379,6 +392,7 @@ lychee README.md docs/**/*.md
 **File**: [docs/architecture/architecture.md](docs/architecture/architecture.md)
 
 **Checklist**:
+
 - [ ] System components clearly described
 - [ ] Data flow and lease logic explained
 - [ ] Concurrency model documented
@@ -391,6 +405,7 @@ lychee README.md docs/**/*.md
 **File**: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 **Checklist**:
+
 - [ ] Development setup instructions clear
 - [ ] PR workflow documented
 - [ ] Code style guide referenced
@@ -422,11 +437,13 @@ lychee README.md docs/**/*.md
 **Policy**: GitHub Actions workflows are disabled by owner policy for this repository.
 
 **Interpretation**:
+
 - ✅ Workflows exist and are syntactically valid (see [.github/workflows/](​.github/workflows/))
 - ❌ Workflows do not run automatically on push/PR
 - ✅ **Authoritative validation**: Local or hosted clean-clone execution
 
 **Workflow Files**:
+
 - `.github/workflows/ci.yml` — Build, test, coverage, security scans
 - `.github/workflows/commitlint.yml` — Commit message linting
 
@@ -441,6 +458,7 @@ lychee README.md docs/**/*.md
 **File uploads and directory traversal must not escape the live-file root via symlinks.**
 
 This is a P0 blocker because:
+
 - Switchboard exposes mutable live-file functionality to agents
 - Symlink traversal could allow unauthorized file access outside designated directories
 - Linux has different symlink policies than Windows; Windows testing may miss this vulnerability
@@ -485,6 +503,7 @@ Unlock this classification only after ALL of the following:
 ### KEEP PRIVATE – NEAR READY
 
 Use this classification if:
+
 - Most gates pass but 1–2 blockers remain
 - Symlink test incomplete due to environment constraints (fixable)
 - Documentation needs minor cleanup
@@ -493,6 +512,7 @@ Use this classification if:
 ### KEEP PRIVATE
 
 Use this classification if:
+
 - Multiple critical gates fail
 - Security model validation shows gaps
 - Symlink escape is confirmed
@@ -504,12 +524,14 @@ Use this classification if:
 ### Readiness Work Completed This Session
 
 **Documentation Sanitization**:
+
 - ✅ Removed local Windows path (`C:\Users\Nobod\...`) from PUBLIC_RELEASE_AUDIT.md
 - ✅ Replaced personal name (`Travis William Jones`) with generic copyright (`Switchboard Contributors`) in LICENSE
 - ✅ Updated SECURITY.md to use GitHub Security Advisory process instead of personal email
 - ✅ All documentation links verified and corrected
 
 **Visual Evidence & Communication**:
+
 - ✅ Created [docs/visuals/ARCHITECTURE_DIAGRAM.md](docs/visuals/ARCHITECTURE_DIAGRAM.md) with component diagram and security controls table
 - ✅ Created [docs/visuals/TWO_AGENT_WORKFLOW.md](docs/visuals/TWO_AGENT_WORKFLOW.md) with detailed sequence diagram (Mermaid)
 - ✅ Created [docs/visuals/DASHBOARD_STATE_EXAMPLE.md](docs/visuals/DASHBOARD_STATE_EXAMPLE.md) showing real-time state evolution
@@ -520,6 +542,7 @@ Use this classification if:
   - "Next Steps for Reviewers" with time estimates
 
 **Quality Gates Executed**:
+
 - ✅ Ruff linting: All checks passed
 - ✅ Black formatting: Verified (2 files unchanged)
 - ✅ Mypy type checking: Success: no issues found in 119 source files
@@ -570,12 +593,14 @@ Use this classification if:
 ### Remaining Work for Release
 
 **P0 Blocker**:
+
 1. **Linux Symlink Containment Test** — Must execute on actual Linux or WSL with symlink support
    - Failure would prevent release (security model gap)
    - Success would unblock READY classification
    - Estimated time: 15 minutes on prepared Linux environment
 
 **P1 Tasks** (Recommended before release):
+
 1. Complete pytest full suite in fresh environment (verify 229+ passing)
 2. Verify Playwright strict UI tests pass (verify real-time WebSocket synchronization)
 3. Re-run Bandit scan (confirm no security anti-patterns)
@@ -583,6 +608,7 @@ Use this classification if:
 5. Execute full-history Gitleaks scan (confirm no credentials leaked)
 
 **Minor** (Low-impact, informational):
+
 1. Ensure all GitHub Actions workflow files are present and valid (they are; disabled by owner policy)
 2. Document why configured Mypy excludes observability adapters (already documented in [mypy.ini](mypy.ini))
 3. Record dependency deprecation warnings as technical debt (minor: Starlette, httpx, websockets emit warnings at import time)
@@ -592,6 +618,7 @@ Use this classification if:
 **Policy**: GitHub Actions workflows are disabled by owner policy for this repository.
 
 **Implication**:
+
 - ✅ Workflows exist and are syntactically valid (see [.github/workflows/](​.github/workflows/))
 - ✅ Workflows define correct gates (build, test, security, coverage)
 - ❌ Workflows do not auto-run on push/PR
@@ -606,6 +633,7 @@ Use this classification if:
 **Synchronization**: Local main branch is synchronized with origin/main; working tree clean.
 
 **Completed Phase 2 (Hiring Review Preparation)**:
+
 - ✅ Eliminated documentation contradictions
 - ✅ Removed all local paths and usernames
 - ✅ Generated visual evidence (architecture, workflow, dashboard)
@@ -615,10 +643,12 @@ Use this classification if:
 - ✅ Documented GitHub Actions disposition
 
 **Phase 3 (Linux Validation)** — Ready to execute:
+
 - ⏳ Linux symlink containment test (infrastructure needed)
 - ⏳ Full-suite test confirmation on clean Linux environment
 
 **Classification Criteria**:
+
 - If Linux symlink test passes: **READY FOR PUBLIC RELEASE** (all criteria met)
 - If Linux test cannot be run but other gates pass: **KEEP PRIVATE – NEAR READY** (environment constraint, fixable)
 - If any critical gate fails: **KEEP PRIVATE** (needs remediation)
@@ -632,6 +662,7 @@ Use this classification if:
 **Baseline Commit**: c63faa0 (tag: public-release-baseline-2026-06-22)
 
 **Results**:
+
 - ✅ pytest: 229 passed, 1 skipped
 - ✅ Strict Playwright: 2 passed
 - ✅ Configured Mypy: passed
@@ -642,6 +673,7 @@ Use this classification if:
 - ✅ Lychee link validation: passed
 
 **Known Limitations**:
+
 - Symlink test not yet executed (Windows policy prevented symlink creation)
 - 76 Mypy errors in optional/observability modules (out of scope for configured checks)
 - Strict typing deferred to Phase 3
@@ -653,15 +685,15 @@ Use this classification if:
 1. c444bb0 — chore(release): remediate public readiness gates
    - Removes local paths and personal names
    - Updates audit documentation
-   
+
 2. fc9ccae — style(ui): format isolated Playwright tests
-   
+
 3. 88c437c — test(ui): keep subprocess lint suppression for harness
-   
+
 4. ef597c1 — test(ui): harden playwright isolation and release validation docs
-   
+
 5. a3cec23 — docs: streamline public release guidance
-   
+
 6. 4870a79 — Update switchboard repository (merge from feature branch)
 
 **Impact**: Current HEAD includes all readiness remediation; baseline was documented as starting point, not authoritative final state.

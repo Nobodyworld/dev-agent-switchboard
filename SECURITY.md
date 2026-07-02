@@ -38,10 +38,6 @@ We request a 90-day embargo period to investigate, patch, and release a fix. If 
 The [Dependency & License Audit](docs/dependencies.md) tracks the packages used
 by both the server and Python client. When reporting a vulnerability in a
 third-party library, please reference the package name and version pinned in
-that document so we can cross-check impact quickly. CI runs `pip-audit` on every
-pull request (via `python scripts/dev.py verify`), so you can reproduce the
-same checks locally before submitting. We prioritise updates for dependencies
-with known CVEs and will publish mitigation guidance if immediate upgrades are
-not possible.
+that document so we can cross-check impact quickly. Local validation runs `pip-audit` via `python scripts/dev.py verify` and clean-clone testing, providing authoritative verification when GitHub Actions is disabled. We prioritise updates for dependencies with known CVEs and will publish mitigation guidance if immediate upgrades are not possible.
 
 Thank you for helping us keep Switchboard secure.

@@ -1,14 +1,16 @@
-# Public Release Audit
+# Public Release Audit — Historical Results (Non-Authoritative)
+
+**⚠️ HISTORICAL AND NON-AUTHORITATIVE: All results in this document are from prior analysis on earlier SHAs and are retained for reference only. For current release readiness, see `PUBLIC_RELEASE_AUDIT.md`.**
 
 ## Release-Readiness Addendum — 2026-06-30
 
-- Clean environment: `C:\Users\Nobod\Documents\GitHub\dev-agent-switchboard-release`.
+- Clean environment: Temporary clean-clone validation directory.
 - Baseline SHA: `fc9ccae35366094b34c035a7e19ece4d87e7703b`.
 - Original dirty workspace: preserved; not used as the validation source.
 - Hosted CI: workflows are active, but repository Actions are disabled by owner policy (`actions/permissions.enabled=false`). Clean-clone validation is authoritative until Actions is re-enabled.
-- License: replaced proprietary/confidential notice with Apache License 2.0 and `Copyright 2026 Travis William Jones`; Python client metadata declares `Apache-2.0`.
+- License: historical licensing state (updated in current validation phase).
 
-Clean-clone gate results recorded during this remediation pass:
+**HISTORICAL CLEAN-CLONE GATE RESULTS** (from earlier SHA, not current validation):
 
 - `pre-commit run --all-files --show-diff-on-failure`: passed after formatting, lint, and synthetic secret-fixture remediation.
 - `ruff check server client scripts tests web switchboard_cli.py switchboard_client.py`: passed.
@@ -34,9 +36,9 @@ Residual warnings:
 
 ## Scope
 
-This Phase 1 audit assesses employer/public-release readiness and identifies blockers without bundling broad implementation changes.
+This Phase 1 audit assesses employer/public-release readiness and identifies blockers without bundling broad implementation changes. **All findings are historical and should not be considered current validation.**
 
-## Safety Preconditions (Verified)
+## Safety Preconditions (Verified — Historical)
 
 - main branch confirmed.
 - Working tree clean before edits.
@@ -44,7 +46,7 @@ This Phase 1 audit assesses employer/public-release readiness and identifies blo
 - Annotated rollback tag created and pushed:
   - public-release-baseline-2026-06-22
 
-## Repository Snapshot
+## Repository Snapshot (Historical)
 
 - Stack: FastAPI service + Python client + web dashboard.
 - Core surfaces:
@@ -59,39 +61,39 @@ This Phase 1 audit assesses employer/public-release readiness and identifies blo
   - Makefile
   - LICENSE
 
-## Findings By Area
+## Findings By Area (Historical)
 
 ### 1) Current files and structure
 
 - Repository has clear separation of API/domain/infrastructure/client/docs.
 - Documentation volume is high; must ensure public claims only reflect validated behavior.
 
-Status: Partial
+Status: Partial (Historical)
 
 ### 2) Full Git history (high-level)
 
 - mainline is active and recently updated with CI badge/docs cleanup and prior stabilization work.
 
-Status: Partial
+Status: Partial (Historical)
 
 ### 3) Secrets and credentials
 
 - History filename scan found expected examples/baselines (`ops/.env.example`, `.secrets.baseline`).
 - No direct private-key artifact filenames were identified in quick scan.
 
-Status: Partial
+Status: Partial (Historical)
 
 ### 4) Personal/private information
 
 - No explicit personal PII artifacts found in initial review.
 
-Status: Partial
+Status: Partial (Historical)
 
 ### 5) Generated files and hygiene
 
 - Quick tracked-file pattern check did not show common generated roots checked in.
 
-Status: Partial
+Status: Partial (Historical)
 
 ### 6) Dependency vulnerabilities
 
@@ -102,20 +104,20 @@ Status: Partial
 - Final `pip-audit --progress-spinner=off`: no known vulnerabilities.
 - `bandit -q -r server -x server/tests`: passed.
 
-Status: Verified locally (2026-06-27)
+Status: Verified locally (Historical)
 
 ### 7) Licensing
 
 - LICENSE exists.
-- No license replacement performed.
+- No license replacement performed in this historical phase.
 
-Status: Verified (presence only)
+Status: Verified (presence only — Historical)
 
 ### 8) Broken documentation links
 
 - Link-check output not captured yet.
 
-Status: Not Yet Verified
+Status: Not Yet Verified (Historical)
 
 ### 9) Build and runtime instructions
 
@@ -124,7 +126,7 @@ Status: Not Yet Verified
   dependencies. The Makefile remains POSIX-oriented; Windows validation used
   direct virtual-environment commands.
 
-Status: Verified for direct Windows commands; Makefile portability remains partial
+Status: Verified for direct Windows commands; Makefile portability remains partial (Historical)
 
 ### 10) CI/build truth and quality gates
 
@@ -138,11 +140,11 @@ Status: Verified for direct Windows commands; Makefile portability remains parti
   - pip-audit: no known vulnerabilities.
   - strict mypy: failed with 76 errors in 27 files.
 
-Status: Partial (strict typing remains a release-quality gap)
+Status: Partial (Historical)
 
-### 11) Public-release blockers (initial)
+### 11) Public-release blockers (historical)
 
-Potential blockers for next phases:
+Potential blockers identified in prior phase:
 
 - Resolved: atomic checkout, lease ownership/expiry, and dependency unlocking now
   have objective regression coverage.
@@ -153,7 +155,7 @@ Potential blockers for next phases:
 - P1 candidate: simplify employer-facing narrative while preserving operational truth.
 - P1 blocker: resolve or deliberately scope the strict-mypy backlog.
 
-## Next-Phase Remediation Plan
+## Next-Phase Remediation Plan (Historical Notes)
 
 1. Phase 2 (CI/build integrity)
 
@@ -172,7 +174,7 @@ Potential blockers for next phases:
 
 - Execute full documented process from clean clone and record objective outcomes.
 
-## Commands Executed During Audit
+## Commands Executed During Historical Audit
 
 - git rev-parse --abbrev-ref HEAD
 - git status --porcelain
@@ -185,4 +187,4 @@ Potential blockers for next phases:
 
 ## Local-validation policy note
 
-GitHub Actions may be disabled by owner policy for portions of the portfolio. Local and clean-clone validation will be treated as authoritative where remote CI is unavailable.
+GitHub Actions may be disabled by owner policy for portions of the portfolio. Local and clean-clone validation will be treated as authoritative where remote CI is unavailable. All results in this document are from historical phases and should not be referenced as current validation evidence.
