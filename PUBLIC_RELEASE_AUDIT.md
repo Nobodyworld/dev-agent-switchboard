@@ -1,7 +1,7 @@
 # Public Release Audit — Final Candidate
 
 Status: COMPLETE WITH ONE ENVIRONMENT BLOCKER
-Candidate SHA (validated in clean clone): `5d564803805550c54afc235461eff99bcdc9b43b`
+Candidate SHA (validated in clean clone): `a143e1a6a4187f648fe9c58c340215af9d11c51d`
 Audit date: 2026-07-01
 Branch: main
 Repository: Nobodyworld/dev-agent-switchboard
@@ -13,7 +13,7 @@ Validation authority: local clean-clone execution (GitHub Actions disabled)
 
 This audit records objective validation results for exactly one implementation candidate:
 
-- `5d564803805550c54afc235461eff99bcdc9b43b`
+- `a143e1a6a4187f648fe9c58c340215af9d11c51d`
 
 Historical runs from older commits are intentionally excluded from readiness determination.
 
@@ -86,7 +86,7 @@ Results:
 12. `gitleaks detect --verbose --report-format json --report-path reports/gitleaks.json`
 
 - Result: PASS (`no leaks found`)
-- Metadata: `gitleaks 8.30.1`, root commit `3cbda532039bb22b5dcd1cbffbf4c79864db9e29`, `130 commits scanned`
+- Metadata: `gitleaks 8.30.1`, root commit `3cbda532039bb22b5dcd1cbffbf4c79864db9e29`, `132 commits scanned`
 
 13. `lychee --config .tmp-lychee-empty.toml --no-progress README.md docs/**/*.md CHANGELOG.md SECURITY.md CONTRIBUTING.md CODE_OF_CONDUCT.md --exclude-path docs/history/** --exclude-path archive/**`
 
@@ -140,7 +140,7 @@ KEEP PRIVATE - NEAR READY
 
 Reason:
 
-- All release gates and required security behaviors that are executable in the current environment passed for candidate `5d564803805550c54afc235461eff99bcdc9b43b`.
+- All release gates and required security behaviors that are executable in the current environment passed for candidate `a143e1a6a4187f648fe9c58c340215af9d11c51d`.
 - One remaining blocker exists: Linux symlink validation could not be executed due to environment/runtime limitations (WSL/container unavailability and Windows symlink privilege restriction).
 
 Publication verdict:
