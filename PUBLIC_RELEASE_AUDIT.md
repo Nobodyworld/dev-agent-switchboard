@@ -1,11 +1,11 @@
 # Public Release Audit — Current Candidate
 
-**Status**: Validation in progress  
-**Final Candidate SHA**: `0493a6645f2e77f958a9c2e3f194c63ea493b428` (current HEAD after governance corrections)  
-**Audit Date**: 2026-07-01 (current session)  
-**Branch**: main  
-**Repository**: Nobodyworld/dev-agent-switchboard  
-**License**: Apache-2.0 (canonical format, sections 1-9 properly numbered)  
+**Status**: Validation in progress
+**Final Candidate SHA**: `0493a6645f2e77f958a9c2e3f194c63ea493b428` (current HEAD after governance corrections)
+**Audit Date**: 2026-07-01 (current session)
+**Branch**: main
+**Repository**: Nobodyworld/dev-agent-switchboard
+**License**: Apache-2.0 (canonical format, sections 1-9 properly numbered)
 
 ---
 
@@ -13,31 +13,35 @@
 
 This document records the **current validation state** of the HEAD commit for public-release candidacy. All results refer **only** to the final candidate SHA listed above. Historical results from earlier SHAs (e.g., `c444bb0`, `fc9ccae`) are archived in `PUBLIC_RELEASE_AUDIT_HISTORICAL.md` and are **not** cited as validation of the current candidate.
 
-**Key Constraint**: GitHub Actions workflows are disabled by owner policy. **Clean-clone validation from local environment is authoritative**. 
+**Key Constraint**: GitHub Actions workflows are disabled by owner policy. **Clean-clone validation from local environment is authoritative**.
 
 ---
 
 ## Governance & Licensing (Corrected This Session)
 
 ### License File
+
 - **Status**: ✅ PASSED — Replaced with canonical Apache License 2.0 (sections 1-9 properly numbered)
 - **File**: [LICENSE](LICENSE)
 - **Compliance**: No custom language appended to canonical text
 
 ### NOTICE File
+
 - **Status**: ✅ PASSED — Created with project attribution
 - **File**: [NOTICE](NOTICE)
 - **Content**: "Switchboard\nCopyright 2026 Nobody Production"
 
-### Documentation Sanitization  
+### Documentation Sanitization
+
 - **Status**: ✅ PASSED — All local paths and personal names removed
-- **Changes**: 
+- **Changes**:
   - CONTRIBUTING.md: Removed OpenAI address, updated to GitHub Security Advisories, changed "proprietary distribution" to "Apache 2.0"
   - docs/guides/support.md: Removed OpenAI address, removed unsupported SLOs, realistic volunteer support
   - SECURITY.md: Clarified pip-audit runs locally/clean-clone (not on every PR while Actions disabled)
   - PUBLIC_RELEASE_AUDIT_HISTORICAL.md: Replaced Windows paths with neutral description, labeled all as historical
 
 ### Repository State Verification
+
 - **Branch**: main
 - **Remote**: synchronized with origin/main (verified after last commit)
 - **Working tree**: clean (after governance corrections committed)
@@ -85,24 +89,29 @@ This document records the **current validation state** of the HEAD commit for pu
 ## Visual Documentation & Screenshots
 
 ### Dashboard Screenshot
-**Requirement**: Actual rendered screenshot showing live dashboard state  
-**File**: `docs/assets/switchboard-dashboard.png` (to be created)  
-**Evidence**: Task A (completed/in-progress), Task B (blocked/ready), agent ownership, status display  
+
+**Requirement**: Actual rendered screenshot showing live dashboard state
+**File**: `docs/assets/switchboard-dashboard.png` (to be created)
+**Evidence**: Task A (completed/in-progress), Task B (blocked/ready), agent ownership, status display
 **Status**: ⏳ NOT YET GENERATED
 
 ### Architecture Diagram Accuracy
-**File**: [docs/visuals/ARCHITECTURE_DIAGRAM.md](docs/visuals/ARCHITECTURE_DIAGRAM.md)  
+
+**File**: [docs/visuals/ARCHITECTURE_DIAGRAM.md](docs/visuals/ARCHITECTURE_DIAGRAM.md)
 **Known Issues**:
+
 - Endpoint path verification required
 - Path containment implementation details may not match code
-- Token requirement conditional logic needs clarification  
+- Token requirement conditional logic needs clarification
 - Link references need verification
 
 **Status**: ⏳ PENDING CORRECTION
 
 ### Two-Agent Workflow Diagram
-**File**: [docs/visuals/TWO_AGENT_WORKFLOW.md](docs/visuals/TWO_AGENT_WORKFLOW.md)  
+
+**File**: [docs/visuals/TWO_AGENT_WORKFLOW.md](docs/visuals/TWO_AGENT_WORKFLOW.md)
 **Known Issues**:
+
 - API paths need verification against actual implementation
 - Response field names need validation
 - Scalability/split-brain claims need test evidence
@@ -114,17 +123,20 @@ This document records the **current validation state** of the HEAD commit for pu
 ## Dependency & License Status
 
 ### Python Version
+
 - **Required**: Python 3.11+
 - **Current**: Python 3.14.0 installed
 - **Status**: ✅ Verified
 
 ### Server Dependencies
+
 - **Source**: [server/requirements-dev.txt](server/requirements-dev.txt)
 - **Last audit**: Prior SHA (not current candidate)
 - **Known warnings**: Deprecation warnings from Starlette/httpx/websockets (non-blocking)
 - **Status**: ⏳ Pending fresh audit on clean-clone
 
 ### License Compliance
+
 - **Primary**: Apache-2.0 (canonical, sections 1-9 properly numbered)
 - **Files**: [LICENSE](LICENSE), [NOTICE](NOTICE)
 - **Copyright**: "Switchboard Copyright 2026 Nobody Production"
@@ -135,6 +147,7 @@ This document records the **current validation state** of the HEAD commit for pu
 ## Infrastructure & Testing Environment
 
 ### Local Validation
+
 - **OS**: Windows
 - **Python**: 3.14.0
 - **WSL**: Ubuntu 2 available (Stopped, can start for Linux tests)
@@ -143,6 +156,7 @@ This document records the **current validation state** of the HEAD commit for pu
 - **Playwright**: Strict mode available
 
 ### Clean-Clone Requirements
+
 - [ ] Clone from main to temporary directory
 - [ ] Install dependencies from requirements files
 - [ ] Run all 10 release gates
@@ -168,8 +182,8 @@ This document records the **current validation state** of the HEAD commit for pu
 
 ## Current Classification
 
-**Status**: KEEP PRIVATE — NEAR READY  
-**Reason**: Governance corrections completed (this commit). All 18 validation gates (10 release gates + 8 security tests), visual evidence generation, and clean-clone execution remain pending.  
+**Status**: KEEP PRIVATE — NEAR READY
+**Reason**: Governance corrections completed (this commit). All 18 validation gates (10 release gates + 8 security tests), visual evidence generation, and clean-clone execution remain pending.
 **Readiness**: Will advance to READY FOR PUBLIC RELEASE upon successful completion of all remaining validation gates with 100% pass rate and clean-clone execution on final candidate SHA.
 
 ---
