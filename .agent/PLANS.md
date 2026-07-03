@@ -71,6 +71,7 @@ Short diffs, logs, or transcripts that prove success.
 
 Name libraries and module interfaces (function names, types) that must exist.
 ```
+
 # Enhance web UI resiliency and clarity
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
@@ -153,13 +154,14 @@ Improve the Switchboard operator UI so task data stays reliable and comprehensib
 - `server/tests/test_observability_overview.py` exercises the overview collector,
   API endpoint, and CLI command end to end.
 - `scripts/dev.py observability-overview` writes snapshots to disk; docs link to
-  the workflow for on-call responders.
+  the workflow for operations responders.
 
 ## Interfaces and Dependencies
 
 - `GET /api/plan` now returns `{version:int, updated_at:str, tasks:[...]}`.
 - Toast utilities rely on DOM IDs inserted into `index.html`.
 - Playwright tests depend on `pytest` and `playwright.sync_api`.
+
 # Restore core server imports and datetime helpers
 
 # Stage 3 observability and extension stewardship
@@ -258,6 +260,7 @@ Strengthen Switchboard's long-term health by tying observability, extension ergo
 - New schema `ObservabilityOverviewOut` exported from `server/schema.py`.
 - `ExtensionRegistry.register_observability_hook` enabling extension-provided instrumentation.
 - Templates under `server/extensions/templates/` consumed by `scripts/dev.py scaffold-extension`.
+
 # Observability-driven modular expansion for Stage 3
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
@@ -536,6 +539,7 @@ The Switchboard backend defines overlapping datetime utilities across modules, l
 - ORM models rely on `sqlalchemy.orm.Mapped` and `mapped_column` definitions.
 - API schema dataclasses continue to use Pydantic `BaseModel` imports.
 - New `server/time_utils.py` provides `utcnow`/`utcnow_naive` functions consumed by `task_logic` and `file_store`.
+
 # Harden backend and API consistency
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
@@ -583,6 +587,7 @@ Deliver a production-grade refresh of the Switchboard backend by eliminating dup
 ## Context and Orientation
 
 Key modules:
+
 - `server/app.py` – FastAPI application wiring, websocket push logic, REST handlers.
 - `server/task_logic.py` – business logic for plan versions, leases, and dependencies.
 - `server/file_store.py` – persistent live-file helper utilities.
@@ -802,6 +807,7 @@ Deliver a dependable test harness that covers the Python client, CLI tooling, an
 
 - Python `requests` library remains the only third-party dependency exercised by the client/CLI tests.
 - `pytest` is used for the test harness; thread behavior is simulated via mocks to avoid real concurrency.
+
 # Modernize Switchboard for production-grade operations
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
@@ -1058,7 +1064,7 @@ This repository implements the Switchboard service. This plan must be maintained
 
 ## Purpose / Big Picture
 
-Transform Switchboard into the canonical queue and agent orchestration router. Deliver stabilized HTTP and Python interfaces for tasks, queues, and agents; ship health checks and a local runner for developers; update licensing to Proprietary; and overhaul documentation with architecture, message schema, failure modes, quick start, and end-to-end walkthroughs. Align docstrings to NumPy style and seed TODO issue stubs for remaining gaps.
+Transform Switchboard into the canonical queue and agent orchestration router. Deliver stabilized HTTP and Python interfaces for tasks, queues, and agents; ship health checks and a local runner for developers; update licensing documentation; and overhaul documentation with architecture, message schema, failure modes, quick start, and end-to-end walkthroughs. Align docstrings to NumPy style and seed TODO issue stubs for remaining gaps.
 
 ## Progress
 
@@ -1083,7 +1089,7 @@ Transform Switchboard into the canonical queue and agent orchestration router. D
 
 - Queue orchestration router exposes stable endpoints and Python interfaces.
 - Health checks and local runner simplify operational verification.
-- Documentation and licensing clearly communicate Proprietary usage and architecture.
+- Documentation and licensing clearly communicate project usage and architecture.
 - Documentation hub, message schema reference, and failure mode catalogue provide onboarding shortcuts for new operators.
 
 ## Context and Orientation
@@ -1098,7 +1104,7 @@ Transform Switchboard into the canonical queue and agent orchestration router. D
 1. Introduce explicit queue, task, and agent interface modules (`server/interfaces.py`, `switchboard_client.py`, etc.) and update FastAPI routes plus CLI to consume them.
 2. Implement `/health/live` and `/health/ready` endpoints backed by database/storage probes and expose a `scripts/local_runner.py` (plus CLI command) to run orchestrator loops locally.
 3. Standardize Python docstrings touched during refactors to NumPy style and ensure new interfaces follow suit.
-4. Replace `LICENSE` text with Proprietary notice and add documentation updates: architecture overview, message schema appendix, failure modes matrix, quick start, and end-to-end example across `README.md`, `docs/index.md`, and supporting files.
+4. Update `LICENSE` text and add documentation updates: architecture overview, message schema appendix, failure modes matrix, quick start, and end-to-end example across `README.md`, `docs/index.md`, and supporting files.
 5. Update `CHANGELOG.md` with a new release entry and create `docs/TODO-ISSUES.md` (or similar) enumerating uncovered follow-up work; run tests and formatters, then prepare PR summary.
 
 ## Concrete Steps
@@ -1246,6 +1252,7 @@ Give operators a first-class "maintenance mode" switch that halts new task check
 - FastAPI, SQLAlchemy async session, and Pydantic for API schema.
 - CLI uses `requests`; ensure new endpoints reuse session.
 - UI continues to rely on HTMX/fetch for AJAX; no additional build tooling introduced.
+
 # Build observability backbone and extension layer
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
@@ -1299,6 +1306,7 @@ Harden Switchboard for long-term stewardship by enriching observability (structu
 ## Context and Orientation
 
 Key areas to touch:
+
 - `server/instrumentation/` and new `server/observability/` modules for metrics/log correlation.
 - `server/application/task_service.py` for lifecycle hook integration.
 - `server/settings.py`, `server/schema.py`, and `/api/settings` route for exposing extension config.
@@ -1969,8 +1977,6 @@ documentation that codifies upgrade paths and operational playbooks.
 - Observability instrumentation integrates with optional Prometheus and OpenTelemetry
   dependencies.
 - CLI tooling leverages standard library modules only; no new runtime dependencies.
-
-
 
 # Repository cleanup and information architecture refresh
 

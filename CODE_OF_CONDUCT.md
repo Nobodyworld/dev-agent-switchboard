@@ -36,7 +36,7 @@ This Code of Conduct applies within all project spaces, and it also applies when
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the project team at <security@openai.com>. All complaints will be reviewed and investigated promptly and fairly.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported by opening a private maintainer contact issue or by using the security reporting process described in [SECURITY.md](SECURITY.md). All complaints will be reviewed and investigated promptly and fairly.
 
 The project team is obligated to respect the privacy and security of the reporter of any incident.
 

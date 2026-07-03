@@ -23,7 +23,7 @@ sequenceDiagram
 
     Note over Plan: Initial: A=ready, B=blocked(→A), C=blocked(→B)
 
-    A1->>API: POST /checkout (Agent 1)
+    A1->>API: POST /api/tasks/checkout (Agent 1)
     API->>Plan: Find ready task
     Plan-->>API: Task A (ready)
     API->>API: Create lease for A (expiry: +60s)
@@ -32,7 +32,7 @@ sequenceDiagram
     Note over API: Task A locked to Agent 1
     A1->>API: Do work...
 
-    A1->>API: POST /heartbeat (keep alive)
+    A1->>API: POST /api/tasks/{task_id}/heartbeat (keep alive)
     API->>Plan: Refresh lease expiry
     API-->>A1: {"ok": true}
 
@@ -45,7 +45,7 @@ sequenceDiagram
 
     Note over A2: Agent 2 waits...
 
-    A1->>API: POST /complete task A
+    A1->>API: POST /api/tasks/{task_id}/complete (task A)
     API->>Plan: Mark Task A complete
     Plan->>Plan: Unlock Task B (A complete)
     Plan->>Plan: Increment version → v2
@@ -57,7 +57,7 @@ sequenceDiagram
     DB->>DB: Reload task graph
     DB->>DB: Show B now ready
 
-    A2->>API: POST /checkout (Agent 2 - now ready)
+    A2->>API: POST /api/tasks/checkout (Agent 2 - now ready)
     API->>Plan: Find ready task
     Plan-->>API: Task B (now ready)
     API->>API: Create lease for B
@@ -65,11 +65,11 @@ sequenceDiagram
 
     Note over DB: Dashboard shows:<br/>A=complete, B=in_progress, C=blocked(→B)
 
-    A2->>API: POST /heartbeat (keep alive)
+    A2->>API: POST /api/tasks/{task_id}/heartbeat (keep alive)
     API->>Plan: Refresh lease expiry
     API-->>A2: {"ok": true}
 
-    A2->>API: POST /complete task B
+    A2->>API: POST /api/tasks/{task_id}/complete (task B)
     API->>Plan: Mark Task B complete
     Plan->>Plan: Unlock Task C (B complete)
     Plan->>Plan: Increment version → v3
@@ -91,7 +91,6 @@ sequenceDiagram
 | **Agent must keep heartbeat** | Lease expires if heartbeat stops; other agents can reclaim task |
 | **Tasks unlock correctly** | Completion marks task done and checks dependents; DAG ensures proper ordering |
 | **Dashboard stays in sync** | WebSocket broadcasts plan.version; clients refresh state |
-| **No split-brain** | Single database source of truth; all agents read from same server |
 
 ## Test Coverage
 
@@ -103,4 +102,4 @@ sequenceDiagram
 
 ---
 
-This pattern scales to N agents and arbitrary dependency graphs. The lease mechanism prevents duplication, and the broadcast ensures coordination without polling.
+This documented flow is validated by the listed automated tests for two agents and dependency-unlock behavior.

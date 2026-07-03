@@ -184,6 +184,7 @@ bld/
 Generated\ Files/
 *.tmp
 *.tmp_proj
+/.tmp_capture_dashboard.py
 *_wpftmp.csproj
 *.log
 *.tlog

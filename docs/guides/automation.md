@@ -59,7 +59,7 @@ with Switchboard safely and consistently.
   liveness, readiness, telemetry, diagnostics, and extension observability
   registrations. Mirrors the output of
   `python scripts/dev.py observability-overview` and is ideal for runbooks or
-  on-call dashboards.
+  operations dashboards.
 
 ## Tooling
 

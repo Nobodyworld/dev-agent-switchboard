@@ -6,7 +6,7 @@ Security fixes are applied to the `main` branch. Please deploy from the latest c
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability, **do not** open a public issue. Instead, follow the [GitHub Security Advisory](https://github.com/Nobodyworld/dev-agent-switchboard/security) process or contact the maintainers privately with the following information:
+If you discover a security vulnerability, **do not** open a public issue. Instead, report it privately using [GitHub Security Advisories](https://docs.github.com/en/code-security/security-advisories/repository-security-advisories/about-repository-security-advisories) and include the following information:
 
 - A description of the vulnerability and its potential impact.
 - Steps to reproduce the issue or proof-of-concept code.
@@ -29,7 +29,7 @@ We request a 90-day embargo period to investigate, patch, and release a fix. If 
 
 1. Reproduce and confirm the issue.
 2. Develop a fix and corresponding regression tests.
-3. Run the full CI pipeline, including security scans.
+3. Run the full local quality and security validation suite, including clean-clone checks when hosted Actions are disabled.
 4. Coordinate release notes and deployment guidance.
 5. Credit reporters who request acknowledgment in the public changelog.
 

@@ -203,3 +203,42 @@ async def test_live_file_write_rejects_body_over_configured_limit(
     finally:
         monkeypatch.delenv("SWITCHBOARD_MAX_LIVE_FILE_BYTES", raising=False)
         reload_max_live_file_bytes()
+
+
+@pytest.mark.anyio
+async def test_live_file_symlink_escape_blocked_for_read_and_write(
+    monkeypatch: pytest.MonkeyPatch,
+    files_root: Path,
+    tmp_path: Path,
+):
+    outside = tmp_path / "outside.txt"
+    original = b"outside-secret-bytes"
+    outside.write_bytes(original)
+
+    link_dir = files_root / "tests"
+    link_dir.mkdir(parents=True, exist_ok=True)
+    link_path = link_dir / "escape.txt"
+    try:
+        link_path.symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+
+    monkeypatch.setenv("SWITCHBOARD_ADMIN_TOKEN", "test-admin-token")
+    reload_admin_token()
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            read_response = await client.get("/live/tests/escape.txt")
+            write_response = await client.put(
+                "/api/files/tests/escape.txt",
+                content=b"mutated",
+                headers={"Authorization": "Bearer test-admin-token"},
+            )
+
+        assert read_response.status_code != HTTP_OK
+        assert write_response.status_code != HTTP_OK
+        assert outside.read_bytes() == original
+    finally:
+        monkeypatch.delenv("SWITCHBOARD_ADMIN_TOKEN", raising=False)
+        reload_admin_token()

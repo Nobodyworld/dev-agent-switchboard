@@ -10,13 +10,16 @@ Participation in this project is governed by our [Code of Conduct](CODE_OF_CONDU
 
 1. **Fork and clone** the repository.
 2. **Create a virtual environment** and install dependencies:
+
    ```bash
    python3 -m venv .venv
    source .venv/bin/activate
    python -m pip install --upgrade pip
    pip install -r server/requirements-dev.txt
    ```
+
 3. **Install the pre-commit hooks** so every commit automatically runs the same checks as CI:
+
    ```bash
    pre-commit install --install-hooks
    pre-commit install --hook-type commit-msg
@@ -26,7 +29,7 @@ Participation in this project is governed by our [Code of Conduct](CODE_OF_CONDU
 
 - Work in feature branches derived from `main`.
 - Keep pull requests focused; avoid mixing unrelated changes.
-- Ensure all CI jobs pass before requesting review.
+- Run the local quality gates before requesting review. GitHub Actions workflows are configured in-repo but currently disabled by owner policy, so local and clean-clone validation are authoritative.
 - Update documentation and changelogs when behavior changes.
 
 ## Documentation & Dependency Expectations
@@ -83,7 +86,7 @@ your PR description.
 - [ ] Tests added or updated where appropriate.
 - [ ] Documentation updated (README, docs/, or inline docstrings).
 - [ ] `pre-commit run --all-files` passes locally.
-- [ ] CI is green (lint, type, tests, docs, security, coverage).
+- [ ] Local quality gates are green (lint, type, tests, docs, security, coverage).
 - [ ] Any configuration or migration changes include rollback instructions in the PR description.
 
 ## TODOs & Follow-ups

@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+
 - Directory-level `README.md` files for `archive/`, `client/`, `docs/`, `ops/`,
   `reports/`, `scripts/`, `server/`, `tests/`, and `web/` to document the
   reorganized structure and cross-link core references.
@@ -101,6 +102,7 @@
 - Root-level SECURITY_NOTES.md and TECH_DEBT.md summarising security follow-ups and prioritised technical debt from the audit.
 
 ### Changed
+
 - Makefile exposes `make dev`, `make build`, and `make deploy` flows with Docker availability guards and corrected tab indentation.
 - Hardened the websocket backoff pytest harness to use an absolute Node path, shared constants, and lint-compliant messaging.
 - Renamed legacy documentation to lowercase paths (`docs/ai-interface.md`,
@@ -167,7 +169,7 @@
 - README now introduces Switchboard via What/Why/How framing, highlights the local runner, and documents new health probes.
 - Module docstrings across `server/` and the Python client follow NumPy style for consistent parameter/return documentation.
 - Existing `docs/architecture.md` expanded with application/service context, while `docs/navigation-index.md` links to the new documentation hub.
-- License replaced with the Switchboard Proprietary notice reflecting the project's closed-source status.
+- License updated as part of historical governance transitions (current license is Apache-2.0).
 - Lease duration parsing raises clearer "positive integer" errors and is validated during FastAPI startup, logging the active configuration.
 - Settings caching now exposes an aggregated bundle so `/api/settings` and startup logging read a single coherent snapshot while cache reloads keep the views in sync.
 - `/api/settings` reload helpers now refresh the extension runtime bundle so
@@ -180,9 +182,11 @@
 - Release documentation expanded with `RELEASE_NOTES.md` to call out operator-facing upgrade guidance alongside the changelog.
 
 ### Removed
+
 - Deprecated `server/interfaces.py` dataclasses in favour of the canonical Pydantic schemas in `server/schema.py`.
 
 ### Fixed
+
 - Extension configuration parsing now validates dotted module paths and dedupes
   entries when loading `SWITCHBOARD_EXTENSIONS`, preventing misconfigured
   overrides from silently passing through startup.
@@ -205,6 +209,7 @@
 # 2024-10-20 — Dependency Safety Polish
 
 ## Changed
+
 - Normalized FastAPI imports to absolute module paths and introduced context-managed
   lifespans to silence Starlette deprecation warnings during startup logging.
 - Reworked router dependency signatures to use `Annotated` aliases with optional
@@ -214,6 +219,7 @@
   explicit session handling before committing database transactions.
 
 ## Fixed
+
 - Ensured agent registration, file uploads, and task lifecycle helpers no longer
   raise `TypeError` when invoked directly, restoring compatibility for existing
   test fixtures and CLI automation.
@@ -221,6 +227,7 @@
 ## 2024-10-19 — Adaptive Perfection Update
 
 ### Added
+
 - `docs/reports/case-files/legacy/000_CONTEXT.md`, `001_DIAGNOSIS.md`, and `002_VERIFICATION.md` capture environment, diagnostic, and testing details.
 - `docs/architecture/architecture.md` overview and `docs/ai-interface.md` describing agent integration points.
 - `.env.example` and `LICENSE` to document configuration defaults and licensing terms.
@@ -228,10 +235,12 @@
 - `tests/test_settings_validation.py` covering rate limit configuration parsing.
 
 ### Changed
+
 - Hardened `server/schema.TaskIn`/`TaskUpdate` with length constraints and metadata.
 - Raised explicit `RateLimitConfigurationError` for invalid rate limit environment variables and updated associated tests.
 - Replaced wildcard exports in `switchboard_cli.py` with explicit bindings.
 - Enhanced README with configuration guidance referencing new settings validation.
 
 ### Fixed
+
 - Prevented silent fallback when rate limit environment variables are invalid.

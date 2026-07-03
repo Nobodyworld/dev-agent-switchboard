@@ -4,6 +4,8 @@
 
 Switchboard coordinates multiple agents against a shared dependency graph while preventing duplicate execution through lease-based task ownership and live state synchronization.
 
+![Switchboard dashboard state demonstration](docs/assets/switchboard-dashboard.png)
+
 ## What You Get
 
 - 🎯 **Task Coordination**: Track tasks with dependencies; agents safely check out work via lease-based ownership
@@ -91,27 +93,23 @@ This validates the core coordination pattern: Task A ready → Agent 1 leases & 
 - **[Integration Guide](docs/ai-interface.md)** — How agents interact with Switchboard
 - **[Full Navigation](docs/index.md)** — Complete documentation index
 
-## Production Controls
+## Security Controls
 
-| Feature | Verified |
+| Feature | Status |
 |---|---|
-| Lease-based task ownership (prevents duplicate execution) | ✅ Tested |
-| Concurrent checkout rejection | ✅ Tested |
-| Lease expiry and heartbeat renewal | ✅ Tested |
-| Dependency-aware task unlocking | ✅ Tested |
-| WebSocket real-time synchronization | ✅ Tested |
-| Live-file path containment | ✅ Code review |
-| Admin-token protection for sensitive operations | ✅ Tested |
-| Upload-size enforcement | ✅ Code review |
+| Lease-based task ownership (prevents duplicate execution) | Local tests available; final clean-clone validation pending |
+| Concurrent checkout rejection | Local tests available; final clean-clone validation pending |
+| Lease expiry and heartbeat renewal | Local tests available; final clean-clone validation pending |
+| Dependency-aware task unlocking | Local tests available; final clean-clone validation pending |
+| WebSocket real-time synchronization | Local tests available; final clean-clone validation pending |
+| Live-file path containment | Local tests available; final clean-clone validation pending |
+| Admin-token protection for sensitive operations | Local tests available; final clean-clone validation pending |
+| Upload-size enforcement | Local tests available; final clean-clone validation pending |
+| Rate limiting | Local tests available; final clean-clone validation pending |
 
 ## Test Coverage
 
-- **229 passing tests** covering task lifecycle, lease management, dependencies, file storage, and WebSocket broadcasts
-- **2 strict Playwright UI tests** validating dashboard interaction
-- **Type safety**: Mypy configured and validated on application code
-- **Code quality**: Ruff linting and Black formatting enforced
-- **Security**: Bandit audit passed; no known dependency vulnerabilities
-- **Secrets**: Full history scanned with Gitleaks; no credentials detected
+The repository contains broad automated test coverage for task lifecycle, lease management, dependencies, file storage, WebSocket broadcasts, and dashboard interaction. Final pass/fail totals for the current release candidate are recorded in `PUBLIC_RELEASE_AUDIT.md` after clean-clone validation.
 
 Run locally:
 
@@ -164,7 +162,7 @@ python scripts/dev.py --help
 
 - **[System Architecture](docs/visuals/ARCHITECTURE_DIAGRAM.md)** — Component diagram and data flow
 - **[Two-Agent Workflow](docs/visuals/TWO_AGENT_WORKFLOW.md)** — Detailed sequence diagram
-- **[Dashboard State](docs/visuals/DASHBOARD_STATE_EXAMPLE.md)** — How plan state evolves in real time
+- **Dashboard Screenshot** — `docs/assets/switchboard-dashboard.png`
 
 ## Project Structure
 
@@ -208,7 +206,7 @@ docs/                      # Full documentation
 - ✅ Python client and CLI
 - ✅ Operator dashboard
 - ✅ Comprehensive test coverage
-- ✅ Production-grade security model
+- ✅ Security controls implemented and pending final clean-clone verification for this release candidate
 
 ## Governance
 
