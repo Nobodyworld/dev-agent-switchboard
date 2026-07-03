@@ -91,7 +91,7 @@
 - Stewardship metrics CLI `scripts/audit_metrics.py` exports coverage, complexity, and dependency depth summaries to `reports/system_metrics.json` for automation and reporting.
 - `/health/live` and `/health/ready` endpoints expose liveness and readiness probes via the new `HealthStatus` schema.
 - `scripts/local_runner.py` provides a reference agent loop that registers, heartbeats, and optionally completes tasks.
-- Documentation hub at `docs/index.md`, message schema reference, failure modes guide, and [TASKLIST.md](TASKLIST.md) backlog enumerating follow-up work.
+- Documentation hub at `docs/index.md`, message schema reference, failure modes guide, and [TASKLIST.md](docs/TASKLIST.md) backlog enumerating follow-up work.
 - `/api/settings` endpoint exposing rate limit and lease configuration for operators and clients.
 - Python CLI now fetches server settings and adjusts heartbeat intervals that would outlive the lease duration.
 - CLI runtime summary output with accompanying [docs/cli-runtime.md](docs/cli-runtime.md) walkthrough plus the dependency audit in [docs/dependencies.md](docs/dependencies.md).
