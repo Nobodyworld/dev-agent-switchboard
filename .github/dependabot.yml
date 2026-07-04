@@ -1,7 +1,9 @@
 version: 2
 updates:
   - package-ecosystem: "pip"
-    directory: "/server"
+    directories:
+      - "/server"
+      - "/client/python"
     schedule:
       interval: "weekly"
       day: "monday"

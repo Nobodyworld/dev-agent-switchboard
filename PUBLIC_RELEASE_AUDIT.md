@@ -143,9 +143,13 @@ Configuration location:
 
 Configured ecosystems and directories:
 
-- `pip` at `/server`
+- `pip` at `/server` and `/client/python`
 - `docker` at `/server`
 - `github-actions` at `/`
+
+Client coverage note:
+
+- `client/python/pyproject.toml` is included because it contains shipped Python client dependency surface (including `requests>=2.31`).
 
 Policy checks:
 
