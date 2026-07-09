@@ -216,8 +216,8 @@ docs/                      # Documentation
 1. **[Review Architecture](docs/visuals/ARCHITECTURE_DIAGRAM.md)** — understand components and data flow.
 2. **[See Two-Agent Workflow](docs/visuals/TWO_AGENT_WORKFLOW.md)** — understand coordination behavior.
 3. **Run the Quick Start** — observe the dashboard locally.
-4. **Review Security Controls](SECURITY.md)** — confirm the deployment posture matches your use case.
-5. **Run Validation](#validation)** — verify the current checkout before relying on it.
+4. **[Review Security Controls](SECURITY.md)** — confirm the deployment posture matches your use case.
+5. **[Run Validation](#validation)** — verify the current checkout before relying on it.
 
 ---
 
