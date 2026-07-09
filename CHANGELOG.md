@@ -167,7 +167,7 @@
 - README now introduces Switchboard via What/Why/How framing, highlights the local runner, and documents new health probes.
 - Module docstrings across `server/` and the Python client follow NumPy style for consistent parameter/return documentation.
 - Existing `docs/architecture.md` expanded with application/service context, while `docs/navigation-index.md` links to the new documentation hub.
-- License replaced with the Switchboard Proprietary notice reflecting the project's closed-source status.
+- License metadata now uses Apache-2.0 terms for the public-facing project files.
 - Lease duration parsing raises clearer "positive integer" errors and is validated during FastAPI startup, logging the active configuration.
 - Settings caching now exposes an aggregated bundle so `/api/settings` and startup logging read a single coherent snapshot while cache reloads keep the views in sync.
 - `/api/settings` reload helpers now refresh the extension runtime bundle so
