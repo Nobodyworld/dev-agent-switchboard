@@ -1,7 +1,7 @@
 # Private-Repository Security and Publication Controls
 
-**Status:** Pre-publication controls documented  
-**Repository:** `Nobodyworld/dev-agent-switchboard`  
+**Status:** Pre-publication controls documented
+**Repository:** `Nobodyworld/dev-agent-switchboard`
 **Audit date:** 2026-07-10
 
 This document records security automation available while the repository remains private and owner-controlled steps that must be verified before and after publication. It is separate from `PUBLIC_RELEASE_AUDIT.md`, which remains the authoritative release-readiness record.
