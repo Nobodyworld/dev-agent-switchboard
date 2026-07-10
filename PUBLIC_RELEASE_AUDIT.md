@@ -1,9 +1,9 @@
 # Public Release Audit — Final Candidate
 
-**Classification:** `KEEP PRIVATE - NEAR READY`  
-**Current main after Actions repair:** `f6b6846a67b074e964788d6895f51c4b696e9ca6`  
-**Clean-clone implementation candidate:** `a143e1a6a4187f648fe9c58c340215af9d11c51d`  
-**Audit date:** 2026-07-10  
+**Classification:** `KEEP PRIVATE - NEAR READY`
+**Current main after Actions repair:** `f6b6846a67b074e964788d6895f51c4b696e9ca6`
+**Clean-clone implementation candidate:** `a143e1a6a4187f648fe9c58c340215af9d11c51d`
+**Audit date:** 2026-07-10
 **Repository:** `Nobodyworld/dev-agent-switchboard`
 
 ## Scope
