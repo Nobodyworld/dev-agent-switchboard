@@ -92,12 +92,14 @@ jobs:
         run: |
           set -euo pipefail
           LYCHEE_VERSION="0.24.2"
-          ARCHIVE="lychee-x86_64-unknown-linux-gnu.tar.gz"
+          TARGET="x86_64-unknown-linux-gnu"
+          ARCHIVE="lychee-${TARGET}.tar.gz"
           curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
             "https://github.com/lycheeverse/lychee/releases/download/lychee-v${LYCHEE_VERSION}/${ARCHIVE}" \
             --output "/tmp/${ARCHIVE}"
           mkdir -p "$HOME/.local/bin"
-          tar -xzf "/tmp/${ARCHIVE}" -C "$HOME/.local/bin" lychee
+          tar -xzf "/tmp/${ARCHIVE}" -C /tmp
+          install -m 0755 "/tmp/lychee-${TARGET}/lychee" "$HOME/.local/bin/lychee"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Check links
