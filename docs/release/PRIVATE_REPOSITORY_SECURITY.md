@@ -22,11 +22,11 @@ No checked-in CodeQL workflow is required while this deferral remains in effect.
 
 Configuration: `.github/dependabot.yml`
 
-| Ecosystem | Location | Schedule | Open PR limit |
-|---|---|---|---:|
-| pip | `/server`, `/client/python` | Weekly | 3 |
-| Docker | `/server` | Weekly | 2 |
-| GitHub Actions | `/` | Weekly | 2 |
+| Ecosystem      | Location                    | Schedule | Open PR limit |
+| -------------- | --------------------------- | -------- | ------------: |
+| pip            | `/server`, `/client/python` | Weekly   |             3 |
+| Docker         | `/server`                   | Weekly   |             2 |
+| GitHub Actions | `/`                         | Weekly   |             2 |
 
 Minor and patch updates are grouped. Major updates remain separate. No dependency auto-merge is configured.
 
