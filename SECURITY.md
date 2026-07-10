@@ -2,42 +2,67 @@
 
 ## Supported Versions
 
-Security fixes are applied to the `main` branch. Please deploy from the latest commit on `main` or the most recent tagged release.
+Security fixes are applied to the `main` branch. This repository does not currently promise support for older snapshots or unmaintained releases.
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability, **do not** open a public issue. Instead, report it privately using [GitHub Security Advisories](https://docs.github.com/en/code-security/security-advisories/repository-security-advisories/about-repository-security-advisories) and include the following information:
+Do not open a public issue for a suspected vulnerability or credential exposure.
 
-- A description of the vulnerability and its potential impact.
-- Steps to reproduce the issue or proof-of-concept code.
-- Any known mitigations or workarounds.
+Use the repository's private GitHub Security Advisory flow when it is available. Include:
 
-We aim to acknowledge new reports within two business days. After triage, we will provide regular status updates until the issue is resolved.
+- a description of the vulnerability and likely impact;
+- affected components or versions;
+- reproduction steps or a minimal proof of concept;
+- known mitigations or workarounds;
+- whether the issue is believed to be actively exploited.
 
-## Public Security Posture
+If private advisory reporting is unavailable, contact the maintainer privately through GitHub without posting exploit details, credentials, or personal information in a public channel.
 
-- Privileged runtime mutations are protected by `SWITCHBOARD_ADMIN_TOKEN` when configured.
-- Live-file uploads are bounded by `SWITCHBOARD_MAX_LIVE_FILE_BYTES` and inherit admin-token protection when enabled.
-- The default support target is the latest commit on `main`; older snapshots may not receive fixes.
-- Dependency review and local reproduction guidance live in [docs/dependencies.md](docs/dependencies.md).
+Reports are reviewed on a best-effort basis according to severity and maintainer availability. No fixed acknowledgment, remediation, or disclosure timeline is guaranteed.
+
+## Deployment Posture
+
+Switchboard is intended for controlled agent-coordination environments. A local demonstration configuration must not be treated as production-safe.
+
+Before exposing the service beyond localhost or a trusted network:
+
+- set a strong, randomly generated `SWITCHBOARD_ADMIN_TOKEN`;
+- use TLS, a reverse proxy, and network access controls;
+- keep `FILES_ROOT` within the intended storage boundary;
+- configure `SWITCHBOARD_MAX_LIVE_FILE_BYTES` appropriately;
+- validate symlink containment on the target operating system;
+- protect environment variables and deployment credentials;
+- run the documented release and dependency-security checks.
+
+## Implemented Controls
+
+The repository includes controls and tests for:
+
+- admin-token protection on privileged mutations;
+- live-file path containment;
+- upload-size enforcement;
+- lease ownership, expiry, and heartbeat behavior;
+- concurrent checkout rejection;
+- rate limiting;
+- security and dependency scanning in the release workflow.
+
+Implementation alone is not a deployment guarantee. Review [PUBLIC_RELEASE_AUDIT.md](PUBLIC_RELEASE_AUDIT.md) for the current candidate's executed validation and unresolved environment blockers.
 
 ## Coordinated Disclosure
 
-We request a 90-day embargo period to investigate, patch, and release a fix. If the vulnerability is actively exploited or requires urgent attention, we will work with you on an expedited disclosure timeline.
+Please allow reasonable time for investigation and remediation before public disclosure. Timing will depend on severity, exploitability, maintainer availability, and whether a safe patch or mitigation is ready.
 
 ## Patch Process
 
 1. Reproduce and confirm the issue.
-2. Develop a fix and corresponding regression tests.
-3. Run the full local quality and security validation suite, including clean-clone checks when hosted Actions are disabled.
-4. Coordinate release notes and deployment guidance.
-5. Credit reporters who request acknowledgment in the public changelog.
+2. Assess severity, affected surfaces, and immediate mitigations.
+3. Develop a focused fix and regression tests.
+4. Run the relevant local and clean-clone quality/security gates.
+5. Publish remediation guidance or release notes when appropriate.
+6. Credit reporters who request acknowledgment, unless doing so would create additional risk.
 
 ## Dependency Security
 
-The [Dependency & License Audit](docs/dependencies.md) tracks the packages used
-by both the server and Python client. When reporting a vulnerability in a
-third-party library, please reference the package name and version pinned in
-that document so we can cross-check impact quickly. Local validation runs `pip-audit` via `python scripts/dev.py verify` and clean-clone testing, providing authoritative verification when GitHub Actions is disabled. We prioritise updates for dependencies with known CVEs and will publish mitigation guidance if immediate upgrades are not possible.
+[docs/dependencies.md](docs/dependencies.md) records the server and Python-client dependency surface. Vulnerability reports involving third-party packages should identify the package, affected version, and relevant advisory when known.
 
-Thank you for helping us keep Switchboard secure.
+Release validation includes `pip-audit`, Bandit, Gitleaks, and the repository's broader quality gates. These controls complement, but do not replace, GitHub CodeQL or Secret Protection when those services are available.
