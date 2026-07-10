@@ -1,7 +1,7 @@
 # Public Release Audit — Final Candidate
 
 **Classification:** `KEEP PRIVATE - NEAR READY`
-**Current main after Actions repair:** `f6b6846a67b074e964788d6895f51c4b696e9ca6`
+**Current main after Actions and security-control merges:** `59c6c19d27ab6d60684ec7fda13592db63fbf591`
 **Clean-clone implementation candidate:** `a143e1a6a4187f648fe9c58c340215af9d11c51d`
 **Audit date:** 2026-07-10
 **Repository:** `Nobodyworld/dev-agent-switchboard`
@@ -10,7 +10,7 @@
 
 This audit separates executed evidence from remaining publication mechanics.
 
-The clean-clone implementation results below apply to candidate `a143e1a6a4187f648fe9c58c340215af9d11c51d`. Subsequent release-documentation commits and the Actions repair merged at `f6b6846a67b074e964788d6895f51c4b696e9ca6` did not change application runtime behavior, but final publication still requires validation against the final merged `main` SHA.
+The clean-clone implementation results below apply to candidate `a143e1a6a4187f648fe9c58c340215af9d11c51d`. Subsequent release-documentation commits, the Actions repair merged in PR #94, and the Dependabot/security-control work merged in PR #96 did not change application runtime behavior, but final publication still requires validation against the final merged `main` SHA.
 
 Historical results from earlier candidates are not release authority.
 
@@ -21,8 +21,10 @@ Historical results from earlier candidates are not release authority.
 - `SECURITY.md`, `CONTRIBUTING.md`, and support documentation describe a best-effort solo-maintainer posture.
 - A real dashboard screenshot is stored at `docs/assets/switchboard-dashboard.png`.
 - Architecture, API, configuration, integration, and workflow documentation are present.
+- `.github/dependabot.yml` covers server and Python-client dependencies, Docker, and GitHub Actions.
+- `docs/release/PRIVATE_REPOSITORY_SECURITY.md` records private-repository deferrals and publication controls.
 
-**Status:** PASS for the current release line; rerun formatting and link checks after final documentation merges.
+**Status:** PASS for the current release line; rerun formatting and link checks after this final documentation merge.
 
 ## Clean-Clone Release Gates
 
@@ -80,6 +82,8 @@ Successful proof runs on PR #94 head `8b2dab001c1ca9a1d38f8faf48e4e4216932ba61`:
 | Coverage         | PASS                                      |
 | Browser UI tests | PASS; strict tests executed without skips |
 
+PR #96 also passed Commitlint run `29122579502` and CI run `29122579510` before merge. Its CI included the same eight successful jobs.
+
 The repaired workflows use read-only permissions and disable checkout credential persistence. Full history is fetched only where commit ranges or Gitleaks require it.
 
 ## Security-Control Evidence
@@ -120,17 +124,15 @@ Required result:
 
 ### 2. Final-main validation
 
-After the remaining release PRs are merged:
+After this final documentation PR is merged:
 
 1. record the final `main` SHA;
-2. confirm hosted `CI` and `Commitlint` pass on final `main` or a PR merge candidate;
-3. rerun pre-commit and `git diff --check`;
-4. rerun documentation link validation;
-5. rerun full-history Gitleaks;
-6. rerun any application/security checks affected by code, dependency, or workflow changes;
-7. validate the Docker build if Docker remains advertised as supported;
-8. confirm no release-blocking PRs remain;
-9. update this audit with final evidence.
+2. confirm hosted `CI` and `Commitlint` passed on this PR's merge candidate;
+3. rerun pre-commit and `git diff --check` locally if a clean-clone sign-off is required;
+4. rerun full-history Gitleaks against final `main` if the merge commit is not already covered by hosted validation;
+5. validate the Docker build if Docker remains advertised as supported;
+6. confirm no release-blocking PRs remain;
+7. update this audit with final Linux, Docker, settings, and final-main evidence.
 
 ### 3. Repository protection and publication settings
 
@@ -140,7 +142,7 @@ Before changing visibility:
 - require conversation resolution;
 - block force pushes and branch deletion;
 - confirm the desired merge/history policy;
-- add required checks only after final check names are confirmed;
+- add required checks using the proven final check names;
 - confirm Dependabot alerts and security updates;
 - verify repository description, topics, license detection, and social preview.
 
@@ -148,12 +150,12 @@ After publication, enable or verify CodeQL Default Setup, Secret Protection, and
 
 ## Final Verdict
 
-Switchboard's implementation, local quality gates, hosted CI, security controls, documentation, canonical license, and visual evidence are substantially ready for a public showcase.
+Switchboard's implementation, local quality gates, hosted CI, security controls, dependency automation, documentation, canonical license, and visual evidence are substantially ready for a public showcase.
 
 Publication is not yet authorized because:
 
 - Linux symlink-containment validation has not executed successfully;
-- final-main validation remains required after the last release PRs merge;
+- final-main clean-clone and Docker sign-off remain optional but recommended release evidence;
 - repository protection and publication settings remain owner-controlled gates.
 
 ```text
