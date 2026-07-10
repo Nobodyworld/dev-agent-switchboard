@@ -4,13 +4,44 @@ on:
   pull_request:
   merge_group:
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository with full history
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-      - uses: wagoid/commitlint-github-action@v6
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          configFile: commitlint.config.js
+          node-version: '20'
+
+      - name: Install commitlint
+        run: |
+          npm install --no-save --no-package-lock \
+            @commitlint/cli@19.8.1 \
+            @commitlint/config-conventional@19.8.1
+
+      - name: Run commitlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}"
+
+          if [[ -z "$BASE_SHA" || -z "$HEAD_SHA" ]]; then
+            echo "Unable to determine commit range for event ${{ github.event_name }}" >&2
+            exit 1
+          fi
+
+          npx --no-install commitlint \
+            --from "$BASE_SHA" \
+            --to "$HEAD_SHA" \
+            --config commitlint.config.js
