@@ -110,14 +110,14 @@ Hosted `CI` and `Commitlint` now run successfully using SHA-pinned actions. See 
 
 Switchboard is designed for controlled agent-coordination environments. Before exposing it beyond localhost or a trusted network, review and configure:
 
-| Area | Guidance |
-|---|---|
-| Admin token | Set `SWITCHBOARD_ADMIN_TOKEN` for shared or exposed deployments. A local demo without a token is not production-safe. |
-| Live-file storage | Keep `FILES_ROOT` inside the intended storage boundary and validate containment on the target operating system. |
-| Upload limits | Set `SWITCHBOARD_MAX_LIVE_FILE_BYTES` for the deployment profile. |
-| Network exposure | Use TLS, a reverse proxy, and network access controls. |
-| Secrets | Use environment-specific secret storage and never commit real tokens. |
-| Dependency risk | Run `pip-audit`, Dependabot, and the documented security gates against the final release candidate. |
+| Area              | Guidance                                                                                                              |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Admin token       | Set `SWITCHBOARD_ADMIN_TOKEN` for shared or exposed deployments. A local demo without a token is not production-safe. |
+| Live-file storage | Keep `FILES_ROOT` inside the intended storage boundary and validate containment on the target operating system.       |
+| Upload limits     | Set `SWITCHBOARD_MAX_LIVE_FILE_BYTES` for the deployment profile.                                                     |
+| Network exposure  | Use TLS, a reverse proxy, and network access controls.                                                                |
+| Secrets           | Use environment-specific secret storage and never commit real tokens.                                                 |
+| Dependency risk   | Run `pip-audit`, Dependabot, and the documented security gates against the final release candidate.                   |
 
 Common settings:
 
