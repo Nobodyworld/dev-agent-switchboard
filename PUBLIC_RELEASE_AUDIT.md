@@ -28,21 +28,21 @@ Historical results from earlier candidates are not release authority.
 
 Validation was executed from a fresh local checkout using Python 3.11.14.
 
-| Gate | Result | Evidence |
-|---|---|---|
-| `python -m pip check` | PASS | No broken requirements found |
-| `python -m pre_commit run --all-files --show-diff-on-failure` | PASS | All hooks passed; no mutations |
-| Ruff | PASS | All checks passed |
-| Black | PASS | No formatting changes required |
-| Mypy | PASS | No issues in 119 configured source files |
-| `pytest -q` | PASS | 229 passed, 2 skipped, 5 warnings |
-| Strict Playwright | PASS | 2 passed |
-| Aggregate coverage | PASS | 87%; 229 passed, 2 skipped |
-| Module coverage gate | PASS | Thresholds satisfied |
-| Bandit | PASS | No findings |
-| `pip-audit` | PASS | No known vulnerabilities |
-| Gitleaks | PASS | No leaks found in the validated history |
-| Lychee link validation | PASS | 162 links OK, 0 errors |
+| Gate                                                          | Result | Evidence                                 |
+| ------------------------------------------------------------- | ------ | ---------------------------------------- |
+| `python -m pip check`                                         | PASS   | No broken requirements found             |
+| `python -m pre_commit run --all-files --show-diff-on-failure` | PASS   | All hooks passed; no mutations           |
+| Ruff                                                          | PASS   | All checks passed                        |
+| Black                                                         | PASS   | No formatting changes required           |
+| Mypy                                                          | PASS   | No issues in 119 configured source files |
+| `pytest -q`                                                   | PASS   | 229 passed, 2 skipped, 5 warnings        |
+| Strict Playwright                                             | PASS   | 2 passed                                 |
+| Aggregate coverage                                            | PASS   | 87%; 229 passed, 2 skipped               |
+| Module coverage gate                                          | PASS   | Thresholds satisfied                     |
+| Bandit                                                        | PASS   | No findings                              |
+| `pip-audit`                                                   | PASS   | No known vulnerabilities                 |
+| Gitleaks                                                      | PASS   | No leaks found in the validated history  |
+| Lychee link validation                                        | PASS   | 162 links OK, 0 errors                   |
 
 Representative commands:
 
@@ -67,17 +67,17 @@ The repository-wide `startup_failure` was resolved in PR #94 by removing blocked
 
 Successful proof runs on PR #94 head `8b2dab001c1ca9a1d38f8faf48e4e4216932ba61`:
 
-| Workflow/job | Run/result |
-|---|---|
-| Commitlint | Run `29121887721` — PASS |
-| CI workflow | Run `29121887745` — PASS |
-| lint | PASS |
-| typecheck | PASS |
-| test | PASS |
-| security | PASS |
-| Secrets audit | PASS |
-| Link check | PASS |
-| Coverage | PASS |
+| Workflow/job     | Run/result                                |
+| ---------------- | ----------------------------------------- |
+| Commitlint       | Run `29121887721` — PASS                  |
+| CI workflow      | Run `29121887745` — PASS                  |
+| lint             | PASS                                      |
+| typecheck        | PASS                                      |
+| test             | PASS                                      |
+| security         | PASS                                      |
+| Secrets audit    | PASS                                      |
+| Link check       | PASS                                      |
+| Coverage         | PASS                                      |
 | Browser UI tests | PASS; strict tests executed without skips |
 
 The repaired workflows use read-only permissions and disable checkout credential persistence. Full history is fetched only where commit ranges or Gitleaks require it.
