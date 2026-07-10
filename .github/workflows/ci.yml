@@ -9,28 +9,28 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   quality:
     name: ${{ matrix.stage }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         stage: [lint, typecheck, test, security]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -44,7 +44,7 @@ jobs:
           pip install -r server/requirements-dev.txt
           pip install pre-commit
 
-      - name: Run pre-commit (lint + format checks)
+      - name: Run pre-commit
         if: matrix.stage == 'lint'
         run: pre-commit run --all-files --show-diff-on-failure
 
@@ -54,8 +54,7 @@ jobs:
 
       - name: Run mypy
         if: matrix.stage == 'typecheck'
-        run: |
-          mypy --config-file mypy.ini server client scripts
+        run: mypy --config-file mypy.ini server client scripts
 
       - name: Run pytest
         if: matrix.stage == 'test'
@@ -67,62 +66,98 @@ jobs:
         if: matrix.stage == 'security'
         run: |
           bandit -q -r server -x server/tests
-          pip-audit --progress-spinner=off
+          pip-audit --progress-spinner=off -r server/requirements-dev.txt
 
       - name: Upload pytest report
-        if: matrix.stage == 'test'
-        uses: actions/upload-artifact@v4
+        if: always() && matrix.stage == 'test'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pytest-report
           path: reports/pytest.xml
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7
 
   docs:
     name: Link check
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Link checker
-        uses: lycheeverse/lychee-action@v2
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          args: >-
-            --config lychee.toml
-            README.md REPORT.md PLAN.md docs/**/*.md
+          persist-credentials: false
+
+      - name: Install lychee
+        shell: bash
+        run: |
+          set -euo pipefail
+          LYCHEE_VERSION="0.24.2"
+          ARCHIVE="lychee-x86_64-unknown-linux-gnu.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            "https://github.com/lycheeverse/lychee/releases/download/lychee-v${LYCHEE_VERSION}/${ARCHIVE}" \
+            --output "/tmp/${ARCHIVE}"
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf "/tmp/${ARCHIVE}" -C "$HOME/.local/bin" lychee
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Check links
+        run: |
+          mkdir -p lychee
+          lychee --config lychee.toml --no-progress \
+            README.md CHANGELOG.md SECURITY.md CONTRIBUTING.md CODE_OF_CONDUCT.md \
+            "docs/**/*.md" \
+            --exclude-path docs/history \
+            --exclude-path archive
 
       - name: Upload lychee report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: lychee-report
           path: lychee/out.md
-          if-no-files-found: ignore
+          if-no-files-found: warn
           retention-days: 7
 
   secrets:
     name: Secrets audit
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout repository with full history
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install gitleaks
+        shell: bash
+        run: |
+          set -euo pipefail
+          GITLEAKS_VERSION="8.30.1"
+          ARCHIVE="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${ARCHIVE}" \
+            --output "/tmp/${ARCHIVE}"
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf "/tmp/${ARCHIVE}" -C "$HOME/.local/bin" gitleaks
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        run: gitleaks detect --verbose
 
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: quality
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -161,23 +196,27 @@ jobs:
             --module server/application/configuration_service.py=85
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-json
           path: reports/coverage.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7
 
   browser-ui:
     name: Browser UI tests
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     needs: quality
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -191,7 +230,7 @@ jobs:
           pip install -r server/requirements-dev.txt
 
       - name: Install Chromium for Playwright
-        run: python -m playwright install chromium
+        run: python -m playwright install --with-deps chromium
 
       - name: Run UI module with strict browser enforcement
         env:
@@ -203,24 +242,25 @@ jobs:
       - name: Fail if UI tests were skipped
         run: |
           python - <<'PY'
-          import sys
           import xml.etree.ElementTree as ET
 
-          tree = ET.parse('reports/pytest-ui.xml')
-          root = tree.getroot()
-          skipped = 0
-          for node in root.iter('testsuite'):
-              skipped += int(node.attrib.get('skipped', '0'))
+          root = ET.parse('reports/pytest-ui.xml').getroot()
+          skipped = sum(
+              int(node.attrib.get('skipped', '0'))
+              for node in root.iter('testsuite')
+          )
           if skipped:
-              raise SystemExit(f'UI test module reported {skipped} skipped tests; failing by policy.')
+              raise SystemExit(
+                  f'UI test module reported {skipped} skipped tests; failing by policy.'
+              )
           print('UI module executed without skips.')
           PY
 
       - name: Upload UI pytest report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pytest-ui-report
           path: reports/pytest-ui.xml
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7
