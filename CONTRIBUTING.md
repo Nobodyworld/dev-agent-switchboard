@@ -1,120 +1,132 @@
 # Contributing to Switchboard
 
-Thank you for your interest in improving Switchboard! This guide explains how we work, what we expect from contributors, and how to ship changes with confidence.
+Thank you for your interest in improving Switchboard. Keep changes focused, reproducible, and easy to review.
 
 ## Code of Conduct
 
-Participation in this project is governed by our [Code of Conduct](CODE_OF_CONDUCT.md). Please read it carefully before engaging with the community.
+Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-## Getting Started
+## Local Setup
 
-1. **Fork and clone** the repository.
-2. **Create a virtual environment** and install dependencies:
+1. Fork and clone the repository.
+2. Create a virtual environment and install development dependencies:
 
    ```bash
-   python3 -m venv .venv
+   python -m venv .venv
+
+   # Linux/macOS
    source .venv/bin/activate
+
+   # Windows PowerShell
+   # .\.venv\Scripts\Activate.ps1
+
    python -m pip install --upgrade pip
    pip install -r server/requirements-dev.txt
    ```
 
-3. **Install the pre-commit hooks** so every commit automatically runs the same checks as CI:
+3. Install the pre-commit hooks:
 
    ```bash
    pre-commit install --install-hooks
    pre-commit install --hook-type commit-msg
    ```
 
-## Workflow Overview
+## Workflow
 
-- Work in feature branches derived from `main`.
-- Keep pull requests focused; avoid mixing unrelated changes.
-- Run the local quality gates before requesting review. GitHub Actions workflows are configured in-repo but currently disabled by owner policy, so local and clean-clone validation are authoritative.
-- Update documentation and changelogs when behavior changes.
+- Start from the current `main` branch.
+- Use a focused feature or fix branch.
+- Avoid mixing unrelated code, documentation, dependency, and formatting changes.
+- Update documentation when behavior, setup, configuration, or security posture changes.
+- Include validation commands and results in the pull request description.
 
-## Documentation & Dependency Expectations
-
-- Update [docs/cli-runtime.md](docs/cli-runtime.md) when CLI behaviour or
-  runtime summaries change so operators have accurate guidance.
-- Record dependency upgrades, removals, or new packages in
-  [docs/dependencies.md](docs/dependencies.md) and ensure licenses remain
-  compatible with the Apache 2.0 license.
-- Mention documentation updates in your pull request description to keep
-  reviewers aware of parallel doc changes.
+Hosted GitHub Actions are not currently an authoritative release signal because existing runs end before jobs are created. Until successful hosted runs are available, contributors must run the relevant checks locally and document any environment limitations.
 
 ## Commit Messages
 
-We use the [Conventional Commits](https://www.conventionalcommits.org/) specification. A valid commit message follows the pattern `type(scope?): description`. Common types include `feat`, `fix`, `docs`, `refactor`, `test`, `build`, `ci`, and `chore`.
+Use [Conventional Commits](https://www.conventionalcommits.org/):
 
-Our tooling enforces commit structure locally (via [`conventional-pre-commit`](https://github.com/compilerla/conventional-pre-commit)) and in CI (via [commitlint](https://commitlint.js.org/)).
+```text
+type(scope?): description
+```
+
+Common types include `feat`, `fix`, `docs`, `refactor`, `test`, `build`, `ci`, and `chore`.
+
+Local commit-message checks use [`conventional-pre-commit`](https://github.com/compilerla/conventional-pre-commit). Hosted commitlint should be treated as additional evidence only after Actions is working reliably.
 
 ## Quality Gates
 
-Before pushing, run the full quality suite via the new `verify` helper:
+Run the repository verification helper:
 
 ```bash
 python scripts/dev.py verify
 ```
 
-This command executes linting, type checking, Bandit, pip-audit, and the
-coverage suite (including `scripts/dev.py coverage-gate`). If you prefer Make
-targets, `make qa` now chains `fmt`, `lint`, `typecheck`, `test`,
-`security`, `todo-check`, and `coverage` to mirror CI.
+For release-sensitive work, run the relevant direct commands as well:
 
-Individual commands remain available:
+```bash
+pre-commit run --all-files --show-diff-on-failure
+pytest -q
+SWITCHBOARD_STRICT_PLAYWRIGHT=1 pytest web/tests/test_ui.py -rA
+bandit -q -r server -x server/tests
+pip-audit --progress-spinner=off -r server/requirements-dev.txt
+gitleaks detect --verbose
+git diff --check
+```
 
-- `make fmt` – Format Python code with Black and organize imports via Ruff.
-- `make lint` – Static analysis with Ruff and Prettier lint checks for web assets.
-- `make typecheck` – MyPy static type checking.
-- `make test` – Run the pytest suite.
-- `make security` – Bandit static analysis (CI additionally runs gitleaks and
-  `pip-audit` for supply-chain checks).
-- `make coverage` – Execute the coverage suite and enforce per-module thresholds
-  via `scripts/dev.py coverage-gate`.
-- `make todo-check` – Validate that TODO/FIXME markers include priority and
-  effort metadata.
+Use `make` targets when they are supported by your environment:
 
-The `pre-commit` configuration also runs
-[`detect-secrets`](https://github.com/Yelp/detect-secrets) against the
-`.secrets.baseline` shipped in this repo so local commits stay secret-free. If
-new findings are legitimate (e.g., generated test credentials), regenerate the
-baseline via `detect-secrets scan > .secrets.baseline` and include rationale in
-your PR description.
+- `make fmt` — formatting checks;
+- `make lint` — static analysis and web-asset checks;
+- `make typecheck` — Mypy;
+- `make test` — pytest;
+- `make security` — configured local security checks;
+- `make coverage` — coverage and module thresholds;
+- `make todo-check` — TODO/FIXME metadata validation.
+
+Do not regenerate `.secrets.baseline` merely to suppress a new finding. Confirm that the value is a safe fixture, document the reason, and review the diff before updating the baseline.
+
+## Documentation and Dependencies
+
+- Update [docs/cli-runtime.md](docs/cli-runtime.md) when CLI behavior or runtime summaries change.
+- Update [docs/dependencies.md](docs/dependencies.md) for dependency additions, removals, or upgrades.
+- Confirm dependency licenses are compatible with Apache-2.0.
+- Use unmistakably fake values in configuration, token, and credential examples.
+- Record migration or rollback guidance for configuration and persistence changes.
+
+## TODOs and Follow-ups
+
+Use the repository format:
+
+```text
+TODO(Px, <effort>)
+FIXME(Px, <effort>)
+```
+
+Run:
+
+```bash
+python scripts/dev.py check-todos
+```
+
+Link follow-up work to an issue when practical.
 
 ## Pull Request Checklist
 
-- [ ] Tests added or updated where appropriate.
-- [ ] Documentation updated (README, docs/, or inline docstrings).
-- [ ] `pre-commit run --all-files` passes locally.
-- [ ] Local quality gates are green (lint, type, tests, docs, security, coverage).
-- [ ] Any configuration or migration changes include rollback instructions in the PR description.
-
-## TODOs & Follow-ups
-
-- Use the format `TODO(Px, <effort>)` or `FIXME(Px, <effort>)` so priority and
-  rough effort are obvious (e.g., `# TODO(P2, 2d) - backfill audit logs`).
-- Run `python scripts/dev.py check-todos` or `make todo-check` before
-  submission; CI enforces the same policy.
-- Link TODOs to issues where possible for traceability.
-
-## Triaging Issues
-
-We use labels to communicate priority and workstream. When opening or grooming an issue:
-
-- Assign one of `type/*` labels (bug, feature, docs, chore).
-- Use `priority/*` labels to express urgency.
-- Apply `area/*` labels for affected subsystems (API, client, web, infra).
-
-Refer to `.github/labels.yml` for the authoritative list.
+- [ ] The change is focused and based on current `main`.
+- [ ] Tests were added or updated where appropriate.
+- [ ] Documentation was updated where appropriate.
+- [ ] Relevant local quality and security checks passed.
+- [ ] Environment limitations and skipped checks are stated explicitly.
+- [ ] Configuration or migration changes include rollback guidance.
+- [ ] Security-sensitive examples contain no real credentials.
 
 ## Security Disclosures
 
-If you discover a vulnerability, please follow our [Security Policy](SECURITY.md) and report it using [GitHub Security Advisories](https://docs.github.com/en/code-security/security-advisories) instead of filing a public issue.
+Do not file a public issue for a suspected vulnerability. Follow [SECURITY.md](SECURITY.md) and use private GitHub Security Advisory reporting when available.
 
 ## Support
 
-Questions about setup or day-to-day usage should go to [the support playbook](docs/guides/support.md).
+Start with the [Support Guide](docs/guides/support.md). For agent and automation integrations, also review:
 
-We appreciate your contributions and look forward to collaborating with you! If
-you are developing automation or agent tooling, consult `docs/guides/automation.md` and
-`docs/guides/extension-guide.md` before integrating with production systems.
+- [Automation Guide](docs/guides/automation.md)
+- [Extension Guide](docs/guides/extension-guide.md)
