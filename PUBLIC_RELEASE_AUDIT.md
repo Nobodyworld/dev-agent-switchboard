@@ -1,148 +1,161 @@
 # Public Release Audit — Final Candidate
 
-Status: COMPLETE WITH ONE ENVIRONMENT BLOCKER
-Candidate SHA (validated in clean clone): `a143e1a6a4187f648fe9c58c340215af9d11c51d`
-Audit date: 2026-07-01
-Branch: main
-Repository: Nobodyworld/dev-agent-switchboard
-Validation authority: local clean-clone execution (GitHub Actions disabled)
-
----
+**Classification:** `KEEP PRIVATE - NEAR READY`  
+**Current main after Actions repair:** `f6b6846a67b074e964788d6895f51c4b696e9ca6`  
+**Clean-clone implementation candidate:** `a143e1a6a4187f648fe9c58c340215af9d11c51d`  
+**Audit date:** 2026-07-10  
+**Repository:** `Nobodyworld/dev-agent-switchboard`
 
 ## Scope
 
-This audit records objective validation results for exactly one implementation candidate:
+This audit separates executed evidence from remaining publication mechanics.
 
-- `a143e1a6a4187f648fe9c58c340215af9d11c51d`
+The clean-clone implementation results below apply to candidate `a143e1a6a4187f648fe9c58c340215af9d11c51d`. Subsequent release-documentation commits and the Actions repair merged at `f6b6846a67b074e964788d6895f51c4b696e9ca6` did not change application runtime behavior, but final publication still requires validation against the final merged `main` SHA.
 
-Historical runs from older commits are intentionally excluded from readiness determination.
+Historical results from earlier candidates are not release authority.
 
----
+## Governance and Showcase Artifacts
 
-## Governance, Licensing, and Publication Artifacts
+- `LICENSE` contains canonical Apache License 2.0 text.
+- `NOTICE` contains project attribution.
+- `SECURITY.md`, `CONTRIBUTING.md`, and support documentation describe a best-effort solo-maintainer posture.
+- A real dashboard screenshot is stored at `docs/assets/switchboard-dashboard.png`.
+- Architecture, API, configuration, integration, and workflow documentation are present.
 
-- LICENSE is canonical Apache 2.0 text and complete.
-- NOTICE exists and includes project attribution.
-- Security and contributor docs are aligned to private-maintainer workflow and local/clean-clone validation authority.
-- Public screenshot artifact is present at `docs/assets/switchboard-dashboard.png`.
+**Status:** PASS for the current release line; rerun formatting and link checks after final documentation merges.
 
-Status: PASS
+## Clean-Clone Release Gates
 
----
+Validation was executed from a fresh local checkout using Python 3.11.14.
 
-## Release Gates (Clean Clone)
+| Gate | Result | Evidence |
+|---|---|---|
+| `python -m pip check` | PASS | No broken requirements found |
+| `python -m pre_commit run --all-files --show-diff-on-failure` | PASS | All hooks passed; no mutations |
+| Ruff | PASS | All checks passed |
+| Black | PASS | No formatting changes required |
+| Mypy | PASS | No issues in 119 configured source files |
+| `pytest -q` | PASS | 229 passed, 2 skipped, 5 warnings |
+| Strict Playwright | PASS | 2 passed |
+| Aggregate coverage | PASS | 87%; 229 passed, 2 skipped |
+| Module coverage gate | PASS | Thresholds satisfied |
+| Bandit | PASS | No findings |
+| `pip-audit` | PASS | No known vulnerabilities |
+| Gitleaks | PASS | No leaks found in the validated history |
+| Lychee link validation | PASS | 162 links OK, 0 errors |
 
-Environment:
+Representative commands:
 
-- Clean clone path: `C:\Users\Nobod\Documents\GitHub\dev-agent-switchboard-clean-5d56480`
-- Python: 3.11.14 (`.venv`)
+```bash
+python -m pip check
+python -m pre_commit run --all-files --show-diff-on-failure
+ruff check server client scripts tests web switchboard_cli.py switchboard_client.py
+black --check server client scripts tests web switchboard_cli.py switchboard_client.py
+mypy --config-file mypy.ini server client scripts
+pytest -q
+SWITCHBOARD_STRICT_PLAYWRIGHT=1 pytest web/tests/test_ui.py -rA
+pytest --cov=server --cov=client --cov=scripts --cov-report=term-missing --cov-report=json:reports/coverage.json -q
+python scripts/dev.py coverage-gate --json reports/coverage.json
+python -m bandit -q -r server -x server/tests
+python -m pip_audit --progress-spinner=off -r server/requirements-dev.txt
+gitleaks detect --verbose --report-format json --report-path reports/gitleaks.json
+```
 
-Results:
+## Hosted GitHub Actions Evidence
 
-1. `python -m pip check`
+The repository-wide `startup_failure` was resolved in PR #94 by removing blocked third-party action references, pinning retained GitHub-owned actions to full commit SHAs, narrowing permissions, and correcting workflow/tool configuration.
 
-- Result: PASS (`No broken requirements found.`)
+Successful proof runs on PR #94 head `8b2dab001c1ca9a1d38f8faf48e4e4216932ba61`:
 
-2. `python -m pre_commit run --all-files --show-diff-on-failure`
+| Workflow/job | Run/result |
+|---|---|
+| Commitlint | Run `29121887721` — PASS |
+| CI workflow | Run `29121887745` — PASS |
+| lint | PASS |
+| typecheck | PASS |
+| test | PASS |
+| security | PASS |
+| Secrets audit | PASS |
+| Link check | PASS |
+| Coverage | PASS |
+| Browser UI tests | PASS; strict tests executed without skips |
 
-- Result: PASS (all hooks passed, no file mutations)
+The repaired workflows use read-only permissions and disable checkout credential persistence. Full history is fetched only where commit ranges or Gitleaks require it.
 
-3. `ruff check server client scripts tests web switchboard_cli.py switchboard_client.py`
+## Security-Control Evidence
 
-- Result: PASS (`All checks passed!`)
+Targeted validation covered:
 
-4. `black --check server client scripts tests web switchboard_cli.py switchboard_client.py`
+1. health endpoint behavior;
+2. readiness dependency reporting;
+3. two-agent dependency unlocking and WebSocket updates;
+4. admin-token protection for live-file mutations;
+5. upload-size enforcement;
+6. rate limiting;
+7. symlink traversal prevention.
 
-- Result: PASS (`2 files would be left unchanged.`)
+Executed result:
 
-5. `mypy --config-file mypy.ini server client scripts`
+```text
+6 passed, 1 skipped
+```
 
-- Result: PASS (`Success: no issues found in 119 source files`)
+The symlink test skipped because the Windows validation environment could not create the required symlink without additional privileges. The implementation uses resolved paths and root containment, but code review is not a substitute for executing the regression test on Linux.
 
-6. `pytest -q`
+## Remaining Publication Blockers
 
-- Result: PASS (`229 passed, 2 skipped, 5 warnings`)
+### 1. Linux symlink-containment execution
 
-7. `SWITCHBOARD_STRICT_PLAYWRIGHT=1 pytest web/tests/test_ui.py -rA`
+Run the targeted regression on Linux, WSL with working symlink support, or a Linux container/runner:
 
-- Result: PASS (`2 passed`)
+```bash
+pytest server/tests/test_live_files.py::test_live_file_symlink_escape_blocked_for_read_and_write -q -rA
+```
 
-8. `pytest --cov=server --cov=client --cov=scripts --cov-report=term-missing --cov-report=json:reports/coverage.json -q`
+Required result:
 
-- Result: PASS (`TOTAL 87%`, `229 passed, 2 skipped`)
+- the test executes rather than skips;
+- read and write attempts through an escaping symlink are rejected;
+- the result is recorded against the final release candidate.
 
-9. `python scripts/dev.py coverage-gate --json reports/coverage.json`
+### 2. Final-main validation
 
-- Result: PASS (`Coverage thresholds satisfied`)
+After the remaining release PRs are merged:
 
-10. `python -m bandit -q -r server -x server/tests`
+1. record the final `main` SHA;
+2. confirm hosted `CI` and `Commitlint` pass on final `main` or a PR merge candidate;
+3. rerun pre-commit and `git diff --check`;
+4. rerun documentation link validation;
+5. rerun full-history Gitleaks;
+6. rerun any application/security checks affected by code, dependency, or workflow changes;
+7. validate the Docker build if Docker remains advertised as supported;
+8. confirm no release-blocking PRs remain;
+9. update this audit with final evidence.
 
-- Result: PASS (no findings output)
+### 3. Repository protection and publication settings
 
-11. `python -m pip_audit --progress-spinner=off -r server/requirements-dev.txt`
+Before changing visibility:
 
-- Result: PASS (`No known vulnerabilities found`)
+- require pull requests before merging to `main`;
+- require conversation resolution;
+- block force pushes and branch deletion;
+- confirm the desired merge/history policy;
+- add required checks only after final check names are confirmed;
+- confirm Dependabot alerts and security updates;
+- verify repository description, topics, license detection, and social preview.
 
-12. `gitleaks detect --verbose --report-format json --report-path reports/gitleaks.json`
+After publication, enable or verify CodeQL Default Setup, Secret Protection, and Push Protection when available. Review initial alerts before treating those services as clean.
 
-- Result: PASS (`no leaks found`)
-- Metadata: `gitleaks 8.30.1`, root commit `3cbda532039bb22b5dcd1cbffbf4c79864db9e29`, `132 commits scanned`
+## Final Verdict
 
-13. `lychee --config .tmp-lychee-empty.toml --no-progress README.md docs/**/*.md CHANGELOG.md SECURITY.md CONTRIBUTING.md CODE_OF_CONDUCT.md --exclude-path docs/history/** --exclude-path archive/**`
+Switchboard's implementation, local quality gates, hosted CI, security controls, documentation, canonical license, and visual evidence are substantially ready for a public showcase.
 
-- Result: PASS (`162 OK, 0 Errors`)
+Publication is not yet authorized because:
 
-Release gate summary: PASS
+- Linux symlink-containment validation has not executed successfully;
+- final-main validation remains required after the last release PRs merge;
+- repository protection and publication settings remain owner-controlled gates.
 
----
-
-## Security Model Evidence (Required Controls)
-
-Targeted validation command:
-
-`pytest server/tests/test_tasks.py::test_health server/tests/test_health.py::test_health_ready_reports_dependencies server/tests/test_websocket_plan.py::test_websocket_plan_demonstrates_two_agent_dependency_flow server/tests/test_live_files.py::test_live_file_write_requires_configured_admin_token server/tests/test_live_files.py::test_live_file_write_rejects_body_over_configured_limit server/tests/test_live_files.py::test_live_file_symlink_escape_blocked_for_read_and_write server/tests/test_rate_limit.py::test_rate_limit_enforced -q -rA`
-
-Result:
-
-- `6 passed, 1 skipped`
-
-Control mapping:
-
-1. Health/live endpoint behavior: PASS (`test_tasks.py::test_health`)
-2. Readiness dependencies: PASS (`test_health.py::test_health_ready_reports_dependencies`)
-3. Two-agent dependency flow and updates: PASS (`test_websocket_plan.py::test_websocket_plan_demonstrates_two_agent_dependency_flow`)
-4. Admin-token mutation protection: PASS (`test_live_files.py::test_live_file_write_requires_configured_admin_token`)
-5. Upload-size enforcement: PASS (`test_live_files.py::test_live_file_write_rejects_body_over_configured_limit`)
-6. Rate limiting: PASS (`test_rate_limit.py::test_rate_limit_enforced`)
-7. Symlink traversal prevention: SKIPPED ON WINDOWS (see blocker section)
-
----
-
-## Linux Symlink Validation Blocker (Objective)
-
-Observed environment evidence:
-
-- `wsl --list --verbose` reports `Ubuntu` distro present but state is `Stopped`.
-- `docker` is not available in PATH (`The term 'docker' is not recognized ...`).
-- Windows symlink test skip in clean clone:
-  - `SKIPPED ... symlink creation unavailable: [WinError 1314] A required privilege is not held by the client`
-
-Conclusion:
-
-- Linux-only symlink verification could not be executed in this environment due to unavailable Linux/container runtime path and Windows privilege constraints.
-- This is a genuine technical blocker external to repository code.
-
----
-
-## Final Classification
-
+```text
 KEEP PRIVATE - NEAR READY
-
-Reason:
-
-- All release gates and required security behaviors that are executable in the current environment passed for candidate `a143e1a6a4187f648fe9c58c340215af9d11c51d`.
-- One remaining blocker exists: Linux symlink validation could not be executed due to environment/runtime limitations (WSL/container unavailability and Windows symlink privilege restriction).
-
-Publication verdict:
-
-- Do not publish until Linux symlink validation is executed in a capable environment and recorded against final HEAD.
+```
