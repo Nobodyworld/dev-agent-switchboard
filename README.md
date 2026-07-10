@@ -2,59 +2,60 @@
 
 **Real-time agent task coordination with dependency-aware leasing and live-file hosting.**
 
-Switchboard coordinates multiple agents against a shared dependency graph while preventing duplicate execution through lease-based task ownership and live state synchronization.
+Switchboard is a reference implementation for coordinating multiple agents against a shared task graph. Agents can discover ready work, lease tasks, publish mutable reference files, and observe plan changes without each project needing its own orchestration service.
 
 ![Switchboard dashboard state demonstration](docs/assets/switchboard-dashboard.png)
 
-## What You Get
+## What It Demonstrates
 
-- 🎯 **Task Coordination**: Track tasks with dependencies; agents safely check out work via lease-based ownership
-- 🔄 **Live State Sync**: WebSocket broadcasts plan updates to dashboard and agents in real time
-- 📁 **Live-File Hosting**: Publish mutable reference documents that agents fetch by URL with optional admin-token protection
-- 🛡️ **Security Controls**: Path containment, symlink traversal resistance, upload-size enforcement, token protection, lease expiry, concurrent checkout prevention
-- 📊 **Observable**: Health/readiness probes, diagnostics endpoints, request/response metrics, structured logging
+- **Dependency-aware coordination** — tasks become available as prerequisites complete.
+- **Lease-based ownership** — agents claim work with expiry and heartbeat semantics that reduce duplicate execution.
+- **Live state synchronization** — plan changes are broadcast to the dashboard and clients over WebSockets.
+- **Live-file hosting** — agents can fetch mutable documents by URL; mutation endpoints can be protected with an admin token.
+- **Operational visibility** — health, readiness, diagnostics, metrics hooks, structured logs, and rate limiting.
 
 ## Why It Matters
 
-Agents (Codex, Copilot Agents, LLMs, etc.) need a **single source of truth**:
+Autonomous coding agents, script runners, and human reviewers need a shared source of truth while work is in flight:
 
-- A **plan that changes in flight** (tasks complete, dependencies unlock)
-- A **queue that respects dependencies** (no duplicate work, proper ordering)
-- A **place to publish documents** that any agent can fetch by URL
+- a plan that changes as tasks complete;
+- a queue that respects dependencies and ownership;
+- a lightweight document surface for prompts, checklists, and runtime notes;
+- a dashboard that exposes coordination state.
 
-Switchboard provides all three with minimal overhead, no external orchestration, and deployment flexibility.
+Switchboard provides that coordination layer as a small, inspectable application rather than a hosted production service.
 
 ## Quick Start
 
-### 1. Set Up
+### 1. Set up the environment
 
 ```bash
-# Clone and enter repo
+# Clone and enter the repository
 git clone https://github.com/Nobodyworld/dev-agent-switchboard.git
 cd dev-agent-switchboard
 
-# Create Python 3.11+ virtual environment
+# Create a Python 3.11+ virtual environment
 python -m venv .venv
 
-# Activate (choose your OS):
-# Linux/macOS:
+# Linux/macOS
 source .venv/bin/activate
-# Windows PowerShell:
-.\.venv\Scripts\Activate.ps1
 
-# Install dependencies
+# Windows PowerShell
+# .\.venv\Scripts\Activate.ps1
+
+python -m pip install --upgrade pip
 pip install -r server/requirements-dev.txt
 ```
 
-### 2. Run the Server
+### 2. Run the server
 
 ```bash
 python scripts/run_uvicorn.py
 ```
 
-Open [http://localhost:8000/](http://localhost:8000/) to see the dashboard.
+Open [http://localhost:8000/](http://localhost:8000/) to view the operator dashboard.
 
-### 3. Create a Task
+### 3. Create a task
 
 ```bash
 curl -X POST http://localhost:8000/api/tasks \
@@ -62,9 +63,9 @@ curl -X POST http://localhost:8000/api/tasks \
   -d '{"title": "Demo", "description": "Test task"}'
 ```
 
-### 4. Run an Agent
+### 4. Run a demo agent
 
-In another terminal (with `.venv` activated):
+In another terminal with the virtual environment activated:
 
 ```bash
 python scripts/local_runner.py \
@@ -73,158 +74,112 @@ python scripts/local_runner.py \
   --completion-notes "Verified locally"
 ```
 
-Watch the dashboard update in real time as the task completes.
+Watch the dashboard update as work is leased and completed.
 
-### 5. Two-Agent Workflow
+### 5. Review the two-agent flow
 
-For a more interesting demonstration, see [docs/visuals/TWO_AGENT_WORKFLOW.md](docs/visuals/TWO_AGENT_WORKFLOW.md) and run:
+See [docs/visuals/TWO_AGENT_WORKFLOW.md](docs/visuals/TWO_AGENT_WORKFLOW.md), then run:
 
 ```bash
 python -m pytest server/tests/test_websocket_plan.py -v
 ```
 
-This validates the core coordination pattern: Task A ready → Agent 1 leases & completes → Task B unlocks → Agent 2 leases → live state updates via WebSocket.
+The scenario demonstrates Task A being leased and completed, Task B unlocking, a second agent leasing Task B, and the dashboard receiving live updates.
 
-## Documentation
+## Validation
 
-- **[Architecture](docs/visuals/ARCHITECTURE_DIAGRAM.md)** — System components and security controls
-- **[API Reference](docs/API.md)** — All endpoints with examples
-- **[Configuration](docs/configuration.md)** — Environment variables and settings
-- **[Integration Guide](docs/ai-interface.md)** — How agents interact with Switchboard
-- **[Full Navigation](docs/index.md)** — Complete documentation index
-
-## Security Controls
-
-| Feature | Status |
-|---|---|
-| Lease-based task ownership (prevents duplicate execution) | Local tests available; final clean-clone validation pending |
-| Concurrent checkout rejection | Local tests available; final clean-clone validation pending |
-| Lease expiry and heartbeat renewal | Local tests available; final clean-clone validation pending |
-| Dependency-aware task unlocking | Local tests available; final clean-clone validation pending |
-| WebSocket real-time synchronization | Local tests available; final clean-clone validation pending |
-| Live-file path containment | Local tests available; final clean-clone validation pending |
-| Admin-token protection for sensitive operations | Local tests available; final clean-clone validation pending |
-| Upload-size enforcement | Local tests available; final clean-clone validation pending |
-| Rate limiting | Local tests available; final clean-clone validation pending |
-
-## Test Coverage
-
-The repository contains broad automated test coverage for task lifecycle, lease management, dependencies, file storage, WebSocket broadcasts, and dashboard interaction. Final pass/fail totals for the current release candidate are recorded in `PUBLIC_RELEASE_AUDIT.md` after clean-clone validation.
-
-Run locally:
+Use the current checkout's validation results as the source of truth:
 
 ```bash
-pytest -q                         # All tests
-pytest server/tests/ -v           # Verbose output
-SWITCHBOARD_STRICT_PLAYWRIGHT=1 \
-  pytest web/tests/test_ui.py     # Strict UI tests
+python scripts/dev.py verify
+pytest -q
+SWITCHBOARD_STRICT_PLAYWRIGHT=1 pytest web/tests/test_ui.py -rA
 ```
 
-## Configuration
+The latest clean-clone release audit records:
 
-Key environment variables:
+- formatting, lint, type checking, coverage, Bandit, dependency audit, Gitleaks, and link validation passing;
+- 229 pytest tests passing with two environment-dependent skips;
+- two strict Playwright tests passing;
+- 87% aggregate measured coverage;
+- one unresolved publication blocker: the symlink-containment test must execute on a Linux-capable environment rather than skip under Windows privilege restrictions.
+
+See [PUBLIC_RELEASE_AUDIT.md](PUBLIC_RELEASE_AUDIT.md) for the exact candidate SHA, commands, and evidence.
+
+## Security Model
+
+Switchboard is designed for controlled agent-coordination environments. Before exposing it beyond localhost or a trusted network, review and configure:
+
+| Area | Guidance |
+|---|---|
+| Admin token | Set `SWITCHBOARD_ADMIN_TOKEN` for shared or exposed deployments. A local demo without a token is not production-safe. |
+| Live-file storage | Keep `FILES_ROOT` inside the intended storage boundary and validate containment on the target operating system. |
+| Upload limits | Set `SWITCHBOARD_MAX_LIVE_FILE_BYTES` for the deployment profile. |
+| Network exposure | Use TLS, a reverse proxy, and network access controls. |
+| Secrets | Use environment-specific secret storage and never commit real tokens. |
+| Dependency risk | Run `pip-audit`, Dependabot, and the documented security gates against the final release candidate. |
+
+Common settings:
 
 ```bash
-# Database
 DATABASE_URL=sqlite:///./switchboard.db
-
-# Files
 STORAGE_ROOT=./storage
 FILES_ROOT=./storage/files
-
-# Leasing
 SWITCHBOARD_LEASE_SECONDS=60
-
-# Security
-SWITCHBOARD_ADMIN_TOKEN=your-secret-token-here
-SWITCHBOARD_MAX_LIVE_FILE_BYTES=10485760  # 10 MB
-
-# Rate Limiting
+SWITCHBOARD_ADMIN_TOKEN=replace-with-a-random-secret
+SWITCHBOARD_MAX_LIVE_FILE_BYTES=10485760
 SWITCHBOARD_RATE_LIMIT_PER_MINUTE=100
 ```
 
-See [Configuration Guide](docs/configuration.md) for all options.
+See [SECURITY.md](SECURITY.md) and [docs/configuration.md](docs/configuration.md).
 
-## Local Development
+## Documentation
 
-```bash
-# Run tests, lint, format, type check, coverage
-python scripts/dev.py verify
-
-# Install pre-commit hooks
-python scripts/dev.py bootstrap
-
-# See all available commands
-python scripts/dev.py --help
-```
-
-## Visual Evidence
-
-- **[System Architecture](docs/visuals/ARCHITECTURE_DIAGRAM.md)** — Component diagram and data flow
-- **[Two-Agent Workflow](docs/visuals/TWO_AGENT_WORKFLOW.md)** — Detailed sequence diagram
-- **Dashboard Screenshot** — `docs/assets/switchboard-dashboard.png`
+- **[Architecture](docs/visuals/ARCHITECTURE_DIAGRAM.md)** — components, data flow, and security boundaries.
+- **[API Reference](docs/API.md)** — endpoints and examples.
+- **[Configuration](docs/configuration.md)** — environment variables and runtime settings.
+- **[Agent Integration](docs/ai-interface.md)** — how agents interact with Switchboard.
+- **[Two-Agent Workflow](docs/visuals/TWO_AGENT_WORKFLOW.md)** — dependency-unlock sequence.
+- **[Documentation Index](docs/index.md)** — full navigation.
 
 ## Project Structure
 
-```
+```text
 server/                    # FastAPI backend
 ├── api/                   # REST and WebSocket endpoints
-├── application/           # Business logic (task_service, configuration)
-├── domain/                # Core models (Task, Lease, Dependencies)
-├── infrastructure/        # Database repositories and adapters
+├── application/           # Coordination services
+├── domain/                # Task, lease, and dependency models
+├── infrastructure/        # Persistence and adapters
 ├── middleware/            # Rate limiting, logging, observability
-└── tests/                 # 229 passing test cases
+└── tests/                 # Server test coverage
 
-client/python/            # Python client library and CLI
-├── switchboard_client.py  # Low-level HTTP client
-├── switchboard_cli.py     # Command-line interface
-└── tests/                 # Client-side tests
-
-web/                       # Operator dashboard (HTMX + Tailwind)
-└── tests/                 # Strict Playwright UI tests
-
-scripts/                   # Development and deployment helpers
-├── run_uvicorn.py         # Start server
-├── run_pytest.py          # Run tests
-├── local_runner.py        # Demo agent
-└── dev.py                 # Development CLI
-
-docs/                      # Full documentation
-├── visuals/               # Architecture and workflow diagrams
-├── API.md                 # Endpoint reference
-├── architecture/          # Detailed system design
-└── guides/                # Integration patterns and operational guidance
+client/python/             # Python client library and CLI
+web/                       # Operator dashboard and browser tests
+scripts/                   # Development, validation, and demo helpers
+docs/                      # Architecture, API, integration, and operations docs
 ```
 
-## Status
+## Release Status
 
-- ✅ Core task coordination with dependencies
-- ✅ Lease-based ownership and expiry
-- ✅ WebSocket real-time synchronization
-- ✅ Live-file hosting with path containment
-- ✅ Configurable admin authentication
-- ✅ Python client and CLI
-- ✅ Operator dashboard
-- ✅ Comprehensive test coverage
-- ✅ Security controls implemented and pending final clean-clone verification for this release candidate
+```text
+KEEP PRIVATE - NEAR READY
+```
+
+The implementation and executable release gates are substantially complete. Publication remains blocked until Linux symlink-containment validation runs successfully against the final release candidate and the repository's hosted Actions/settings posture is verified.
 
 ## Governance
 
-- [License](LICENSE) — Apache License 2.0
-- [Security Policy](SECURITY.md) — Vulnerability reporting
-- [Contributing](CONTRIBUTING.md) — Development guide
+- [Apache License 2.0](LICENSE)
+- [Notice](NOTICE)
+- [Security Policy](SECURITY.md)
+- [Contributing Guide](CONTRIBUTING.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Support Guide](docs/guides/support.md)
 
-## Next Steps for Reviewers
+## Suggested Reviewer Path
 
-1. **[Review Architecture](docs/visuals/ARCHITECTURE_DIAGRAM.md)** (5 minutes) — Understand components
-2. **[See Two-Agent Workflow](docs/visuals/TWO_AGENT_WORKFLOW.md)** (5 minutes) — Understand coordination
-3. **[Run Quick Start](#quick-start)** (10 minutes) — See it working
-4. **[Review Security Controls](docs/visuals/ARCHITECTURE_DIAGRAM.md#key-security-controls)** (10 minutes) — Verify safety
-5. **[Inspect Core Tests](server/tests/)** (20 minutes) — See validation
-6. **[Review Full Release Audit](PUBLIC_RELEASE_AUDIT.md)** (30 minutes) — Understand quality gates
-
----
-
-**Questions?** See [Support Guide](docs/guides/support.md) or open an issue on GitHub.
+1. Review the dashboard screenshot and [architecture diagram](docs/visuals/ARCHITECTURE_DIAGRAM.md).
+2. Read the [two-agent workflow](docs/visuals/TWO_AGENT_WORKFLOW.md).
+3. Run the quick start locally.
+4. Review [SECURITY.md](SECURITY.md) and the [release audit](PUBLIC_RELEASE_AUDIT.md).
+5. Inspect the task, lease, live-file, WebSocket, and browser tests.
