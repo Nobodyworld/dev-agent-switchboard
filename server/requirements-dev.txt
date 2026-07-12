@@ -1,14 +1,14 @@
 -r requirements.txt
 pytest==9.1.1
-pytest-cov==7.0.0
-playwright==1.55.0
+pytest-cov==7.1.0
+playwright==1.61.0
 pytest-asyncio==1.4.0
 websockets==15.0.1
 black==26.5.1
-ruff==0.14.2
+ruff==0.15.21
 mypy==1.18.2
-bandit==1.8.6
-pip-audit==2.7.3
+bandit==1.9.4
+pip-audit==2.10.1
 radon==6.0.1
-types-requests==2.32.4.20250913
+types-requests==2.33.0.20260712
 types-PyYAML==6.0.12.20250915
