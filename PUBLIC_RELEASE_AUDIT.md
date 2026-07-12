@@ -1,16 +1,20 @@
 # Public Release Audit — Final Candidate
 
 **Classification:** `KEEP PRIVATE - NEAR READY`
-**Current main after Actions and security-control merges:** `59c6c19d27ab6d60684ec7fda13592db63fbf591`
+**Release-line baseline before this audit correction:** `12c579964dd8c87e05e31aad8a76426fda0d407d`
+**Validated base before the final documentation merge:** `59c6c19d27ab6d60684ec7fda13592db63fbf591`
+**Final documentation merge-candidate head:** `e3a4605f7d61978573b94435527546c194561187`
 **Clean-clone implementation candidate:** `a143e1a6a4187f648fe9c58c340215af9d11c51d`
-**Audit date:** 2026-07-10
+**Audit updated:** 2026-07-11
 **Repository:** `Nobodyworld/dev-agent-switchboard`
 
 ## Scope
 
 This audit separates executed evidence from remaining publication mechanics.
 
-The clean-clone implementation results below apply to candidate `a143e1a6a4187f648fe9c58c340215af9d11c51d`. Subsequent release-documentation commits, the Actions repair merged in PR #94, and the Dependabot/security-control work merged in PR #96 did not change application runtime behavior, but final publication still requires validation against the final merged `main` SHA.
+The clean-clone implementation results below apply to candidate `a143e1a6a4187f648fe9c58c340215af9d11c51d`. Subsequent release-documentation commits, the Actions repair merged in PR #94, the Dependabot/security-control work merged in PR #96, and the final public-documentation work merged in PR #97 did not change application runtime behavior.
+
+The release-line baseline `12c579964dd8c87e05e31aad8a76426fda0d407d` is the last merged commit before this audit-only correction. This document does not attempt to identify its own future merge commit. Final publication authority must reference the immutable release commit or tag produced after issue #104 and the owner-controlled repository settings review are complete.
 
 Historical results from earlier candidates are not release authority.
 
@@ -24,7 +28,7 @@ Historical results from earlier candidates are not release authority.
 - `.github/dependabot.yml` covers server and Python-client dependencies, Docker, and GitHub Actions.
 - `docs/release/PRIVATE_REPOSITORY_SECURITY.md` records private-repository deferrals and publication controls.
 
-**Status:** PASS for the current release line; rerun formatting and link checks after this final documentation merge.
+**Status:** PASS on PR #97. This audit-only correction must pass the same formatting and link-validation gates before merge.
 
 ## Clean-Clone Release Gates
 
@@ -82,7 +86,9 @@ Successful proof runs on PR #94 head `8b2dab001c1ca9a1d38f8faf48e4e4216932ba61`:
 | Coverage         | PASS                                      |
 | Browser UI tests | PASS; strict tests executed without skips |
 
-PR #96 also passed Commitlint run `29122579502` and CI run `29122579510` before merge. Its CI included the same eight successful jobs.
+PR #96 passed Commitlint run `29122579502` and CI run `29122579510` before merge. Its CI included the same eight successful jobs.
+
+PR #97 passed Commitlint run `29122756381` and CI run `29122756348` before merge. Its CI included lint, typecheck, tests, security, full-history Gitleaks, link validation, coverage, and strict browser UI execution without skips.
 
 The repaired workflows use read-only permissions and disable checkout credential persistence. Full history is fetched only where commit ranges or Gitleaks require it.
 
@@ -108,9 +114,11 @@ The symlink test skipped because the Windows validation environment could not cr
 
 ## Remaining Publication Blockers
 
-### 1. Linux symlink-containment execution
+### 1. Linux symlink-containment and final local validation
 
-Run the targeted regression on Linux, WSL with working symlink support, or a Linux container/runner:
+Issue #104 is the system of record for the required Linux-capable execution, final clean-clone validation, and Docker build evidence.
+
+The critical targeted command is:
 
 ```bash
 pytest server/tests/test_live_files.py::test_live_file_symlink_escape_blocked_for_read_and_write -q -rA
@@ -120,19 +128,18 @@ Required result:
 
 - the test executes rather than skips;
 - read and write attempts through an escaping symlink are rejected;
-- the result is recorded against the final release candidate.
+- the complete required command set in issue #104 is recorded against the tested SHA;
+- Docker either builds successfully or a precise blocker is recorded.
 
-### 2. Final-main validation
+### 2. Final release identity and audit evidence
 
-After this final documentation PR is merged:
+After issue #104 is complete:
 
-1. record the final `main` SHA;
-2. confirm hosted `CI` and `Commitlint` passed on this PR's merge candidate;
-3. rerun pre-commit and `git diff --check` locally if a clean-clone sign-off is required;
-4. rerun full-history Gitleaks against final `main` if the merge commit is not already covered by hosted validation;
-5. validate the Docker build if Docker remains advertised as supported;
-6. confirm no release-blocking PRs remain;
-7. update this audit with final Linux, Docker, settings, and final-main evidence.
+1. identify the immutable release commit or tag;
+2. record the Linux symlink result and Docker disposition;
+3. record any final clean-clone evidence;
+4. confirm no release-blocking pull requests remain;
+5. update this audit with the final release authorization or remaining blocker.
 
 ### 3. Repository protection and publication settings
 
@@ -148,6 +155,8 @@ Before changing visibility:
 
 After publication, enable or verify CodeQL Default Setup, Secret Protection, and Push Protection when available. Review initial alerts before treating those services as clean.
 
+Parent issue #95 remains the publication checklist and issue #104 contains the executable local handoff.
+
 ## Final Verdict
 
 Switchboard's implementation, local quality gates, hosted CI, security controls, dependency automation, documentation, canonical license, and visual evidence are substantially ready for a public showcase.
@@ -155,7 +164,7 @@ Switchboard's implementation, local quality gates, hosted CI, security controls,
 Publication is not yet authorized because:
 
 - Linux symlink-containment validation has not executed successfully;
-- final-main clean-clone and Docker sign-off remain optional but recommended release evidence;
+- final clean-clone and Docker evidence must be completed or explicitly dispositioned under issue #104;
 - repository protection and publication settings remain owner-controlled gates.
 
 ```text
