@@ -61,6 +61,12 @@ See [Architecture](architecture.md) for diagrams and deeper discussion, and
 consult the top-level [Architecture Overview](architecture/architecture-overview.md) for a
 component map of the updated extension pipeline.
 
+The accepted [Local Execution Broker Architecture](architecture/local-execution-broker.md)
+defines the next product stage: approved work orders, pull-based local workers,
+trusted command manifests, exact-SHA validation, and structured evidence. The
+example [validate-switchboard manifest](examples/execution/validate-switchboard-v1.yaml)
+is a contract reference only until implementation issues #112-#114 are complete.
+
 ## Message Schema
 
 The router exchanges structured payloads defined in `server/schema.py`. Core
@@ -145,6 +151,8 @@ Follow these steps to process a task locally:
 - [Architecture](architecture.md)
 - [API reference](API.md)
 - [Architecture overview](architecture/architecture-overview.md)
+- [Local execution broker architecture](architecture/local-execution-broker.md)
+- [Execution manifest example](examples/execution/validate-switchboard-v1.yaml)
 - [Message Schema](message-schema.md)
 - [Failure Modes](failure-modes.md)
 - [CLI Runtime Guide](cli-runtime.md)
