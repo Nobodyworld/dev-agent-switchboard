@@ -1,0 +1,141 @@
+schema_version: 1
+name: validate-switchboard
+version: 1
+description: >-
+  Read-only validation profile for one exact Switchboard commit. This file is a
+  contract example for Phase 1 and is not executable until issues #112-#114 are
+  implemented.
+
+identity:
+  immutable: true
+  digest_algorithm: sha256
+
+policy:
+  repository_write: false
+  shell: false
+  network: worker_restricted
+  approval: explicit
+  stop_on_required_failure: true
+
+required_capabilities:
+  operating_system:
+    - linux
+    - windows
+  python:
+    minimum: "3.11"
+  docker: optional
+  repository_write: false
+
+limits:
+  overall_timeout_seconds: 3600
+  step_timeout_seconds: 1200
+  max_summary_bytes_per_stream: 32768
+  max_artifact_bytes: 104857600
+
+working_directory: "."
+
+environment:
+  inherit:
+    - PATH
+    - HOME
+    - USERPROFILE
+    - SYSTEMROOT
+    - TEMP
+    - TMP
+  set:
+    PYTHONUNBUFFERED: "1"
+  redact_keys:
+    - SWITCHBOARD_ADMIN_TOKEN
+    - GITHUB_TOKEN
+    - GH_TOKEN
+    - OPENAI_API_KEY
+    - ANTHROPIC_API_KEY
+    - XAI_API_KEY
+
+steps:
+  - id: python-version
+    title: Record Python version
+    required: true
+    argv:
+      - python
+      - --version
+    timeout_seconds: 60
+
+  - id: dependency-health
+    title: Verify installed Python dependency consistency
+    required: true
+    argv:
+      - python
+      - -m
+      - pip
+      - check
+    timeout_seconds: 300
+
+  - id: repository-verification
+    title: Run repository verification helper
+    required: true
+    argv:
+      - python
+      - scripts/dev.py
+      - verify
+    timeout_seconds: 1200
+
+  - id: tests
+    title: Run the Python test suite
+    required: true
+    argv:
+      - pytest
+      - -q
+    timeout_seconds: 1800
+    parsers:
+      - pytest-summary
+
+  - id: strict-browser
+    title: Run strict Playwright browser tests
+    required: true
+    environment:
+      set:
+        SWITCHBOARD_STRICT_PLAYWRIGHT: "1"
+    argv:
+      - pytest
+      - web/tests/test_ui.py
+      - -rA
+    timeout_seconds: 1200
+    parsers:
+      - pytest-summary
+
+  - id: docker-build
+    title: Build the server Docker image when Docker is available
+    required: false
+    capability_condition:
+      docker: true
+    argv:
+      - docker
+      - build
+      - -f
+      - server/Dockerfile
+      - .
+    timeout_seconds: 1800
+
+artifacts:
+  root: "${RUN_ARTIFACT_DIR}"
+  declarations:
+    - type: command-log
+      pattern: "logs/*.log"
+      retention_days: 14
+    - type: test-report
+      pattern: "reports/**/*.xml"
+      retention_days: 14
+    - type: coverage
+      pattern: "reports/coverage.json"
+      retention_days: 14
+    - type: browser-trace
+      pattern: "test-results/**/*.zip"
+      retention_days: 14
+
+evidence:
+  include_environment_fingerprint: true
+  include_manifest_digest: true
+  include_artifact_hashes: true
+  include_cleanup_status: true
+  inline_full_logs: false
