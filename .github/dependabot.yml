@@ -5,11 +5,10 @@ updates:
       - "/server"
       - "/client/python"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "04:00"
       timezone: "UTC"
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 2
     groups:
       pip-minor-patch:
         patterns:
@@ -21,11 +20,10 @@ updates:
   - package-ecosystem: "docker"
     directory: "/server"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "04:15"
       timezone: "UTC"
-    open-pull-requests-limit: 2
+    open-pull-requests-limit: 1
     groups:
       docker-minor-patch:
         patterns:
@@ -37,11 +35,10 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "04:30"
       timezone: "UTC"
-    open-pull-requests-limit: 2
+    open-pull-requests-limit: 1
     groups:
       actions-minor-patch:
         patterns:
