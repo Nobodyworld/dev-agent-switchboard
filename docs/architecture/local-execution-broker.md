@@ -13,10 +13,12 @@ leases, heartbeats, and agent APIs. The next product stage adds a distinct
 execution plane so deterministic validation can run on approved local workers
 before a paid coding agent is used.
 
-The first release is deliberately narrow. It validates one exact Git commit
-with one named, versioned, read-only command manifest and returns structured
-evidence. It is not a general remote shell, autonomous coding system, provider
-router, or desktop RPA platform.
+This document describes the staged target across #112--#114. The #112 release
+is deliberately narrower: it persists and validates control-plane contracts
+only. It does not validate a checkout, execute a command, collect artifacts,
+or return execution evidence. Those worker and evidence behaviors are deferred
+to #113 and #114. The resulting system is not a general remote shell,
+autonomous coding system, provider router, or desktop RPA platform.
 
 ## Accepted Product Decisions
 
@@ -119,28 +121,17 @@ The following always require a separate approval tier and are not part of Phase
 - administrator elevation;
 - destructive operations outside worker-owned paths.
 
-### Retain metadata longer than artifacts
+### Future artifact retention and evidence redaction (#114)
 
-Run metadata is persisted in the database. Artifacts are stored beneath the
-configured Switchboard storage root in a run-owned directory.
+Issue #112 persists only bounded artifact/evidence metadata placeholders; it
+does not store artifacts, logs, hashes, or retention records. In #114,
+artifacts will be stored beneath a configured Switchboard storage root in a
+run-owned directory, with configurable retention and metadata retained after
+artifact expiry.
 
-The default artifact retention period is 14 days and is configurable. Metadata
-may remain after artifact expiry so the audit record can explain what was
-executed and why the underlying files are no longer available.
-
-Normal API responses return bounded summaries and artifact metadata rather than
-full logs. Artifact records include relative path, type, size, SHA-256 hash,
-retention expiry, and redaction status.
-
-### Redact before returning evidence
-
-Workers use an explicit environment allowlist rather than inheriting every
-parent-process variable. Secrets and configured patterns are redacted before
-summaries leave the worker.
-
-Full local logs may be retained as artifacts. Worker tokens, authorization
-headers, secret environment values, and configured secret patterns must never
-appear in normal result summaries.
+That later evidence implementation will return bounded summaries and metadata
+rather than full logs, and will use an explicit environment allowlist plus
+secret/pattern redaction before any result leaves a worker.
 
 ### Defer provider routing
 
@@ -217,8 +208,7 @@ A command manifest includes at least:
 - schema version;
 - immutable name and version;
 - description;
-- fixed argument-vector steps;
-- working-directory rules;
+- fixed-step contract metadata (no argv in Phase 1A);
 - required capabilities;
 - allowed environment keys and fixed values;
 - network and repository-write policy;
@@ -228,8 +218,8 @@ A command manifest includes at least:
 - failure behavior;
 - manifest digest.
 
-A manifest step may be required or diagnostic-only. A required-step failure
-normally stops later required execution.
+Issue #112 records the safe metadata and digest only. Fixed argument-vector
+steps and their execution semantics are deferred to #113.
 
 ### ExecutionRun
 
@@ -239,16 +229,17 @@ An execution run includes at least:
 - attempt number;
 - lease and heartbeat metadata;
 - queued, assigned, started, and finished timestamps;
-- terminal status and failing step;
-- per-step evidence;
-- environment fingerprint;
-- cleanup status;
-- artifact records;
-- evidence fingerprint.
+- terminal status and bounded result/cleanup metadata;
+- artifact/evidence metadata placeholders only (no stored files or
+  fingerprints in #112).
 
 Only one active execution run may exist for a work order at a time.
 
-## Worker Flow
+## Future Worker Flow (#113/#114)
+
+The first three control-plane steps are implemented by #112. Steps 4--10 are
+the intended later worker/evidence flow and do not describe current #112
+behavior.
 
 ```text
 1. Worker registers capabilities.
@@ -267,6 +258,11 @@ If a worker loses its lease, it must stop execution and clean up. It may not
 continue and later submit stale results as authoritative evidence.
 
 ## Security Boundaries
+
+For #112, the active boundaries are the protected control API, trusted manifest
+identity, exact SHA policy metadata, read-only repository policy, and absence
+of command execution. Filesystem, process-execution, and evidence controls
+listed below are requirements for the later #113/#114 worker implementation.
 
 The implementation must protect these boundaries:
 
@@ -287,7 +283,7 @@ The implementation must protect these boundaries:
 - **Evidence:** bounded summaries, artifact hashes, redaction, retention, and
   truthful cleanup status.
 
-## First End-to-End Target
+## Future First End-to-End Target (#113/#114)
 
 ```text
 Connector or operator identifies a pull-request head SHA
@@ -315,6 +311,39 @@ Tracked by #112:
 - capability-aware atomic checkout;
 - execution API;
 - no command execution.
+
+#### Phase 1A implementation boundary
+
+Issue #112 persists the control-plane records in separate execution tables:
+command manifests, work orders, workers, execution runs, and active execution
+leases. Startup continues to use additive `Base.metadata.create_all()` behavior;
+there is no migration-framework rollout in this phase.
+
+The trusted manifest registry is version-controlled in
+`server/execution/registry.py`. It stores immutable identity, digest, and safe
+contract metadata only. The illustrative YAML in
+`docs/examples/execution/validate-switchboard-v1.yaml` remains a later-stage,
+non-executable reference: Phase 1A does not expose its argv data through an API
+or turn request input into executable steps.
+
+Checkout reserves a worker capacity slot with a guarded database update, then
+conditionally changes a queued work order to assigned and creates a run plus a
+unique active lease in the same transaction. The unique
+`execution_leases.work_order_id` association is the database-enforced
+one-active-run invariant. Releasing the active lease on terminal completion or
+stale expiry preserves historical `ExecutionRun` rows. Stale leases mark the
+old run timed out and requeue the nonterminal work order for a later attempt.
+Lease renewal, completion, cancellation, and expiry all use guarded DML against
+the exact active lease so a stale expiry cannot override a renewed heartbeat
+and only one actor can release capacity.
+
+For the temporary Phase 1 credential model, worker registration, checkout,
+heartbeats, and completion reuse the configured admin token alongside the
+privileged operator routes. This is explicitly not a worker identity system and
+must be replaced by a scoped worker credential before a worker can execute
+anything. Repository-write capability and work-order policy remain false, and
+no #112 code launches a process, writes a target repository, or collects
+artifacts.
 
 ### Phase 1B — Safe pull worker
 
@@ -363,8 +392,8 @@ Phase 1 does not provide:
 
 ## Acceptance Summary
 
-Phase 1 is successful when an approved work order for an allowlisted repository
-and exact SHA can be atomically assigned to one eligible local worker, executed
-through one trusted read-only manifest, and returned as truthful structured
-evidence without modifying the canonical checkout or consuming paid
-coding-agent credits.
+Issue #112 is successful when an approved work order for an allowlisted
+repository and exact SHA can be atomically assigned to one eligible worker
+through a trusted read-only manifest identity, without modifying the canonical
+checkout or consuming paid coding-agent credits. Worker execution and truthful
+structured evidence are explicitly deferred to #113 and #114.

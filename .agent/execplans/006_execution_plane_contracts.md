@@ -34,14 +34,14 @@ Primary implementation issue: #112. Parent product epic: #111.
 - [x] Architecture documented in
       `docs/architecture/local-execution-broker.md`.
 - [x] Phase 1 backlog split into issues #112, #113, and #114.
-- [ ] Reconfirm the current `origin/main` SHA before implementation.
-- [ ] Inspect router, repository, migration, authentication, and test patterns.
-- [ ] Add execution-plane enums, schemas, models, and repositories.
-- [ ] Add validated lifecycle and capability-matching services.
-- [ ] Add `/api/execution/...` routes with appropriate authorization.
-- [ ] Add migration and startup compatibility behavior.
-- [ ] Add unit, API, concurrency, persistence, and authorization tests.
-- [ ] Update API and message-schema documentation.
+- [x] Reconfirm the current `origin/main` SHA before implementation.
+- [x] Inspect router, repository, migration, authentication, and test patterns.
+- [x] Add execution-plane enums, schemas, models, and repositories.
+- [x] Add validated lifecycle and capability-matching services.
+- [x] Add `/api/execution/...` routes with appropriate authorization.
+- [x] Add additive startup compatibility behavior without a migration framework.
+- [x] Add unit, API, concurrency, persistence, and authorization tests.
+- [x] Update API and message-schema documentation.
 - [ ] Run complete repository validation.
 - [ ] Open a draft PR linked to #112 and update this plan with evidence.
 
@@ -59,6 +59,76 @@ Primary implementation issue: #112. Parent product epic: #111.
 
   Evidence: `TaskIn`, `TaskOut`, and the `Task` SQLAlchemy model contain task
   description, dependency, priority, status, and completion information only.
+
+- Observation: `main`, `origin/main`, and
+  `origin/feat/execution-plane-contracts` all resolved to
+  `1dbd939854ab287430d1d9c24865e7ad51cbc29c` before edits, and the worktree was
+  clean.
+
+  Evidence: `git fetch origin --prune`, `git switch
+  feat/execution-plane-contracts`, `git pull --ff-only`, `git rev-parse HEAD
+  origin/main origin/feat/execution-plane-contracts`, and `git status --short`
+  completed on 2026-07-12.
+
+- Observation: The existing execution YAML is deliberately a non-executable
+  later-stage contract example, not a request-driven manifest registry.
+
+  Evidence: `docs/examples/execution/validate-switchboard-v1.yaml` says it is
+  not executable until issues #112--#114. Phase 1A will therefore seed only
+  version-controlled identity and safe contract metadata; no API accepts
+  commands, argv arrays, script text, or executable paths.
+
+- Observation: SQLite does not give a reliable row-locking guarantee through
+  `with_for_update()` for this use case.
+
+  Evidence: Existing task checkout uses a conditional affected-row update.
+  Execution checkout will pair guarded status and capacity updates with a
+  unique active-lease row and test the behavior against a file-backed SQLite
+  database using independent sessions.
+
+- Observation: The sandbox denies pytest's default user-temp directory and
+  `C:\tmp`, but accepts a repository-local `--basetemp` directory.
+
+  Evidence: The initial focused test run failed at fixture setup with
+  `PermissionError` creating `%LOCALAPPDATA%\Temp\pytest-of-Nobod`; a rerun
+  with `--basetemp .pytest-tmp-112c` ran all execution tests successfully.
+
+- Observation: SQLAlchemy string-enum defaults use member names unless a
+  `values_callable` is supplied; SQL expressions in guarded worker updates then
+  need the same representation as row deserialization.
+
+  Evidence: The first focused execution test pass surfaced a lookup error for
+  stored `busy` / `online` values. Execution enums now explicitly persist their
+  lower-case API values, and the focused suite passes.
+
+- Observation: The installed Black process reformatted several files but did
+  not finish within 120 seconds when given the full changed path set.
+
+  Evidence: `black ...` timed out after reporting five reformatted files.
+  `ruff format` completed formatting the remaining changed files; final Black
+  validation remains pending.
+
+- Observation: Top-level strict Pydantic fields alone do not prevent a caller
+  from hiding executable-shaped keys inside JSON metadata.
+
+  Evidence: Review found nested `manifest.parameters.argv` and metadata
+  dictionaries were accepted before validation. The request models now
+  recursively reject command, argv, shell, script, and executable keys in all
+  caller-controlled mapping/list metadata.
+
+- Observation: A stale-lease reader must not be allowed to terminalize a run
+  after a concurrent heartbeat renewed the lease.
+
+  Evidence: Execution lease mutation now uses conditional SQL updates/deletes
+  and affected-row checks. Independent file-backed SQLite tests exercise both
+  heartbeat-versus-expiry and completion-versus-cancellation races.
+
+- Observation: A persisted manifest digest is insufficient as the sole trust
+  check because other persisted fields could be modified without changing it.
+
+  Evidence: Registry synchronization now compares every persisted manifest
+  field against the version-controlled definition and rejects a mismatch; a
+  metadata-tampering regression test covers the behavior.
 
 - Observation: Substantial repository work must use a self-contained living
   ExecPlan.
@@ -87,11 +157,13 @@ and unexpected constraints that affect future work.
 
   Date/Author: 2026-07-12 / ChatGPT GitHub operator
 
-- Decision: Permit only immutable trusted manifest identities and direct
-  argument-vector execution.
+- Decision: Permit only immutable trusted manifest identities in Phase 1A;
+  reserve direct argument-vector execution for #113.
 
   Rationale: Arbitrary command strings would turn Switchboard into a remote
-  shell and make approval meaningless.
+  shell and make approval meaningless. Issue #112 therefore stores only safe
+  server-controlled manifest metadata and does not expose argv or launch a
+  process.
 
   Date/Author: 2026-07-12 / ChatGPT GitHub operator
 
@@ -102,26 +174,142 @@ and unexpected constraints that affect future work.
 
   Date/Author: 2026-07-12 / ChatGPT GitHub operator
 
-- Decision: Persist run metadata and store artifacts beneath a run-owned path
-  with a configurable 14-day default retention.
+- Decision: Implement execution concerns in a focused `server/execution/`
+  package, with SQLAlchemy models remaining in `server/models.py` so startup
+  `Base.metadata.create_all()` discovers the new additive tables.
 
-  Rationale: Operators need durable audit identity without retaining large logs
-  and browser artifacts indefinitely.
+  Rationale: This preserves the existing task DAG, task checkout, task agents,
+  and task leases while following the repository's central ORM convention.
 
-  Date/Author: 2026-07-12 / ChatGPT GitHub operator
+  Date/Author: 2026-07-12 / Codex
+
+- Decision: Treat a unique `execution_leases.work_order_id` row as the active
+  run invariant and reserve worker capacity with a guarded SQL update.
+
+  Rationale: The lease row can be deleted on terminal completion or stale
+  expiry while the immutable execution-run history remains. Conditional
+  updates and affected-row checks remain safe across independent SQLite
+  sessions.
+
+  Date/Author: 2026-07-12 / Codex
+
+- Decision: Reuse the configured admin token for all execution endpoints in
+  Phase 1, including worker registration and run operations.
+
+  Rationale: It meets the accepted temporary credential boundary without
+  adding an identity system. Documentation will explicitly mark this as a
+  Phase 1 limitation for issue #113 to replace.
+
+  Date/Author: 2026-07-12 / Codex
+
+- Decision: Keep the trusted registry metadata-only in Phase 1A and calculate
+  its SHA-256 digest from a canonical representation of that reviewed data.
+
+  Rationale: The contract can be persisted and audited without turning the
+  Phase 1A API into a source of executable argv data. Later worker execution
+  needs its own reviewed trust boundary.
+
+  Date/Author: 2026-07-12 / Codex
+
+- Decision: Approval queues a work order by default but supports an explicit
+  `approved` intermediate state when the caller sends `{"queue": false}`.
+
+  Rationale: This makes the normal safe path ergonomic while keeping every
+  required lifecycle state observable and transition-validated.
+
+  Date/Author: 2026-07-12 / Codex
+
+- Decision: Persist only bounded artifact/evidence metadata placeholders in
+  Phase 1A; defer artifact collection, storage, retention, and redaction to
+  #114.
+
+  Rationale: #112 must not execute commands or collect artifacts. The
+  placeholders preserve a typed future interface without claiming a worker or
+  artifact-storage implementation exists.
+
+  Date/Author: 2026-07-12 / Codex
+
+- Decision: Make the active execution lease the exclusive lifecycle gate for
+  heartbeat, terminal completion, cancellation, and stale expiry.
+
+  Rationale: Conditional lease renewal and exact guarded lease consumption
+  prevent a stale expiry from overriding a renewed heartbeat and ensure only
+  one actor can terminalize a run and release worker capacity.
+
+  Date/Author: 2026-07-12 / Codex
 
 ## Outcomes & Retrospective
 
-Pending implementation.
+Issue #112 adds a fully separate persisted control plane: command-manifest
+snapshots, work orders, workers, execution runs, and unique active execution
+leases. The legacy task DAG, task checkout, task leases, task agents, and task
+completion behavior remain untouched; a focused regression checks a normal
+legacy task checkout/lease alongside execution checkout.
 
-At completion, summarize:
+Startup remains additive through `Base.metadata.create_all()` for both fresh
+and pre-existing core-table databases; no Alembic or migration-framework work
+was introduced. The static trusted registry supplies immutable manifest
+identity and digest, validates every persisted snapshot field, and accepts no
+request-controlled executable data. Request models recursively reject nested
+command, argv, shell, script, and executable keys.
 
-- the final model and API surface;
-- migration and compatibility decisions;
-- concurrency and expiry behavior;
-- authorization limitations;
-- tests and validation evidence;
-- scope deferred to #113 or #114.
+Checkout combines guarded worker capacity reservation, guarded queued-order
+claim, and unique active lease creation. Heartbeat renewals and all terminal or
+stale-expiry actions use guarded lease DML so one lease consumer alone may
+update lifecycle records and release capacity. Expiry preserves run history,
+marks the old attempt `timed_out`, and requeues the work order for an incremented
+attempt. Independent file-backed SQLite tests cover concurrent checkout,
+heartbeat-versus-expiry, and completion-versus-cancellation outcomes.
+
+All execution endpoints reuse `SWITCHBOARD_ADMIN_TOKEN` when configured. That
+includes worker registration, checkout, heartbeat, and completion and is a
+documented temporary Phase 1 limitation, not a worker identity solution.
+
+No issue-#112 code executes a command, creates a worktree, writes a target
+repository, collects artifacts, or performs GitHub access. Safe pull-worker
+execution remains #113; artifact/evidence collection, retention, and compact
+evidence APIs remain #114. Final validation, commit SHA, push, and draft-PR
+evidence are recorded below after delivery.
+
+## Validation Record (2026-07-12)
+
+Tool versions: Python 3.14.0; Ruff 0.14.2; Black 26.5.1; mypy 1.18.2;
+pip-audit 2.7.3. The last focused execution run used independent file-backed
+SQLite sessions and passed `23` tests in 10.36s, including checkout,
+heartbeat-versus-expiry, completion-versus-cancellation, startup, API, and
+legacy-task-lease coexistence coverage.
+
+Final repository commands and results:
+
+- `python -m pre_commit run --all-files --show-diff-on-failure` — exit 0; all
+  configured hooks passed (Prettier skipped because it had no matching files).
+- `ruff check server client scripts tests web switchboard_cli.py
+  switchboard_client.py` — exit 0.
+- `black --check server client scripts tests web switchboard_cli.py
+  switchboard_client.py` — exit 0.
+- `mypy --config-file mypy.ini server client scripts` — exit 0; 133 source
+  files with no issues.
+- `pytest -q` — exit 0; 252 passed, 2 skipped, 350 known legacy/runtime
+  warnings in 85.85s.
+- `SWITCHBOARD_STRICT_PLAYWRIGHT=1 python -m pytest web/tests/test_ui.py -rA`
+  — exit 0; 2 passed.
+- Bundled Python 3.12 with pinned `bandit==1.8.6`: `python -m bandit -q -r
+  server -x server/tests` — exit 0. The installed Python 3.14 cannot run that
+  Bandit release correctly (`Constant.s` compatibility failure), so the
+  isolated scan was used and its temporary virtual environment was removed.
+- `python -m pip_audit --progress-spinner=off -r server/requirements-dev.txt`
+  — exit 0; no known vulnerabilities.
+- `gitleaks detect --verbose` — exit 0; 163 commits / 2.74 MB scanned with no
+  leaks.
+- `git diff --check` — exit 0; only pre-existing CRLF normalization warnings.
+
+`python -m pip check` exits 1 in the shared Python 3.14 installation because
+the unrelated global `opencv-python 4.12.0.88` package requires
+`numpy <2.3.0` while that installation contains `numpy 2.3.4`; it also reports
+an invalid global `~andit` distribution. No project dependency was changed. An
+earlier isolated Python 3.12 virtual environment installed from
+`server/requirements-dev.txt` and returned `No broken requirements found`; the
+temporary environment was removed after validation.
 
 ## Context and Orientation
 

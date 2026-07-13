@@ -9,7 +9,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy import inspect as sa_inspect, text
 
-from server.db import Base, engine
+from server.db import AsyncSessionLocal, Base, engine
+from server.execution.registry import iter_trusted_manifests
+from server.execution.repository import ExecutionRepository
 from server.file_store import ensure_root
 from server.settings import get_settings_bundle
 
@@ -32,6 +34,11 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 )
 
         await conn.run_sync(ensure_completed_notes_column)
+
+    async with AsyncSessionLocal() as session:
+        repository = ExecutionRepository(session)
+        await repository.ensure_manifests(iter_trusted_manifests())
+        await session.commit()
 
     ensure_root()
     startup_logger = logging.getLogger(__name__)
