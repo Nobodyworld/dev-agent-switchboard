@@ -6,17 +6,17 @@ from collections.abc import Mapping
 from types import TracebackType
 from typing import Any, cast
 
-import requests
 from requests import Response, Session
 
 DEFAULT_EXECUTION_TIMEOUT = 10.0
+_OWNERSHIP_LOST_STATUSES = {404, 409}
 
 
 class ExecutionClientError(RuntimeError):
     """Base error raised by the execution worker client."""
 
 
-class ExecutionOwnershipLost(ExecutionClientError):
+class ExecutionOwnershipLostError(ExecutionClientError):
     """Raised when the server no longer recognizes this worker as run owner."""
 
     def __init__(self, status_code: int) -> None:
@@ -27,7 +27,7 @@ class ExecutionOwnershipLost(ExecutionClientError):
 class ExecutionClient:
     """Small authenticated client dedicated to execution-plane endpoints."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - transport construction exposes bounded tuning
         self,
         base_url: str,
         worker_id: str,
@@ -83,9 +83,7 @@ class ExecutionClient:
         payload = dict(registration)
         if payload.get("worker_id") != self.worker_id:
             raise ValueError("registration worker_id must match the client worker_id")
-        result = self._request_json(
-            "post", "/api/execution/workers", json=payload
-        )
+        result = self._request_json("post", "/api/execution/workers", json=payload)
         return cast(dict[str, Any], result)
 
     def heartbeat_worker(self, *, status: str | None = None) -> dict[str, Any]:
@@ -125,7 +123,7 @@ class ExecutionClient:
         )
         return cast(dict[str, Any], result)
 
-    def complete_run(
+    def complete_run(  # noqa: PLR0913 - mirrors the bounded completion contract
         self,
         run_id: int,
         *,
@@ -163,8 +161,8 @@ class ExecutionClient:
         **kwargs: Any,
     ) -> object:
         response = self._request(method, path, **kwargs)
-        if ownership_sensitive and response.status_code in {404, 409}:
-            raise ExecutionOwnershipLost(response.status_code)
+        if ownership_sensitive and response.status_code in _OWNERSHIP_LOST_STATUSES:
+            raise ExecutionOwnershipLostError(response.status_code)
         response.raise_for_status()
         return response.json()
 
@@ -185,5 +183,5 @@ __all__ = [
     "DEFAULT_EXECUTION_TIMEOUT",
     "ExecutionClient",
     "ExecutionClientError",
-    "ExecutionOwnershipLost",
+    "ExecutionOwnershipLostError",
 ]
