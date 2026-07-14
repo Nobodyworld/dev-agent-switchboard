@@ -54,14 +54,39 @@ jobs:
           path.write_text(text.replace(old_method, new_method, 1), encoding="utf-8")
           PY
 
-      - name: Apply and verify pinned formatting
+      - name: Capture pinned pre-commit evidence
         shell: bash
         run: |
           set +e
-          python -m pre_commit run --all-files --show-diff-on-failure
-          set -e
-          python -m pre_commit run --all-files --show-diff-on-failure
-          git diff --check
+          python -m pre_commit run --all-files --show-diff-on-failure 2>&1 | tee pr119-precommit-output.txt
+          first_exit=${PIPESTATUS[0]}
+          printf '\nFIRST_EXIT=%s\n' "$first_exit" | tee -a pr119-precommit-output.txt
+          python -m pre_commit run --all-files --show-diff-on-failure 2>&1 | tee -a pr119-precommit-output.txt
+          second_exit=${PIPESTATUS[0]}
+          printf '%s\n' "$second_exit" > pr119-precommit-exit-code.txt
+          git status --short > pr119-precommit-status.txt
+          git diff --binary --full-index > pr119-precommit.patch
+          git diff --check > pr119-diff-check.txt 2>&1
+          exit 0
+
+      - name: Upload pre-commit diagnostics
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr119-foundation-diagnostic
+          path: |
+            pr119-precommit-output.txt
+            pr119-precommit-exit-code.txt
+            pr119-precommit-status.txt
+            pr119-precommit.patch
+            pr119-diff-check.txt
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Enforce pinned pre-commit result
+        shell: bash
+        run: |
+          test "$(cat pr119-precommit-exit-code.txt)" = "0"
+          test ! -s pr119-diff-check.txt
 
       - name: Run focused foundation and concurrency tests
         run: |
