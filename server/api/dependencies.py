@@ -7,8 +7,13 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from server.application import TaskService, build_task_service
+from server.application import (
+    TaskService,
+    build_execution_service,
+    build_task_service,
+)
 from server.db import get_session
+from server.execution.service import ExecutionService
 from server.settings import get_admin_token
 
 SessionDependency = Annotated[AsyncSession, Depends(get_session)]
@@ -18,6 +23,12 @@ def get_task_service(session: SessionDependency) -> TaskService:
     """Return a task service wired with SQLAlchemy-backed repositories."""
 
     return build_task_service(session)
+
+
+def get_execution_service(session: SessionDependency) -> ExecutionService:
+    """Return an isolated execution-plane service for the request session."""
+
+    return build_execution_service(session)
 
 
 def resolve_task_service(
@@ -50,5 +61,6 @@ def require_admin_token(request: Request) -> None:
 
 
 TaskServiceDependency = Annotated[TaskService, Depends(get_task_service)]
+ExecutionServiceDependency = Annotated[ExecutionService, Depends(get_execution_service)]
 OptionalSessionDependency = Annotated[AsyncSession | None, Depends(get_session)]
 OptionalTaskServiceDependency = Annotated[TaskService | None, Depends(get_task_service)]

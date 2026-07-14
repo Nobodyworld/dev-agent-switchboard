@@ -2,7 +2,8 @@
 
 This reference documents the JSON contracts exchanged between agents, the
 dashboard, and the Switchboard orchestration router. Every structure is backed
-by the Pydantic models in `server/schema.py`.
+by Pydantic models in `server/schema.py` or, for the isolated execution
+control plane, `server/execution/schemas.py`.
 
 ## TaskOut
 
@@ -52,6 +53,99 @@ The `/api/tasks/checkout` endpoint returns a `CheckoutOut` payload:
 
 Clients should persist `reason` (the Python SDK stores it on
 `SwitchboardClient.last_checkout_reason`) to inform backoff policies.
+
+## Execution WorkOrder
+
+`WorkOrderCreateIn` is a strict request model for
+`POST /api/execution/work-orders`. It is deliberately identity- and
+policy-only: callers supply a manifest name/version and safe policy metadata,
+while Switchboard resolves the immutable manifest digest from its own trusted
+registry.
+
+```json
+{
+  "schema_version": 1,
+  "repository_full_name": "Nobodyworld/dev-agent-switchboard",
+  "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "manifest": {
+    "name": "validate-switchboard",
+    "version": "1",
+    "parameters": {}
+  },
+  "required_capabilities": {"docker": false},
+  "permitted_paths": ["server", "tests"],
+  "approval_policy": "explicit",
+  "timeout_seconds": 3600,
+  "network_policy": "worker_restricted",
+  "repository_write": false
+}
+```
+
+- **commit_sha** – Exactly 40 hexadecimal characters; abbreviated SHAs are
+  rejected.
+- **manifest** – A server-controlled immutable name/version identity. The
+  response adds `manifest_digest`; callers cannot submit or override it.
+- **repository_write** – Must be `false` in Phase 1.
+- **strict fields** – Unknown fields, including `command`, `command_string`,
+  `argv`, `script`, and `executable_path`, are rejected with validation errors.
+  Those executable-shaped keys are also rejected recursively inside caller
+  metadata such as manifest parameters, capability declarations, resource
+  metadata, and result/evidence placeholders.
+
+`WorkOrderOut` persists the full policy snapshot, approval/lifecycle
+timestamps, attempt count, terminal reason, and resolved manifest identity.
+It is separate from `TaskOut` and never changes task-DAG records.
+
+## Execution lifecycle
+
+`WorkOrderStatus` values are:
+
+`pending_approval`, `approved`, `queued`, `assigned`, `running`, `succeeded`,
+`failed`, `timed_out`, `cancelled`, `rejected`, and `expired`.
+
+| Current state | Legal next state(s) |
+| --- | --- |
+| `pending_approval` | `approved`, `queued` (approve-and-queue), `rejected`, `cancelled` |
+| `approved` | `queued`, `cancelled`, `expired` |
+| `queued` | `assigned`, `cancelled`, `expired` |
+| `assigned` | `running`, terminal result, `cancelled`, `queued` after stale lease expiry |
+| `running` | terminal result, `queued` after stale lease expiry |
+| terminal state | none; terminal records are immutable |
+
+An `ExecutionRun` records a single attempt with its own status, assignment and
+heartbeat timestamps, cleanup/evidence placeholders, and a bounded result
+summary. A unique active execution lease associates at most one active run with
+a work order; deleting that lease on terminal completion preserves run history.
+Stale lease expiry terminalizes the old run as `timed_out` and requeues the
+nonterminal work order, so the next checkout receives a higher attempt number.
+
+## Worker and checkout payloads
+
+`WorkerRegistrationIn` declares a stable `worker_id`, display/platform details,
+tool and browser capabilities, capacity, supported network policy, and a
+required `repository_write_capability: false`. The same Phase 1 admin token
+temporarily protects worker operations.
+
+`POST /api/execution/checkout` accepts only:
+
+```json
+{"worker_id": "local-linux-worker"}
+```
+
+It returns an `ExecutionRunOut` when one worker wins the atomic claim, or a
+normal `200` payload such as the following when nothing can be assigned:
+
+```json
+{
+  "run": null,
+  "reason": "capability_mismatch",
+  "mismatch_reasons": ["docker_not_available"]
+}
+```
+
+`ExecutionCompletionIn` accepts an owned worker ID and exactly one terminal
+status: `succeeded`, `failed`, `timed_out`, or `cancelled`. It records only
+bounded metadata; it does not execute commands or accept executable steps.
 
 ## CompleteResponse
 

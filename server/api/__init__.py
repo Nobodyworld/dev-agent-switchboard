@@ -20,6 +20,7 @@ from .lifecycle import lifespan
 from .routers import (
     agents,
     configuration,
+    execution,
     files,
     observability,
     plan,
@@ -68,6 +69,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     )
 
     app.include_router(configuration.router)
+    app.include_router(execution.router)
     app.include_router(observability.router)
     app.include_router(system_state.router)
     app.include_router(tasks.router)

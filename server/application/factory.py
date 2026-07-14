@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from server.application.system_state_service import SystemStateService
 from server.application.task_service import TaskService
 from server.domain import LeasePolicy, TaskAvailabilityPolicy
+from server.execution.repository import ExecutionRepository
+from server.execution.service import ExecutionService
 from server.extensions import get_extension_bundle
 from server.infrastructure import (
     SqlAlchemyAgentRepository,
@@ -18,7 +20,11 @@ from server.infrastructure import (
 from server.settings import get_lease_settings
 from server.time_utils import utcnow_naive
 
-__all__ = ["build_system_state_service", "build_task_service"]
+__all__ = [
+    "build_execution_service",
+    "build_system_state_service",
+    "build_task_service",
+]
 
 
 def build_task_service(session: AsyncSession) -> TaskService:
@@ -36,6 +42,16 @@ def build_task_service(session: AsyncSession) -> TaskService:
         lease_policy=lease_policy,
         clock=utcnow_naive,
         extensions=get_extension_bundle(),
+    )
+
+
+def build_execution_service(session: AsyncSession) -> ExecutionService:
+    """Return the isolated control-plane service for execution records."""
+
+    return ExecutionService(
+        repository=ExecutionRepository(session),
+        clock=utcnow_naive,
+        lease_seconds=lambda: get_lease_settings().duration_seconds,
     )
 
 
