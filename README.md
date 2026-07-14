@@ -102,22 +102,24 @@ The latest clean-clone release audit records:
 - 229 pytest tests passing with two environment-dependent skips;
 - two strict Playwright tests passing;
 - 87% aggregate measured coverage;
-- one unresolved publication blocker: the symlink-containment test must execute on a Linux-capable environment rather than skip under Windows privilege restrictions.
+- one unresolved formal-release blocker: the symlink-containment test must execute on a Linux-capable environment rather than skip under Windows privilege restrictions.
 
-Hosted `CI` and `Commitlint` now run successfully using SHA-pinned actions. See [PUBLIC_RELEASE_AUDIT.md](PUBLIC_RELEASE_AUDIT.md) for the exact candidate SHA, commands, and remaining publication gates.
+Hosted `CI` and `Commitlint` run using SHA-pinned actions. See [PUBLIC_RELEASE_AUDIT.md](PUBLIC_RELEASE_AUDIT.md) for the exact evidence, current preview disposition, and remaining formal-release gates.
 
 ## Security Model
 
-Switchboard is designed for controlled agent-coordination environments. Before exposing it beyond localhost or a trusted network, review and configure:
+The public developer preview is intended for localhost or controlled trusted networks. Public repository visibility makes the source available for review; it does not make a running Switchboard instance safe for public hosting. Untrusted multi-tenant and direct internet-facing deployments are unsupported.
+
+Before using Switchboard on a trusted shared network, review and configure:
 
 | Area              | Guidance                                                                                                              |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Admin token       | Set `SWITCHBOARD_ADMIN_TOKEN` for shared or exposed deployments. A local demo without a token is not production-safe. |
+| Admin token       | Set `SWITCHBOARD_ADMIN_TOKEN` for shared deployments. A local demo without a token is not production-safe.           |
 | Live-file storage | Keep `FILES_ROOT` inside the intended storage boundary and validate containment on the target operating system.       |
 | Upload limits     | Set `SWITCHBOARD_MAX_LIVE_FILE_BYTES` for the deployment profile.                                                     |
-| Network exposure  | Use TLS, a reverse proxy, and network access controls.                                                                |
+| Network exposure  | Keep the preview on localhost or a controlled trusted network; direct public-internet exposure is unsupported.        |
 | Secrets           | Use environment-specific secret storage and never commit real tokens.                                                 |
-| Dependency risk   | Run `pip-audit`, Dependabot, and the documented security gates against the final release candidate.                   |
+| Dependency risk   | Run `pip-audit`, Dependabot, and the documented security gates against any release candidate.                         |
 
 Common settings:
 
@@ -162,10 +164,17 @@ docs/                      # Architecture, API, integration, and operations docs
 ## Release Status
 
 ```text
-KEEP PRIVATE - NEAR READY
+PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY
 ```
 
-The implementation and executable release gates are substantially complete. Publication remains blocked until Linux symlink-containment validation runs successfully against the final release candidate and final repository protection/settings are verified.
+This classification distinguishes four separate decisions:
+
+1. **Repository visibility:** the source may be publicly visible for inspection, evaluation, and contribution.
+2. **Developer-preview availability:** developers may run the project locally or on a controlled trusted network.
+3. **Release authorization:** no production release, version tag, or general-availability claim is authorized.
+4. **Production deployment safety:** untrusted multi-tenant and internet-facing deployment remain unsupported.
+
+Formal release authorization remains blocked until the Linux symlink-containment regression executes successfully against the selected release candidate, final clean-clone and Docker evidence is recorded, and the owner completes the release/settings review tracked in issues #95 and #104.
 
 ## Governance
 
