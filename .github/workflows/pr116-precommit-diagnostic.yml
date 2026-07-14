@@ -1,9 +1,9 @@
 name: PR 116 pre-commit diagnostic
 
 on:
-  push:
+  pull_request:
     branches:
-      - feat/execution-plane-contracts
+      - main
   workflow_dispatch:
 
 permissions:
