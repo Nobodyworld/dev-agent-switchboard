@@ -1,7 +1,7 @@
 # Public Developer Preview Audit — Formal Release Still Blocked
 
 **Classification:** `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY`
-**Current main SHA before this status-only change:** `1dbd939854ab287430d1d9c24865e7ad51cbc29c`
+**Preview-status baseline before merge:** `1dbd939854ab287430d1d9c24865e7ad51cbc29c`
 **Public visibility disposition:** `ALLOWED FOR SOURCE PUBLICATION`
 **Formal release authorization:** `BLOCKED`
 **Production deployment authorization:** `NOT AUTHORIZED`
@@ -21,15 +21,17 @@ Public repository visibility is allowed for this developer preview. It is not au
 
 Switchboard is intended for localhost or controlled trusted networks. Untrusted multi-tenant and direct internet-facing deployment are unsupported.
 
-## Current Repository State
+## Public-Preview Baseline
 
-The current `main` commit is:
+The baseline immediately before the public-preview status documentation merged was:
 
 ```text
 1dbd939854ab287430d1d9c24865e7ad51cbc29c
 ```
 
 That commit merged the Phase 1 local-execution-broker architecture in PR #115. PR #115 was documentation and planning only; it did not change runtime behavior. Its hosted validation passed Commitlint, lint/pre-commit, typecheck, tests, security, full-history Gitleaks, link validation, coverage, and strict browser UI checks.
+
+This audit does not attempt to name its own future merge commit. Issues #95 and #104 are the system of record for the canonical merged `main` SHA used by the public preview and future release validation.
 
 Draft PR #116 remains separate from this publication-status change. It must not be merged as part of making the repository public. Its execution-plane implementation and known lint correction remain subject to their own review and CI evidence.
 
@@ -62,7 +64,7 @@ This authorization does not assert that:
 - `.github/dependabot.yml` covers server and Python-client dependencies, Docker, and GitHub Actions.
 - `docs/release/PRIVATE_REPOSITORY_SECURITY.md` records repository-security controls and post-publication actions.
 
-**Developer-preview status:** sufficient for public source visibility after this documentation change is merged.
+**Developer-preview status:** sufficient for public source visibility.
 
 ## Historical Clean-Clone Evidence
 
@@ -170,7 +172,7 @@ Parent issue #95 tracks the formal release checklist. Issue #104 contains the Li
 
 ## Final Verdict
 
-The owner may change repository visibility to public **after this developer-preview status change is merged**, using the classification:
+The owner may change repository visibility to public using the classification:
 
 ```text
 PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY
