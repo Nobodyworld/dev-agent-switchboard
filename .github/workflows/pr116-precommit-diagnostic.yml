@@ -34,8 +34,8 @@ jobs:
         shell: bash
         run: |
           set +e
-          python -m pre_commit run --all-files --show-diff-on-failure
-          exit_code=$?
+          python -m pre_commit run --all-files --show-diff-on-failure 2>&1 | tee pr116-precommit-output.txt
+          exit_code=${PIPESTATUS[0]}
           printf '%s\n' "$exit_code" > pr116-precommit-exit-code.txt
           git status --short > pr116-precommit-status.txt
           git diff --binary --full-index > pr116-precommit.patch
@@ -48,6 +48,7 @@ jobs:
           path: |
             pr116-precommit-exit-code.txt
             pr116-precommit-status.txt
+            pr116-precommit-output.txt
             pr116-precommit.patch
           if-no-files-found: error
           retention-days: 1
