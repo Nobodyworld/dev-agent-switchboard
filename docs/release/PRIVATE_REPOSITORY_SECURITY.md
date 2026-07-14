@@ -1,22 +1,24 @@
-# Private-Repository Security and Publication Controls
+# Repository Security and Publication Controls
 
-**Status:** Pre-publication controls documented
+**Status:** Public developer-preview controls documented
 **Repository:** `Nobodyworld/dev-agent-switchboard`
-**Audit date:** 2026-07-10
+**Audit date:** 2026-07-13
 
-This document records security automation available while the repository remains private and owner-controlled steps that must be verified before and after publication. It is separate from `PUBLIC_RELEASE_AUDIT.md`, which remains the authoritative release-readiness record.
+This document records repository-security automation and owner-controlled steps before and after public source publication. It is separate from `PUBLIC_RELEASE_AUDIT.md`, which remains the authoritative distinction between public preview, formal release authorization, and production deployment safety.
 
 ## Current posture
 
-The repository is private. CodeQL, GitHub Secret Protection, and Push Protection are deferred until the repository is public or eligible private-repository licensing is available.
+The repository is approved for public source visibility as a developer preview after the preview-status documentation is merged.
 
 ```text
-CodeQL: DEFERRED UNTIL PUBLIC OR LICENSED
-GitHub Secret Protection: DEFERRED UNTIL PUBLIC OR LICENSED
-Push Protection: DEFERRED UNTIL PUBLIC OR LICENSED
+Repository visibility: PUBLIC DEVELOPER PREVIEW ALLOWED
+Formal release: BLOCKED
+Production deployment: NOT AUTHORIZED
 ```
 
-No checked-in CodeQL workflow is required while this deferral remains in effect. Prefer CodeQL Default Setup after publication unless a repository-specific need for Advanced Setup is documented.
+Public repository visibility does not authorize a hosted public service. Switchboard is intended for localhost or controlled trusted networks. Untrusted multi-tenant and direct internet-facing deployments are unsupported.
+
+CodeQL, GitHub Secret Protection, and Push Protection should be enabled or verified after publication when available. Prefer CodeQL Default Setup unless a repository-specific need for Advanced Setup is documented.
 
 ## Dependabot coverage
 
@@ -34,23 +36,19 @@ The Python client is included because `client/python/pyproject.toml` contains sh
 
 ## GitHub Actions disposition
 
-The earlier repository-wide `startup_failure` is resolved by the workflow hardening merged in PR #94.
-
-Successful proof runs:
-
-- Commitlint run `29121887721`: success;
-- CI run `29121887745`: success;
-- CI jobs: lint, typecheck, test, security, Secrets audit, Link check, Coverage, and Browser UI tests.
+The earlier repository-wide `startup_failure` was resolved by the workflow hardening merged in PR #94.
 
 The repaired workflows:
 
-- use only read-only repository permissions;
+- use read-only repository permissions;
 - pin retained GitHub-owned actions to full commit SHAs;
 - disable checkout credential persistence;
 - replace blocked third-party actions with fixed-version command-line tools;
 - fetch full history only where Gitleaks requires it.
 
-Before configuring required checks, confirm the same workflows remain reliable on the final documentation and dependency pull requests and on final `main`.
+Successful hosted proof has included Commitlint, lint, typecheck, tests, security, full-history Gitleaks, link validation, coverage, and strict browser UI execution.
+
+After publication, manually dispatch `main` CI and rerun PR #116 CI. Confirm the expected public jobs are created before adding or updating required-check rules.
 
 ## Local and hosted controls
 
@@ -72,7 +70,9 @@ These controls complement one another. Bandit, Mypy, dependency auditing, and Gi
 
 ## Secret-history evidence
 
-The workflow repair produced a successful hosted full-history Gitleaks job. Publication still requires a final scan against the final merged `main` SHA.
+PR #115, whose merge commit is the current pre-preview-documentation `main` SHA `1dbd939854ab287430d1d9c24865e7ad51cbc29c`, passed the hosted full-history Gitleaks job. PR #115 changed documentation, planning, and link-check configuration only.
+
+The public-preview documentation branch must also receive a final Gitleaks result when Actions can run normally. Any real credential discovered before or after publication must be revoked and replaced before an alert is dismissed.
 
 Examples and fixtures must use unmistakably fake values. Review should continue to focus on:
 
@@ -85,19 +85,27 @@ Examples and fixtures must use unmistakably fake values. Review should continue 
 - uploaded file fixtures;
 - webhook secrets.
 
-## Owner actions before publication
+## Owner actions before or at public visibility
 
-1. Merge and validate the remaining release PRs through the repaired workflows.
-2. Execute the Linux symlink-containment regression without a skip.
-3. Run the complete clean-clone validation suite against final `main`.
-4. Confirm Dependabot recognizes the new configuration.
-5. Enable Dependabot alerts and security updates where available.
-6. Configure branch protection or a ruleset after final check names are confirmed.
-7. Block force pushes and deletion of `main`.
-8. Confirm repository license detection, public documentation, topics, description, and social preview.
-9. Run a final full-history secret scan.
+1. Merge the public developer-preview status documentation.
+2. Confirm the repository still points `main` at the expected merged documentation SHA.
+3. Confirm the canonical Apache-2.0 license is detected.
+4. Verify repository description, topics, and social preview.
+5. Confirm Dependabot alerts and security updates are enabled where available.
+6. Verify pull-request, conversation-resolution, force-push, and branch-deletion controls for `main`.
+7. Keep PR #116 unmerged until its own review and CI correction are complete.
+8. Do not expose a running Switchboard service to the public internet.
+
+The Linux symlink-containment test is not a blocker to public source visibility, but it remains a mandatory formal-release gate under issue #104.
 
 ## Owner actions after publication
+
+### Public CI confirmation
+
+1. Manually dispatch the `main` CI workflow.
+2. Rerun PR #116 CI after its focused correction is pushed.
+3. Verify that Commitlint, lint, typecheck, tests, security, Secrets audit, Link check, Coverage, and Browser UI tests create normal jobs.
+4. Add or update required checks only after their final public names and behavior are confirmed.
 
 ### CodeQL
 
@@ -110,13 +118,15 @@ Examples and fixtures must use unmistakably fake values. Review should continue 
 
 ### Secret Protection and Push Protection
 
-1. Enable or verify secret scanning/Secret Protection.
+1. Enable or verify secret scanning or Secret Protection.
 2. Review historical alerts.
 3. Revoke and replace any real credential before dismissing an alert.
 4. Enable Push Protection when available.
 5. Restrict bypass permissions.
 6. Never test protection with a real credential.
 
-## Publication gate
+## Formal release gate
 
-This document does not authorize publication. The final release decision belongs in `PUBLIC_RELEASE_AUDIT.md` and must reference the final `main` SHA, final hosted runs, Linux symlink evidence, repository protection settings, and current clean-clone validation.
+Public source visibility and formal release are separate decisions.
+
+`PUBLIC_RELEASE_AUDIT.md` may permit the repository to be visible as a public developer preview while still withholding release authorization. A production release must reference an immutable release candidate, current validation, Linux symlink evidence, Docker disposition, repository protections, and explicit final authorization.
