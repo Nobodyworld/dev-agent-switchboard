@@ -600,9 +600,7 @@ class ExecutionRepository:
         )
         return _affected_one(result)
 
-    async def requeue_stale_active_run(
-        self, run_id: int, *, now: dt.datetime
-    ) -> bool:
+    async def requeue_stale_active_run(self, run_id: int, *, now: dt.datetime) -> bool:
         """Mark an active run timed out after exclusively consuming its stale lease."""
 
         return await self.finish_active_run(

@@ -246,9 +246,7 @@ async def test_worker_busy_heartbeat_blocks_checkout_until_available() -> None:
         await service.register_worker(_worker("worker-busy"))
         await _create_approved(service)
 
-        busy = await service.heartbeat_worker(
-            "worker-busy", status=WorkerStatus.BUSY
-        )
+        busy = await service.heartbeat_worker("worker-busy", status=WorkerStatus.BUSY)
         assert busy.status == WorkerStatus.BUSY
         busy_checkout = await service.checkout("worker-busy")
         assert busy_checkout.reason == "worker_concurrency_limit"

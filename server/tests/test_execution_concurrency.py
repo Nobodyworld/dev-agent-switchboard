@@ -86,9 +86,7 @@ def _service(session) -> ExecutionService:
     )
 
 
-def _service_at(
-    session, *, now: dt.datetime, lease_seconds: int
-) -> ExecutionService:
+def _service_at(session, *, now: dt.datetime, lease_seconds: int) -> ExecutionService:
     return ExecutionService(
         repository=ExecutionRepository(session),
         clock=lambda: now,
@@ -326,9 +324,7 @@ async def test_heartbeat_and_stale_expiry_race_preserves_one_consistent_outcome(
         heartbeat_task = asyncio.create_task(heartbeat())
         expiry_task = asyncio.create_task(expire())
         gate.set()
-        heartbeat_result, requeued = await asyncio.gather(
-            heartbeat_task, expiry_task
-        )
+        heartbeat_result, requeued = await asyncio.gather(heartbeat_task, expiry_task)
 
         run, persisted_order, lease_count, worker = await _load_active_state(
             factory,

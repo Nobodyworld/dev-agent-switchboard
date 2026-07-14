@@ -584,9 +584,7 @@ class ExecutionService:
             )
             if not run_updated or not work_order_updated or not released:
                 raise LifecycleConflictError("execution_record_transition_in_progress")
-        run = await self._repository.get_run(
-            snapshot.execution_run_id, refresh=True
-        )
+        run = await self._repository.get_run(snapshot.execution_run_id, refresh=True)
         if run is None:  # pragma: no cover - direct update cannot remove a run
             raise ExecutionNotFoundError("execution_run_not_found")
         return run
