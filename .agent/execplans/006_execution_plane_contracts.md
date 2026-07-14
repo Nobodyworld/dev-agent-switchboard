@@ -43,7 +43,7 @@ Primary implementation issue: #112. Parent product epic: #111.
 - [x] Add unit, API, concurrency, persistence, and authorization tests.
 - [x] Update API and message-schema documentation.
 - [ ] Run complete repository validation.
-- [ ] Open a draft PR linked to #112 and update this plan with evidence.
+- [x] Open a draft PR linked to #112 and update this plan with evidence.
 
 ## Surprises & Discoveries
 
@@ -310,6 +310,28 @@ an invalid global `~andit` distribution. No project dependency was changed. An
 earlier isolated Python 3.12 virtual environment installed from
 `server/requirements-dev.txt` and returned `No broken requirements found`; the
 temporary environment was removed after validation.
+
+## Hosted Correction Record (2026-07-14)
+
+- The implementation agent reported a clean local validation result on original
+  head `49b439d1088184a347ee6bd663f2a2feac784138`, including `252 passed,
+  2 skipped` and a local pre-commit pass.
+- Hosted CI run `29217558075` on that exact head passed tests, type checking,
+  security, link validation, and full-history Gitleaks, but pinned
+  `ruff-format` modified four files. Coverage and strict browser jobs were
+  skipped because lint failed.
+- The connector synchronized the branch with public `main`
+  `99887b4eca4c2d9aedf8ca6e3d7485cdcdd656aa` using reviewed two-parent merge
+  commit `a643e65fef1413c18398e0a5735ffc58540236dc`. No implementation conflict
+  occurred; only the public-preview documentation was added.
+- Diagnostic workflow run `29309490743` reproduced the repository-pinned hook
+  and proved that only `server/execution/repository.py`,
+  `server/execution/service.py`, `server/tests/test_execution_concurrency.py`,
+  and `server/tests/test_execution_contracts.py` required line-wrap changes.
+- The branch now contains exactly those four hook-generated changes. No runtime
+  behavior, dependency, authentication, lifecycle, security, or test assertion
+  changed. The normal public hosted matrix on the final branch head is the
+  authoritative acceptance evidence and is recorded in PR #116.
 
 ## Context and Orientation
 
