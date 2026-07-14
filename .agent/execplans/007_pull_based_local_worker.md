@@ -22,18 +22,21 @@ This issue does not deliver the full `validate-switchboard@1` evidence workflow.
 - [x] Canonical worker base established at `765b7167457e523b9edc0b230039ed407060274b`.
 - [x] Implementation branch `feat/pull-based-local-worker` created.
 - [x] Worker security and repository-ownership decisions locked in issue #113.
-- [ ] Inspect the merged execution schemas, API responses, and client conventions in detail.
-- [ ] Add trusted executable step definitions while keeping API output metadata-only.
-- [ ] Add execution-specific HTTP client methods with bounded retry behavior.
-- [ ] Add worker configuration, repository registry, and capability discovery.
+- [x] Inspect the merged execution schemas, API responses, and client conventions in detail.
+- [x] Add trusted executable step definitions while keeping API output metadata-only.
+- [x] Add execution-specific HTTP client methods with bounded retry behavior.
+- [x] Add worker configuration, repository registry, and capability discovery.
 - [ ] Add exact-SHA disposable checkout and contained cleanup.
 - [ ] Add fixed-argv process execution, output bounding, redaction, and process-tree termination.
 - [ ] Add worker and run heartbeat/cancellation coordination.
-- [ ] Add `worker-smoke@1` and end-to-end temporary-repository proof.
+- [x] Add the trusted `worker-smoke@1` identity and fixed steps.
+- [ ] Add end-to-end `worker-smoke@1` temporary-repository proof.
 - [ ] Add focused security, concurrency, timeout, cancellation, and restart tests.
 - [ ] Update operator and API documentation.
+- [x] Run the complete public hosted matrix for the connector foundation on `677fa48396db4308661f96d900a49f3ed3ae8805`.
 - [ ] Run complete repository validation.
-- [ ] Open a draft PR linked to #113 and record final evidence here.
+- [x] Open draft PR #119 linked to #113.
+- [ ] Record final local-runtime and merge evidence here.
 
 ## Surprises & Discoveries
 
@@ -48,6 +51,12 @@ This issue does not deliver the full `validate-switchboard@1` evidence workflow.
 
 - Observation: `docs/examples/execution/validate-switchboard-v1.yaml` contains illustrative argv, but its header states that it is not executable until #112-#114 are implemented.
   Evidence: The example is documentation, not a trusted runtime loader. Do not make arbitrary YAML files executable merely by placing them in the repository.
+
+- Observation: Checkout returns an execution run containing only `work_order_id`; the worker must retrieve the corresponding work order before it can validate repository, exact SHA, manifest identity, digest, and read-only policy.
+  Evidence: `ExecutionRunOut` omits those fields while `WorkOrderOut` contains them. The connector added `ExecutionClient.get_work_order()` and a focused transport test.
+
+- Observation: Adding a second trusted manifest exposed a real concurrent lazy-seeding race between independent checkout sessions.
+  Evidence: Hosted file-backed SQLite concurrency testing reproduced a unique-digest collision. `ExecutionRepository.ensure_manifest()` now uses a nested transaction/savepoint and reloads the immutable winning snapshot after a competing insert.
 
 ## Decision Log
 
@@ -79,16 +88,34 @@ This issue does not deliver the full `validate-switchboard@1` evidence workflow.
   Rationale: Cross-platform network sandboxing is not available through the current standard-library design. `worker_restricted` describes an operator-controlled trusted network posture, not a per-process firewall. The worker must reject policies it cannot truthfully satisfy.
   Date/Author: 2026-07-14 / ChatGPT connector review
 
+- Decision: Keep the execution HTTP adapter separate from the legacy task client and require explicit work-order retrieval after checkout.
+  Rationale: Task coordination and execution ownership have different endpoints and retry semantics. The separate client prevents accidental replay of checkout/completion and gives the worker the exact approved work-order identity before any local action.
+  Date/Author: 2026-07-14 / ChatGPT connector implementation
+
+- Decision: Synchronize trusted manifest insertion with a database savepoint rather than an in-memory lock.
+  Rationale: Multiple server processes or independent sessions must safely converge on one immutable manifest row. A Python lock would not protect database-level concurrency.
+  Date/Author: 2026-07-14 / ChatGPT connector implementation
+
 ## Outcomes & Retrospective
+
+Connector foundation checkpoint:
+
+- Draft PR #119 contains an authenticated execution client, immutable `WorkerConfig`, bounded capability discovery, digest-bound private `TrustedStep` definitions, metadata-only API output, and harmless `worker-smoke@1`.
+- `ExecutionClient.get_work_order()` resolves the repository, exact SHA, manifest identity/digest, and read-only policy after atomic checkout.
+- Concurrent manifest synchronization is database guarded through a nested transaction/savepoint.
+- Current connector foundation head: `677fa48396db4308661f96d900a49f3ed3ae8805`.
+- Commitlint run `29357792012` and CI run `29357791859` passed.
+- Full pytest: `266 passed, 2 skipped`; strict UI: `2 passed, 0 skipped`; measured coverage: `91.36%` (`1,449 / 1,586`).
+- Lint, typecheck, Bandit, `pip-audit`, full-history Gitleaks, links, coverage gates, and strict browser enforcement passed.
 
 Not complete. At completion, record:
 
 - final worker package and entry-point paths;
-- exact trusted-manifest representation and digest behavior;
 - checkout and cleanup containment guarantees;
 - process-tree cancellation implementation by platform;
-- test and coverage counts;
-- hosted CI run IDs;
+- local end-to-end smoke evidence;
+- final test and coverage counts;
+- final hosted CI run IDs;
 - remaining limitations deferred to #114.
 
 ## Context and Orientation
@@ -114,6 +141,7 @@ The existing execution API surface needed by the worker is:
 - `POST /api/execution/workers`
 - `POST /api/execution/workers/{worker_id}/heartbeat`
 - `POST /api/execution/checkout`
+- `GET /api/execution/work-orders/{work_order_id}`
 - `GET /api/execution/runs/{run_id}`
 - `POST /api/execution/runs/{run_id}/heartbeat`
 - `POST /api/execution/runs/{run_id}/complete`
@@ -151,6 +179,7 @@ Required operations:
 - register/refresh worker;
 - worker heartbeat;
 - checkout;
+- get assigned work order;
 - get run;
 - run heartbeat;
 - complete run.
@@ -353,6 +382,16 @@ Record here during implementation:
 - cleanup-containment proof;
 - final PR number and head SHA;
 - hosted run IDs and exact test counts.
+
+Connector foundation evidence:
+
+- PR: `#119`
+- Head: `677fa48396db4308661f96d900a49f3ed3ae8805`
+- Commitlint: `29357792012` — success
+- CI: `29357791859` — success
+- Pytest: `266 passed, 2 skipped`
+- Strict UI: `2 passed, 0 skipped`
+- Coverage: `91.36%` (`1,449 / 1,586`)
 
 Do not commit real tokens, local repository paths, full environment dumps, generated logs, temporary worktrees, virtual environments, or test databases.
 
