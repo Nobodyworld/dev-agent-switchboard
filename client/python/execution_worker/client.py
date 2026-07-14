@@ -106,6 +106,14 @@ class ExecutionClient:
         )
         return cast(dict[str, Any], result)
 
+    def get_work_order(self, work_order_id: int) -> dict[str, Any]:
+        """Read repository, exact SHA, manifest, and policy for an assigned run."""
+
+        result = self._request_json(
+            "get", f"/api/execution/work-orders/{work_order_id}"
+        )
+        return cast(dict[str, Any], result)
+
     def get_run(self, run_id: int) -> dict[str, Any]:
         """Read one execution-run snapshot."""
 
