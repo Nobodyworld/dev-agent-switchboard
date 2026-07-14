@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from http import HTTPStatus
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -10,10 +11,12 @@ import requests
 
 from client.python.execution_worker import (
     ExecutionClient,
-    ExecutionOwnershipLost,
+    ExecutionOwnershipLostError,
     WorkerConfig,
     discover_worker_registration,
 )
+
+_TEST_TOKEN = "worker-test-token"  # noqa: S105 - non-secret test fixture
 
 
 def _response(payload: object, *, status_code: int = 200) -> Mock:
@@ -29,7 +32,7 @@ def _config(tmp_path: Path) -> WorkerConfig:
         base_url="http://localhost:8000",
         worker_id="worker-1",
         display_name="Worker 1",
-        admin_token="secret-token",
+        admin_token=_TEST_TOKEN,
         worker_root=tmp_path / "worker-root",
         repositories={
             "Nobodyworld/dev-agent-switchboard": tmp_path / "canonical-repository"
@@ -41,7 +44,7 @@ def test_execution_client_requires_credentials() -> None:
     with pytest.raises(ValueError, match="admin_token"):
         ExecutionClient("http://example.com", "worker-1", "")
     with pytest.raises(ValueError, match="worker_id"):
-        ExecutionClient("http://example.com", "", "token")
+        ExecutionClient("http://example.com", "", _TEST_TOKEN)
 
 
 def test_execution_client_authenticates_and_uses_expected_manifest_endpoint() -> None:
@@ -50,7 +53,7 @@ def test_execution_client_authenticates_and_uses_expected_manifest_endpoint() ->
     client = ExecutionClient(
         "http://example.com/",
         "worker-1",
-        "token-value",
+        _TEST_TOKEN,
         session=session,
         timeout=3,
     )
@@ -60,7 +63,7 @@ def test_execution_client_authenticates_and_uses_expected_manifest_endpoint() ->
         "get",
         "http://example.com/api/execution/manifests",
         headers={
-            "Authorization": "Bearer token-value",
+            "Authorization": f"Bearer {_TEST_TOKEN}",
             "Accept": "application/json",
         },
         timeout=3.0,
@@ -68,7 +71,7 @@ def test_execution_client_authenticates_and_uses_expected_manifest_endpoint() ->
 
 
 def test_execution_client_registration_cannot_impersonate_another_worker() -> None:
-    client = ExecutionClient("http://example.com", "worker-1", "token")
+    client = ExecutionClient("http://example.com", "worker-1", _TEST_TOKEN)
 
     with pytest.raises(ValueError, match="must match"):
         client.register_worker({"worker_id": "worker-2"})
@@ -81,7 +84,7 @@ def test_execution_client_checkout_and_completion_payloads_are_bounded() -> None
         _response({"id": 9, "status": "failed"}),
     ]
     client = ExecutionClient(
-        "http://example.com", "worker-1", "token", session=session
+        "http://example.com", "worker-1", _TEST_TOKEN, session=session
     )
 
     assert client.checkout()["reason"] == "no_available"
@@ -111,15 +114,15 @@ def test_execution_client_checkout_and_completion_payloads_are_bounded() -> None
 
 def test_execution_client_surfaces_heartbeat_ownership_loss() -> None:
     session = Mock(spec=requests.Session)
-    session.request.return_value = _response({}, status_code=409)
+    session.request.return_value = _response({}, status_code=HTTPStatus.CONFLICT)
     client = ExecutionClient(
-        "http://example.com", "worker-1", "token", session=session
+        "http://example.com", "worker-1", _TEST_TOKEN, session=session
     )
 
-    with pytest.raises(ExecutionOwnershipLost) as captured:
+    with pytest.raises(ExecutionOwnershipLostError) as captured:
         client.heartbeat_run(7)
 
-    assert captured.value.status_code == 409
+    assert captured.value.status_code == HTTPStatus.CONFLICT
 
 
 def test_worker_config_uses_only_registered_absolute_paths(tmp_path: Path) -> None:
@@ -128,7 +131,7 @@ def test_worker_config_uses_only_registered_absolute_paths(tmp_path: Path) -> No
     assert config.repository_path("Nobodyworld/dev-agent-switchboard") == (
         tmp_path / "canonical-repository"
     )
-    assert "secret-token" not in repr(config)
+    assert _TEST_TOKEN not in repr(config)
     with pytest.raises(KeyError, match="not registered"):
         config.repository_path("untrusted/example")
 
@@ -141,7 +144,7 @@ def test_worker_config_rejects_relative_and_invalid_registry_entries(
             base_url="http://localhost:8000",
             worker_id="worker-1",
             display_name="Worker 1",
-            admin_token="token",
+            admin_token=_TEST_TOKEN,
             worker_root=Path("relative-root"),
             repositories={"Nobodyworld/repo": tmp_path / "repo"},
         )
@@ -151,7 +154,7 @@ def test_worker_config_rejects_relative_and_invalid_registry_entries(
             base_url="http://localhost:8000",
             worker_id="worker-1",
             display_name="Worker 1",
-            admin_token="token",
+            admin_token=_TEST_TOKEN,
             worker_root=tmp_path / "worker-root",
             repositories={"../escape": tmp_path / "repo"},
         )
