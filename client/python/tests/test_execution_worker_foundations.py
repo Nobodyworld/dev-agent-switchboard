@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 import requests
 
-from execution_worker import (
+from client.python.execution_worker import (
     ExecutionClient,
     ExecutionOwnershipLost,
     WorkerConfig,
@@ -162,17 +162,20 @@ def test_capability_discovery_is_bounded_and_read_only(
 ) -> None:
     available = {"git", "docker", "firefox"}
     monkeypatch.setattr(
-        "execution_worker.capabilities.shutil.which",
+        "client.python.execution_worker.capabilities.shutil.which",
         lambda name: f"/bin/{name}" if name in available else None,
     )
     monkeypatch.setattr(
-        "execution_worker.capabilities.platform.system", lambda: "Linux"
+        "client.python.execution_worker.capabilities.platform.system",
+        lambda: "Linux",
     )
     monkeypatch.setattr(
-        "execution_worker.capabilities.platform.machine", lambda: "x86_64"
+        "client.python.execution_worker.capabilities.platform.machine",
+        lambda: "x86_64",
     )
     monkeypatch.setattr(
-        "execution_worker.capabilities.platform.python_version", lambda: "3.11.9"
+        "client.python.execution_worker.capabilities.platform.python_version",
+        lambda: "3.11.9",
     )
 
     registration = discover_worker_registration(_config(tmp_path))
