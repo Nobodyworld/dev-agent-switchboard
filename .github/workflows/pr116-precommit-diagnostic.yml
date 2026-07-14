@@ -1,16 +1,16 @@
 name: PR 116 pinned formatting
 
 on:
-  push:
+  pull_request:
     branches:
-      - feat/execution-plane-contracts
+      - main
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: github.repository == 'Nobodyworld/dev-agent-switchboard' && github.ref == 'refs/heads/feat/execution-plane-contracts'
+    if: github.event.pull_request.number == 116 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/execution-plane-contracts'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout implementation branch
