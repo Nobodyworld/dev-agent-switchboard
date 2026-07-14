@@ -48,7 +48,7 @@ class WorkerConfig:
 
         normalized: dict[str, Path] = {}
         for repository_name, repository_path in self.repositories.items():
-            if not _REPOSITORY_NAME.fullmatch(repository_name):
+            if not _is_valid_repository_name(repository_name):
                 raise ValueError(
                     f"invalid repository full name in registry: {repository_name}"
                 )
@@ -100,6 +100,13 @@ class WorkerConfig:
             raise KeyError(
                 f"repository is not registered: {repository_full_name}"
             ) from error
+
+
+def _is_valid_repository_name(repository_name: str) -> bool:
+    if not _REPOSITORY_NAME.fullmatch(repository_name):
+        return False
+    owner, name = repository_name.split("/", maxsplit=1)
+    return owner not in {".", ".."} and name not in {".", ".."}
 
 
 __all__ = ["WorkerConfig"]
