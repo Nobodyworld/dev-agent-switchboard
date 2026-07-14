@@ -98,9 +98,7 @@ def test_execution_client_checkout_and_completion_payloads_are_bounded() -> None
     )
 
     assert completed["status"] == "failed"
-    assert session.request.call_args_list[0].kwargs["json"] == {
-        "worker_id": "worker-1"
-    }
+    assert session.request.call_args_list[0].kwargs["json"] == {"worker_id": "worker-1"}
     assert session.request.call_args_list[1].kwargs["json"] == {
         "worker_id": "worker-1",
         "status": "failed",

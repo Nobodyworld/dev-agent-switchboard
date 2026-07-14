@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import case, delete, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.models import (
@@ -62,8 +63,17 @@ class ExecutionRepository:
             timeout_seconds=definition.timeout_seconds,
             artifact_declarations=definition.artifact_declarations,
         )
-        self.session.add(manifest)
-        await self.session.flush()
+        try:
+            async with self.session.begin_nested():
+                self.session.add(manifest)
+                await self.session.flush()
+        except IntegrityError as error:
+            existing = await self.get_manifest(definition.name, definition.version)
+            if existing is None or not _matches_trusted_manifest(existing, definition):
+                raise ManifestIntegrityError(
+                    "trusted_manifest_digest_conflict"
+                ) from error
+            return existing
         return manifest
 
     async def ensure_manifests(
