@@ -1,0 +1,92 @@
+name: PR 119 ExecPlan checkpoint
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  record:
+    if: github.event.pull_request.number == 119 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/pull-based-local-worker'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout worker branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: feat/pull-based-local-worker
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Record connector foundation evidence
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.agent/execplans/007_pull_based_local_worker.md')
+          text = path.read_text(encoding='utf-8')
+
+          replacements = {
+              '- [ ] Inspect the merged execution schemas, API responses, and client conventions in detail.': '- [x] Inspect the merged execution schemas, API responses, and client conventions in detail.',
+              '- [ ] Add trusted executable step definitions while keeping API output metadata-only.': '- [x] Add trusted executable step definitions while keeping API output metadata-only.',
+              '- [ ] Add execution-specific HTTP client methods with bounded retry behavior.': '- [x] Add execution-specific HTTP client methods with bounded retry behavior.',
+              '- [ ] Add worker configuration, repository registry, and capability discovery.': '- [x] Add worker configuration, repository registry, and capability discovery.',
+              '- [ ] Add `worker-smoke@1` and end-to-end temporary-repository proof.': '- [x] Add the trusted `worker-smoke@1` identity and fixed steps.\n- [ ] Add end-to-end `worker-smoke@1` temporary-repository proof.',
+              '- [ ] Open a draft PR linked to #113 and record final evidence here.': '- [x] Open draft PR #119 linked to #113.\n- [ ] Record final local-runtime and merge evidence here.',
+              '- get run;': '- get assigned work order;\n- get run;',
+              '- `POST /api/execution/checkout`\n- `GET /api/execution/runs/{run_id}`': '- `POST /api/execution/checkout`\n- `GET /api/execution/work-orders/{work_order_id}`\n- `GET /api/execution/runs/{run_id}`',
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'missing expected ExecPlan text: {old}')
+              text = text.replace(old, new, 1)
+
+          progress_marker = '- [ ] Run complete repository validation.\n'
+          progress_addition = (
+              '- [x] Run the complete public hosted matrix for the connector foundation '
+              'on `677fa48396db4308661f96d900a49f3ed3ae8805`.\n'
+          )
+          if progress_addition not in text:
+              text = text.replace(progress_marker, progress_addition + progress_marker, 1)
+
+          discovery_marker = '## Decision Log\n'
+          discoveries = '''- Observation: Checkout returns an execution run containing only `work_order_id`; the worker must retrieve the corresponding work order before it can validate repository, exact SHA, manifest identity, digest, and read-only policy.\n  Evidence: `ExecutionRunOut` omits those fields while `WorkOrderOut` contains them. The connector added `ExecutionClient.get_work_order()` and a focused transport test.\n\n- Observation: Adding a second trusted manifest exposed a real concurrent lazy-seeding race between independent checkout sessions.\n  Evidence: Hosted file-backed SQLite concurrency testing reproduced a unique-digest collision. `ExecutionRepository.ensure_manifest()` now uses a nested transaction/savepoint and reloads the immutable winning snapshot after a competing insert.\n\n'''
+          if discoveries.strip() not in text:
+              text = text.replace(discovery_marker, discoveries + discovery_marker, 1)
+
+          decision_marker = '## Outcomes & Retrospective\n'
+          decisions = '''- Decision: Keep the execution HTTP adapter separate from the legacy task client and require explicit work-order retrieval after checkout.\n  Rationale: Task coordination and execution ownership have different endpoints and retry semantics. The separate client prevents accidental replay of checkout/completion and gives the worker the exact approved work-order identity before any local action.\n  Date/Author: 2026-07-14 / ChatGPT connector implementation\n\n- Decision: Synchronize trusted manifest insertion with a database savepoint rather than an in-memory lock.\n  Rationale: Multiple server processes or independent sessions must safely converge on one immutable manifest row. A Python lock would not protect database-level concurrency.\n  Date/Author: 2026-07-14 / ChatGPT connector implementation\n\n'''
+          if decisions.strip() not in text:
+              text = text.replace(decision_marker, decisions + decision_marker, 1)
+
+          outcome_old = '''Not complete. At completion, record:\n\n- final worker package and entry-point paths;\n- exact trusted-manifest representation and digest behavior;\n- checkout and cleanup containment guarantees;\n- process-tree cancellation implementation by platform;\n- test and coverage counts;\n- hosted CI run IDs;\n- remaining limitations deferred to #114.\n'''
+          outcome_new = '''Connector foundation checkpoint:\n\n- Draft PR #119 contains an authenticated execution client, immutable `WorkerConfig`, bounded capability discovery, digest-bound private `TrustedStep` definitions, metadata-only API output, and harmless `worker-smoke@1`.\n- `ExecutionClient.get_work_order()` resolves the repository, exact SHA, manifest identity/digest, and read-only policy after atomic checkout.\n- Concurrent manifest synchronization is database guarded through a nested transaction/savepoint.\n- Current connector foundation head: `677fa48396db4308661f96d900a49f3ed3ae8805`.\n- Commitlint run `29357792012` and CI run `29357791859` passed.\n- Full pytest: `266 passed, 2 skipped`; strict UI: `2 passed, 0 skipped`; measured coverage: `91.36%` (`1,449 / 1,586`).\n- Lint, typecheck, Bandit, `pip-audit`, full-history Gitleaks, links, coverage gates, and strict browser enforcement passed.\n\nNot complete. At completion, record:\n\n- final worker package and entry-point paths;\n- checkout and cleanup containment guarantees;\n- process-tree cancellation implementation by platform;\n- local end-to-end smoke evidence;\n- final test and coverage counts;\n- final hosted CI run IDs;\n- remaining limitations deferred to #114.\n'''
+          if outcome_old not in text:
+              raise SystemExit('expected Outcomes placeholder was not found')
+          text = text.replace(outcome_old, outcome_new, 1)
+
+          notes_marker = 'Do not commit real tokens, local repository paths, full environment dumps, generated logs, temporary worktrees, virtual environments, or test databases.\n'
+          notes_addition = '''Connector foundation evidence:\n\n- PR: `#119`\n- Head: `677fa48396db4308661f96d900a49f3ed3ae8805`\n- Commitlint: `29357792012` — success\n- CI: `29357791859` — success\n- Pytest: `266 passed, 2 skipped`\n- Strict UI: `2 passed, 0 skipped`\n- Coverage: `91.36%` (`1,449 / 1,586`)\n\n'''
+          if notes_addition.strip() not in text:
+              text = text.replace(notes_marker, notes_addition + notes_marker, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+          git diff --check
+
+      - name: Verify scope
+        shell: bash
+        run: |
+          test "$(git diff --name-only)" = ".agent/execplans/007_pull_based_local_worker.md"
+
+      - name: Commit checkpoint
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .agent/execplans/007_pull_based_local_worker.md
+          git commit -m "docs(worker): record connector foundation evidence"
+          git push origin HEAD:feat/pull-based-local-worker
