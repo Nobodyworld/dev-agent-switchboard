@@ -26,13 +26,13 @@ This issue does not deliver the full `validate-switchboard@1` evidence workflow.
 - [x] Add trusted executable step definitions while keeping API output metadata-only.
 - [x] Add execution-specific HTTP client methods with bounded retry behavior.
 - [x] Add worker configuration, repository registry, and capability discovery.
-- [ ] Add exact-SHA disposable checkout and contained cleanup.
-- [ ] Add fixed-argv process execution, output bounding, redaction, and process-tree termination.
-- [ ] Add worker and run heartbeat/cancellation coordination.
+- [x] Add exact-SHA disposable checkout and contained cleanup.
+- [x] Add fixed-argv process execution, output bounding, redaction, and process-tree termination.
+- [x] Add worker and run heartbeat/cancellation coordination.
 - [x] Add the trusted `worker-smoke@1` identity and fixed steps.
-- [ ] Add end-to-end `worker-smoke@1` temporary-repository proof.
-- [ ] Add focused security, concurrency, timeout, cancellation, and restart tests.
-- [ ] Update operator and API documentation.
+- [x] Add end-to-end `worker-smoke@1` temporary-repository proof.
+- [x] Add focused security, concurrency, timeout, cancellation, and restart tests.
+- [x] Update operator and API documentation.
 - [x] Run the complete public hosted matrix for the connector foundation on `677fa48396db4308661f96d900a49f3ed3ae8805`.
 - [ ] Run complete repository validation.
 - [x] Open draft PR #119 linked to #113.
@@ -57,6 +57,11 @@ This issue does not deliver the full `validate-switchboard@1` evidence workflow.
 
 - Observation: Adding a second trusted manifest exposed a real concurrent lazy-seeding race between independent checkout sessions.
   Evidence: Hosted file-backed SQLite concurrency testing reproduced a unique-digest collision. `ExecutionRepository.ensure_manifest()` now uses a nested transaction/savepoint and reloads the immutable winning snapshot after a competing insert.
+
+- Observation: the restricted Windows shell denies `taskkill` access to its own
+  test child, while the same fixed-argv test passes outside that sandbox.
+  Evidence: sandbox output was `ERROR: Access denied`; the unrestricted focused
+  process-tree test passed on 2026-07-15 without elevation.
 
 ## Decision Log
 
@@ -95,6 +100,18 @@ This issue does not deliver the full `validate-switchboard@1` evidence workflow.
 - Decision: Synchronize trusted manifest insertion with a database savepoint rather than an in-memory lock.
   Rationale: Multiple server processes or independent sessions must safely converge on one immutable manifest row. A Python lock would not protect database-level concurrency.
   Date/Author: 2026-07-14 / ChatGPT connector implementation
+
+- Decision: keep run records and full logs beneath the worker root after removing
+  only the exact disposable Git worktree.
+  Rationale: completion log references must remain valid and Phase 1 has no
+  server-side artifact ingestion or retention processor.
+  Date/Author: 2026-07-15 / Codex
+
+- Decision: make Phase 1 concurrency truthfully one rather than accepting an
+  unimplemented worker-pool setting.
+  Rationale: a worker cannot claim local parallel execution until scheduling,
+  cancellation, and recovery are proven for a tested pool.
+  Date/Author: 2026-07-15 / Codex
 
 ## Outcomes & Retrospective
 
@@ -402,6 +419,28 @@ Connector foundation evidence:
 - Pytest: `266 passed, 2 skipped`
 - Strict UI: `2 passed, 0 skipped`
 - Coverage: `91.36%` (`1,449 / 1,586`)
+
+Runtime continuation evidence (2026-07-15):
+
+- owned worktree tests prove exact detached SHA, marker ownership, retained
+  logs, cleanup isolation from an unrelated worktree, canonical-state proof,
+  POSIX symlink rejection, and Windows junction rejection;
+- runner tests prove fixed argv, pre-launch deadline rejection, bounded/redacted
+  summaries, total-output enforcement, and process-tree cancellation;
+- worker tests prove manifest/no-step rejection before checkout, continuous
+  heartbeat ownership-loss cancellation, retained local results, one local run
+  ID per process, and `worker-smoke@1` exact-SHA completion against a temporary
+  Git repository;
+- the server-backed smoke uses an isolated SQLite Switchboard application and
+  the actual execution API to create, approve, queue, assign, heartbeat, and
+  terminally complete `worker-smoke@1`; it proves one worker registration, one
+  released lease, retained logs, detached requested SHA, and no canonical source
+  writes;
+- final split validation: server tests `166 passed, 2 skipped`; client tests
+  `96 passed, 1 skipped, 1 deselected`; root tests `28 passed`; strict UI
+  tests `2 passed`; and the coverage collection `295 passed, 3 skipped,
+  1 deselected`. The deselected Windows termination case passed separately
+  outside the sandbox (`1 passed`).
 
 Do not commit real tokens, local repository paths, full environment dumps, generated logs, temporary worktrees, virtual environments, or test databases.
 
