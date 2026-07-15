@@ -71,8 +71,18 @@ async def test_manifest_api_never_exposes_executable_fields() -> None:
     assert "executable" not in serialized
     assert "shell" not in serialized
     assert payload["fixed_step_metadata"] == [
-        {"id": "python-version", "required": True, "timeout_seconds": 60},
-        {"id": "git-head", "required": True, "timeout_seconds": 60},
+        {
+            "id": "python-version",
+            "required": True,
+            "timeout_seconds": 60,
+            "output_summary_limit": 4096,
+        },
+        {
+            "id": "git-head",
+            "required": True,
+            "timeout_seconds": 60,
+            "output_summary_limit": 4096,
+        },
     ]
 
 

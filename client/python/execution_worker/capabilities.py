@@ -55,7 +55,7 @@ def discover_worker_registration(config: WorkerConfig) -> dict[str, Any]:
             "worker_root_configured": True,
         },
         "max_concurrency": config.max_concurrency,
-        "network_policy_capability": "worker_restricted",
+        "network_policy_capability": config.network_policy_capability,
         "repository_write_capability": False,
         "status": "online",
     }

@@ -98,6 +98,16 @@ This issue does not deliver the full `validate-switchboard@1` evidence workflow.
 
 ## Outcomes & Retrospective
 
+### Local runtime checkpoint (2026-07-15)
+
+- Added strict worker-side payload models before filesystem or process actions.
+- Added a worker-owned detached-worktree lifecycle using fixed `git` argv and exact
+  `HEAD` verification, plus fixed-argv log-capturing process execution.
+- Configuration now reads the Phase-1 admin token only from
+  `SWITCHBOARD_ADMIN_TOKEN`; JSON configuration must not contain a token.
+- Focused foundation/manifest tests passed with a workspace-owned pytest temp root
+  (14 passed). The complete runtime matrix and full validation remain pending.
+
 Connector foundation checkpoint:
 
 - Draft PR #119 contains an authenticated execution client, immutable `WorkerConfig`, bounded capability discovery, digest-bound private `TrustedStep` definitions, metadata-only API output, and harmless `worker-smoke@1`.

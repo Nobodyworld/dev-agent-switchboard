@@ -16,6 +16,8 @@ from typing import Any
 from .enums import NetworkPolicy, RepositoryWritePolicy
 
 TRUSTED_REPOSITORIES = frozenset({"Nobodyworld/dev-agent-switchboard"})
+MAX_TRUSTED_STEP_ID_LENGTH = 80
+MAX_TRUSTED_STEP_OUTPUT_SUMMARY_BYTES = 64 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,23 +29,36 @@ class TrustedStep:
     argv: tuple[str, ...]
     required: bool
     timeout_seconds: int
+    output_summary_limit: int = 4096
     working_directory: str = "."
     environment: tuple[tuple[str, str], ...] = ()
     capability_condition: dict[str, Any] | None = None
     diagnostic_only: bool = False
 
     def __post_init__(self) -> None:
-        if not self.id or not self.title:
+        if not self.id or not self.title or len(self.id) > MAX_TRUSTED_STEP_ID_LENGTH:
             raise ValueError("trusted step identity must not be empty")
         if not self.argv or any(not item for item in self.argv):
             raise ValueError("trusted step argv must contain fixed non-empty items")
         if self.timeout_seconds <= 0:
             raise ValueError("trusted step timeout must be positive")
+        if not (
+            1 <= self.output_summary_limit <= MAX_TRUSTED_STEP_OUTPUT_SUMMARY_BYTES
+        ):
+            raise ValueError("trusted step output summary limit is out of bounds")
         working_directory = PurePosixPath(self.working_directory)
         if working_directory.is_absolute() or ".." in working_directory.parts:
             raise ValueError("trusted step working directory must remain relative")
         if self.required and self.diagnostic_only:
             raise ValueError("a required step cannot be diagnostic-only")
+        keys = [key for key, _ in self.environment]
+        if len(keys) != len(set(keys)) or any(
+            not key or not key.replace("_", "a").isalnum() or not value
+            for key, value in self.environment
+        ):
+            raise ValueError(
+                "trusted step environment must contain unique valid values"
+            )
 
     def digest_payload(self) -> dict[str, Any]:
         """Return every execution-relevant field for immutable digesting."""
@@ -54,6 +69,7 @@ class TrustedStep:
             "diagnostic_only": self.diagnostic_only,
             "environment": [list(item) for item in self.environment],
             "id": self.id,
+            "output_summary_limit": self.output_summary_limit,
             "required": self.required,
             "timeout_seconds": self.timeout_seconds,
             "title": self.title,
@@ -67,6 +83,7 @@ class TrustedStep:
             "id": self.id,
             "required": self.required,
             "timeout_seconds": self.timeout_seconds,
+            "output_summary_limit": self.output_summary_limit,
         }
         if self.capability_condition:
             metadata["capability_condition"] = self.capability_condition
@@ -140,6 +157,7 @@ _WORKER_SMOKE_STEPS = (
         argv=("python", "--version"),
         required=True,
         timeout_seconds=60,
+        output_summary_limit=4096,
     ),
     TrustedStep(
         id="git-head",
@@ -147,6 +165,7 @@ _WORKER_SMOKE_STEPS = (
         argv=("git", "rev-parse", "HEAD"),
         required=True,
         timeout_seconds=60,
+        output_summary_limit=4096,
     ),
 )
 
