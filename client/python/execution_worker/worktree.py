@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import uuid
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,9 +33,9 @@ class DisposableWorktree:
             self.run_directory, self.root
         ):
             raise RuntimeError("refusing unsafe worker cleanup")
-        subprocess.run(
+        subprocess.run(  # noqa: S603 - fixed reviewed Git worktree operation
             [
-                "git",
+                "git",  # noqa: S607 - operator PATH resolves the trusted Git binary
                 "-C",
                 str(self.canonical),
                 "worktree",
@@ -50,8 +50,14 @@ class DisposableWorktree:
         )
         if self.run_directory.exists():
             shutil.rmtree(self.run_directory)
-        subprocess.run(
-            ["git", "-C", str(self.canonical), "worktree", "prune"],
+        subprocess.run(  # noqa: S603 - fixed reviewed Git maintenance operation
+            [
+                "git",  # noqa: S607 - operator PATH resolves the trusted Git binary
+                "-C",
+                str(self.canonical),
+                "worktree",
+                "prune",
+            ],
             check=True,
             shell=False,
             capture_output=True,
@@ -68,8 +74,15 @@ def create_worktree(canonical: Path, root: Path, sha: str) -> DisposableWorktree
         raise ValueError("configured repository is not a Git checkout")
     if not root.is_absolute() or _contained(canonical, root):
         raise ValueError("worker root is unsafe")
-    check = subprocess.run(
-        ["git", "-C", str(canonical), "cat-file", "-e", f"{sha}^{{commit}}"],
+    check = subprocess.run(  # noqa: S603 - fixed reviewed Git object validation
+        [
+            "git",  # noqa: S607 - operator PATH resolves the trusted Git binary
+            "-C",
+            str(canonical),
+            "cat-file",
+            "-e",
+            f"{sha}^{{commit}}",
+        ],
         check=False,
         shell=False,
         capture_output=True,
@@ -84,9 +97,9 @@ def create_worktree(canonical: Path, root: Path, sha: str) -> DisposableWorktree
         raise ValueError("generated run path escaped root")
     run.mkdir()
     try:
-        subprocess.run(
+        subprocess.run(  # noqa: S603 - fixed reviewed Git worktree operation
             [
-                "git",
+                "git",  # noqa: S607 - operator PATH resolves the trusted Git binary
                 "-C",
                 str(canonical),
                 "worktree",
@@ -100,8 +113,14 @@ def create_worktree(canonical: Path, root: Path, sha: str) -> DisposableWorktree
             capture_output=True,
             text=True,
         )
-        head = subprocess.run(
-            ["git", "-C", str(checkout), "rev-parse", "HEAD"],
+        head = subprocess.run(  # noqa: S603 - fixed reviewed Git identity read
+            [
+                "git",  # noqa: S607 - operator PATH resolves the trusted Git binary
+                "-C",
+                str(checkout),
+                "rev-parse",
+                "HEAD",
+            ],
             check=True,
             shell=False,
             capture_output=True,
