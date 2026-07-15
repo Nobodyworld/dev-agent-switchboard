@@ -1,3 +1,6 @@
+# Every subprocess call in this module accepts only immutable reviewed TrustedStep
+# argv or a fixed internal OS process-tree command; no caller argv reaches it.
+# ruff: noqa: S603
 """Fixed-argv process execution with bounded redacted summaries."""
 
 from __future__ import annotations
@@ -42,7 +45,7 @@ def _summary(path: Path, limit: int, config: WorkerConfig) -> tuple[str, bool]:
 
 def _terminate(process: subprocess.Popen[bytes]) -> None:
     if os.name == "nt":
-        subprocess.run(  # noqa: S603 - fixed internal OS process-tree control
+        subprocess.run(
             ["taskkill", "/PID", str(process.pid), "/T", "/F"],  # noqa: S607
             shell=False,
             stdout=subprocess.DEVNULL,
@@ -86,7 +89,7 @@ def run_step(
     )
     started = time.monotonic()
     with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
-        process = subprocess.Popen(  # noqa: S603 - immutable reviewed TrustedStep argv
+        process = subprocess.Popen(
             step.argv,
             cwd=cwd,
             env=environment,
