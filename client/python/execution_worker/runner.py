@@ -42,22 +42,23 @@ def _summary(path: Path, limit: int, config: WorkerConfig) -> tuple[str, bool]:
 
 def _terminate(process: subprocess.Popen[bytes]) -> None:
     if os.name == "nt":
-        subprocess.run(
-            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+        subprocess.run(  # noqa: S603 - fixed internal OS process-tree control
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],  # noqa: S607
             shell=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
         )
     else:
-        os.killpg(process.pid, signal.SIGTERM)  # type: ignore[attr-defined]
+        kill_process_group = getattr(os, "killpg", None)
+        if kill_process_group is None:  # pragma: no cover - POSIX contract guard
+            raise RuntimeError("POSIX process-group termination is unavailable")
+        kill_process_group(process.pid, signal.SIGTERM)
         try:
             process.wait(timeout=2)
         except subprocess.TimeoutExpired:
-            os.killpg(  # type: ignore[attr-defined]
-                process.pid,
-                signal.SIGKILL,  # type: ignore[attr-defined]
-            )
+            force_signal = getattr(signal, "SIGKILL", signal.SIGTERM)
+            kill_process_group(process.pid, force_signal)
 
 
 def run_step(
@@ -85,7 +86,7 @@ def run_step(
     )
     started = time.monotonic()
     with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
-        process = subprocess.Popen(
+        process = subprocess.Popen(  # noqa: S603 - immutable reviewed TrustedStep argv
             step.argv,
             cwd=cwd,
             env=environment,
