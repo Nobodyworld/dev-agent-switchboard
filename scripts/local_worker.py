@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import signal
 import time
 from pathlib import Path
 
@@ -30,9 +31,16 @@ def main() -> int:
     ) as client:
         worker = LocalWorker(config, client)
         worker.start()
+        signal.signal(signal.SIGINT, lambda _signal, _frame: worker.request_shutdown())
+        if hasattr(signal, "SIGTERM"):
+            signal.signal(
+                signal.SIGTERM,
+                lambda _signal, _frame: worker.request_shutdown(),
+            )
         while True:
             worker.poll_once()
-            if arguments.once:
+            if arguments.once or worker.shutting_down:
+                client.heartbeat_worker(status="draining")
                 return 0
             client.heartbeat_worker(status="online")
             time.sleep(config.poll_interval_seconds)

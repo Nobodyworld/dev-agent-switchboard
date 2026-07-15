@@ -1,13 +1,14 @@
 # Every subprocess call in this module accepts only immutable reviewed TrustedStep
 # argv or a fixed internal OS process-tree command; no caller argv reaches it.
 # ruff: noqa: S603
-"""Fixed-argv process execution with bounded redacted summaries."""
+"""Fixed-argv process execution with bounded output and cancellation."""
 
 from __future__ import annotations
 
 import os
 import signal
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,34 @@ from pathlib import Path
 from server.execution.registry import TrustedStep
 
 from .config import WorkerConfig
+
+
+class OverallDeadlineExceededError(RuntimeError):
+    """Raised before launch when no overall execution time remains."""
+
+
+class CancellationToken:
+    """Thread-safe run cancellation reason shared by monitor and runner."""
+
+    def __init__(self) -> None:
+        self._event = threading.Event()
+        self._reason = "cancelled"
+        self._lock = threading.Lock()
+
+    def cancel(self, reason: str) -> None:
+        with self._lock:
+            if not self._event.is_set():
+                self._reason = reason
+                self._event.set()
+
+    @property
+    def cancelled(self) -> bool:
+        return self._event.is_set()
+
+    @property
+    def reason(self) -> str:
+        with self._lock:
+            return self._reason
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +57,8 @@ class StepResult:
     summaries_truncated: bool
     stdout_log: str
     stderr_log: str
+    environment_summary: dict[str, str]
+    terminal_reason: str | None = None
 
 
 def _redact(value: str, config: WorkerConfig) -> str:
@@ -37,37 +68,176 @@ def _redact(value: str, config: WorkerConfig) -> str:
     return value
 
 
-def _summary(path: Path, limit: int, config: WorkerConfig) -> tuple[str, bool]:
-    data = path.read_bytes()
-    text = data[:limit].decode("utf-8", errors="replace")
-    return _redact(text, config), len(data) > limit
+def environment_summary(
+    environment: dict[str, str], config: WorkerConfig
+) -> dict[str, str]:
+    """Expose only safe environment presence, respecting configured key patterns."""
 
-
-def _terminate(process: subprocess.Popen[bytes]) -> None:
-    if os.name == "nt":
-        subprocess.run(
-            ["taskkill", "/PID", str(process.pid), "/T", "/F"],  # noqa: S607
-            shell=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
+    patterns = tuple(pattern.upper() for pattern in config.redacted_key_patterns)
+    return {
+        key: (
+            "[REDACTED]"
+            if any(pattern in key.upper() for pattern in patterns)
+            else "[SET]"
         )
-    else:
-        kill_process_group = getattr(os, "killpg", None)
-        if kill_process_group is None:  # pragma: no cover - POSIX contract guard
-            raise RuntimeError("POSIX process-group termination is unavailable")
-        kill_process_group(process.pid, signal.SIGTERM)
-        try:
-            process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            force_signal = getattr(signal, "SIGKILL", signal.SIGTERM)
-            kill_process_group(process.pid, force_signal)
+        for key in sorted(environment)
+    }
 
 
-def run_step(
-    step: TrustedStep, checkout: Path, logs: Path, config: WorkerConfig, deadline: float
+def _summary(path: Path, limit: int, config: WorkerConfig) -> tuple[str, bool]:
+    size = path.stat().st_size if path.exists() else 0
+    lookahead = max(
+        (len(value.encode("utf-8")) for value in config.redacted_value_patterns),
+        default=0,
+    )
+    with path.open("rb") as handle:
+        data = handle.read(limit + lookahead)
+    text = _redact(data.decode("utf-8", errors="replace"), config)
+    return text[:limit], size > limit
+
+
+def _directory_size(path: Path) -> int:
+    return sum(
+        item.stat().st_size
+        for item in path.rglob("*")
+        if item.is_file() and not item.is_symlink()
+    )
+
+
+def _process_group_alive(process: subprocess.Popen[bytes]) -> bool:
+    if os.name == "nt":
+        return process.poll() is None
+    kill_process_group = getattr(os, "killpg", None)
+    if not callable(kill_process_group):  # pragma: no cover - POSIX contract guard
+        raise RuntimeError("POSIX process-group termination is unavailable")
+    try:
+        kill_process_group(process.pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _terminate_windows(process: subprocess.Popen[bytes], grace_seconds: float) -> None:
+    """Use the fixed Windows tree-kill command for the trusted child PID."""
+
+    terminated = subprocess.run(
+        ["taskkill", "/PID", str(process.pid), "/T", "/F"],  # noqa: S607
+        shell=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    try:
+        process.wait(timeout=grace_seconds)
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(
+            "Windows process-tree termination failed "
+            f"(taskkill_exit={terminated.returncode})"
+        ) from error
+    if process.poll() is None:
+        raise RuntimeError("Windows process-tree termination left parent running")
+
+
+def _signal_process_group(
+    kill_process_group: object, process_id: int, signal_number: signal.Signals
+) -> bool:
+    """Signal one known process group, returning false when it has exited."""
+
+    if not callable(kill_process_group):  # pragma: no cover - POSIX contract guard
+        raise RuntimeError("POSIX process-group termination is unavailable")
+    try:
+        kill_process_group(process_id, signal_number)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _wait_for_parent(process: subprocess.Popen[bytes], grace_seconds: float) -> bool:
+    try:
+        process.wait(timeout=grace_seconds)
+    except subprocess.TimeoutExpired:
+        return False
+    return True
+
+
+def _terminate_posix(process: subprocess.Popen[bytes], grace_seconds: float) -> None:
+    """Send TERM then KILL to the trusted process group and verify it exits."""
+
+    kill_process_group = getattr(os, "killpg", None)
+    if not _signal_process_group(kill_process_group, process.pid, signal.SIGTERM):
+        return
+    if not _wait_for_parent(process, grace_seconds):
+        force_signal = getattr(signal, "SIGKILL", signal.SIGTERM)
+        _signal_process_group(kill_process_group, process.pid, force_signal)
+        if not _wait_for_parent(process, grace_seconds):
+            raise RuntimeError("POSIX parent process termination failed")
+    if _process_group_alive(process):
+        force_signal = getattr(signal, "SIGKILL", signal.SIGTERM)
+        if not _signal_process_group(kill_process_group, process.pid, force_signal):
+            return
+        if _process_group_alive(process):
+            raise RuntimeError("POSIX descendant process termination failed")
+
+
+def _terminate(process: subprocess.Popen[bytes], *, grace_seconds: float = 2.0) -> None:
+    """Terminate a trusted process and descendants, surfacing failed cleanup."""
+
+    if os.name == "nt":
+        _terminate_windows(process, grace_seconds)
+        return
+    _terminate_posix(process, grace_seconds)
+
+
+def _result(  # noqa: PLR0913 - immutable result records keep call-site context clear
+    *,
+    step: TrustedStep,
+    status: str,
+    process: subprocess.Popen[bytes],
+    started: float,
+    stdout_path: Path,
+    stderr_path: Path,
+    config: WorkerConfig,
+    environment: dict[str, str],
+    terminal_reason: str | None = None,
 ) -> StepResult:
-    """Run only one locally resolved reviewed step; no caller argv is accepted."""
+    limit = min(step.output_summary_limit, config.output_summary_limit)
+    out, out_cut = _summary(stdout_path, limit, config)
+    err, err_cut = _summary(stderr_path, limit, config)
+    return StepResult(
+        step_id=step.id,
+        status=status,
+        exit_code=process.returncode,
+        duration_seconds=time.monotonic() - started,
+        stdout_summary=out,
+        stderr_summary=err,
+        summaries_truncated=out_cut or err_cut,
+        stdout_log=stdout_path.name,
+        stderr_log=stderr_path.name,
+        environment_summary=environment_summary(environment, config),
+        terminal_reason=terminal_reason,
+    )
+
+
+def run_step(  # noqa: PLR0912, PLR0913, PLR0915 - trusted lifecycle inputs are explicit
+    step: TrustedStep,
+    checkout: Path,
+    logs: Path,
+    config: WorkerConfig,
+    deadline: float,
+    *,
+    cancellation: CancellationToken | None = None,
+) -> StepResult:
+    """Run one locally resolved reviewed step; no caller argv is accepted."""
+
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise OverallDeadlineExceededError(
+            "overall execution deadline expired before launch"
+        )
+    if cancellation is not None and cancellation.cancelled:
+        raise OverallDeadlineExceededError(
+            f"execution cancelled before launch:{cancellation.reason}"
+        )
     cwd = (checkout / step.working_directory).resolve(strict=True)
     if checkout.resolve() not in (cwd, *cwd.parents):
         raise ValueError("trusted working directory escaped checkout")
@@ -82,10 +252,8 @@ def run_step(
         if key in os.environ
     }
     environment.update(dict(step.environment))
-    timeout = min(
-        float(step.timeout_seconds),
-        config.maximum_step_timeout_seconds,
-        max(0.01, deadline - time.monotonic()),
+    step_deadline = time.monotonic() + min(
+        float(step.timeout_seconds), config.maximum_step_timeout_seconds, remaining
     )
     started = time.monotonic()
     with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
@@ -98,27 +266,59 @@ def run_step(
             stderr=stderr,
             start_new_session=os.name != "nt",
         )
-        try:
-            process.wait(timeout=timeout)
-            status = "succeeded" if process.returncode == 0 else "failed"
-        except subprocess.TimeoutExpired:
-            _terminate(process)
-            process.wait()
-            status = "timed_out"
-    out, out_cut = _summary(
-        stdout_path, min(step.output_summary_limit, config.output_summary_limit), config
+        status = "failed"
+        reason: str | None = None
+        while process.poll() is None:
+            now = time.monotonic()
+            if cancellation is not None and cancellation.cancelled:
+                status, reason = "cancelled", cancellation.reason
+                _terminate(process)
+                break
+            if now >= deadline:
+                status, reason = "timed_out", "overall_timeout"
+                _terminate(process)
+                break
+            if now >= step_deadline:
+                status, reason = "timed_out", "step_timeout"
+                _terminate(process)
+                break
+            total_output = _directory_size(logs)
+            if total_output > config.total_output_limit:
+                status, reason = "failed", "total_output_limit_exceeded"
+                _terminate(process)
+                break
+            run_directory = logs.parent
+            if _directory_size(run_directory) > config.disk_limit_bytes:
+                status, reason = "failed", "disk_limit_exceeded"
+                _terminate(process)
+                break
+            time.sleep(0.02)
+        if process.poll() is None:  # pragma: no cover - _terminate contract guard
+            raise RuntimeError("trusted process did not terminate")
+        if reason is None:
+            if _directory_size(logs) > config.total_output_limit:
+                status, reason = "failed", "total_output_limit_exceeded"
+            elif _directory_size(logs.parent) > config.disk_limit_bytes:
+                status, reason = "failed", "disk_limit_exceeded"
+            else:
+                status = "succeeded" if process.returncode == 0 else "failed"
+    return _result(
+        step=step,
+        status=status,
+        process=process,
+        started=started,
+        stdout_path=stdout_path,
+        stderr_path=stderr_path,
+        config=config,
+        environment=environment,
+        terminal_reason=reason,
     )
-    err, err_cut = _summary(
-        stderr_path, min(step.output_summary_limit, config.output_summary_limit), config
-    )
-    return StepResult(
-        step.id,
-        status,
-        process.returncode,
-        time.monotonic() - started,
-        out,
-        err,
-        out_cut or err_cut,
-        stdout_path.name,
-        stderr_path.name,
-    )
+
+
+__all__ = [
+    "CancellationToken",
+    "OverallDeadlineExceededError",
+    "StepResult",
+    "environment_summary",
+    "run_step",
+]

@@ -27,7 +27,7 @@ class ExecutionOwnershipLostError(ExecutionClientError):
 class ExecutionClient:
     """Small authenticated client dedicated to execution-plane endpoints."""
 
-    def __init__(  # noqa: PLR0913 - transport construction exposes bounded tuning
+    def __init__(  # noqa: PLR0913, RUF100
         self,
         base_url: str,
         worker_id: str,
