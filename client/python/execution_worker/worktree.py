@@ -1,3 +1,6 @@
+# Every subprocess call in this module uses fixed Git argv assembled only from the
+# operator repository registry, an internally generated path, and a validated SHA.
+# ruff: noqa: S603, S607
 """Containment-checked detached Git worktrees owned by the worker."""
 
 from __future__ import annotations
@@ -33,9 +36,9 @@ class DisposableWorktree:
             self.run_directory, self.root
         ):
             raise RuntimeError("refusing unsafe worker cleanup")
-        subprocess.run(  # noqa: S603 - fixed reviewed Git worktree operation
+        subprocess.run(
             [
-                "git",  # noqa: S607 - operator PATH resolves the trusted Git binary
+                "git",
                 "-C",
                 str(self.canonical),
                 "worktree",
@@ -50,9 +53,9 @@ class DisposableWorktree:
         )
         if self.run_directory.exists():
             shutil.rmtree(self.run_directory)
-        subprocess.run(  # noqa: S603 - fixed reviewed Git maintenance operation
+        subprocess.run(
             [
-                "git",  # noqa: S607 - operator PATH resolves the trusted Git binary
+                "git",
                 "-C",
                 str(self.canonical),
                 "worktree",
@@ -74,9 +77,9 @@ def create_worktree(canonical: Path, root: Path, sha: str) -> DisposableWorktree
         raise ValueError("configured repository is not a Git checkout")
     if not root.is_absolute() or _contained(canonical, root):
         raise ValueError("worker root is unsafe")
-    check = subprocess.run(  # noqa: S603 - fixed reviewed Git object validation
+    check = subprocess.run(
         [
-            "git",  # noqa: S607 - operator PATH resolves the trusted Git binary
+            "git",
             "-C",
             str(canonical),
             "cat-file",
@@ -97,9 +100,9 @@ def create_worktree(canonical: Path, root: Path, sha: str) -> DisposableWorktree
         raise ValueError("generated run path escaped root")
     run.mkdir()
     try:
-        subprocess.run(  # noqa: S603 - fixed reviewed Git worktree operation
+        subprocess.run(
             [
-                "git",  # noqa: S607 - operator PATH resolves the trusted Git binary
+                "git",
                 "-C",
                 str(canonical),
                 "worktree",
@@ -113,9 +116,9 @@ def create_worktree(canonical: Path, root: Path, sha: str) -> DisposableWorktree
             capture_output=True,
             text=True,
         )
-        head = subprocess.run(  # noqa: S603 - fixed reviewed Git identity read
+        head = subprocess.run(
             [
-                "git",  # noqa: S607 - operator PATH resolves the trusted Git binary
+                "git",
                 "-C",
                 str(checkout),
                 "rev-parse",
