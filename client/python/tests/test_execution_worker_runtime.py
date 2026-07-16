@@ -14,11 +14,16 @@ import pytest
 from client.python.execution_worker.client import ExecutionOwnershipLostError
 from client.python.execution_worker.config import WorkerConfig
 from client.python.execution_worker.worker import LocalWorker
+from client.python.tests.execution_worker_test_support import (
+    remote_manifest_payload,
+    work_order_payload,
+)
 from server.execution.enums import NetworkPolicy, RepositoryWritePolicy
 from server.execution.registry import TrustedManifest, TrustedStep, get_trusted_manifest
 
 _TOKEN = "worker-test-token"  # noqa: S105 - non-secret test fixture
-_CANCELLATION_SECONDS = 3
+_CANCELLATION_SECONDS = 5
+_DUPLICATE_COMPLETION_COUNT = 2
 
 
 def _git(path: Path, *argv: str) -> str:
@@ -42,24 +47,6 @@ def _repository(tmp_path: Path) -> tuple[Path, str]:
     return repository, _git(repository, "rev-parse", "HEAD")
 
 
-def _remote(manifest: TrustedManifest) -> dict[str, Any]:
-    return {
-        "name": manifest.name,
-        "version": manifest.version,
-        "digest": manifest.digest,
-        "timeout_seconds": manifest.timeout_seconds,
-        "network_policy": manifest.network_policy.value,
-        "repository_write_policy": manifest.repository_write_policy.value,
-        "schema_version": manifest.schema_version,
-        "required_capabilities": manifest.required_capabilities,
-        "fixed_step_metadata": manifest.fixed_step_metadata,
-        "environment_policy": manifest.environment_policy,
-        "artifact_declarations": manifest.artifact_declarations,
-        "description": manifest.description,
-        "trusted_registry_source": manifest.registry_source,
-    }
-
-
 class _FakeClient:
     def __init__(self, order: dict[str, Any], manifest: TrustedManifest) -> None:
         self.order = order
@@ -76,7 +63,7 @@ class _FakeClient:
         return self.order
 
     def get_manifest(self, _name: str, _version: str) -> dict[str, Any]:
-        return _remote(self.manifest)
+        return remote_manifest_payload(self.manifest)
 
     def heartbeat_worker(self, *, status: str | None = None) -> dict[str, object]:
         _ = status
@@ -112,18 +99,7 @@ def _config(tmp_path: Path, repository: Path, **overrides: object) -> WorkerConf
 
 
 def _order(sha: str, manifest: TrustedManifest) -> dict[str, object]:
-    return {
-        "id": 3,
-        "repository_full_name": "Nobodyworld/dev-agent-switchboard",
-        "commit_sha": sha,
-        "manifest_name": manifest.name,
-        "manifest_version": manifest.version,
-        "manifest_digest": manifest.digest,
-        "timeout_seconds": manifest.timeout_seconds,
-        "network_policy": manifest.network_policy.value,
-        "repository_write_allowed": False,
-        "required_capabilities": {},
-    }
+    return work_order_payload(sha, manifest)
 
 
 def test_worker_smoke_retains_logs_removes_checkout_and_reports_exact_sha(
@@ -247,6 +223,10 @@ def test_same_local_run_id_is_never_executed_twice(tmp_path: Path) -> None:
     worker = LocalWorker(_config(tmp_path, canonical), client)  # type: ignore[arg-type]
 
     assert worker.poll_once() is True
-    with pytest.raises(RuntimeError, match="already attempted"):
-        worker.poll_once()
-    assert len(client.completed) == 1
+    assert worker.poll_once() is True
+    assert len(client.completed) == _DUPLICATE_COMPLETION_COUNT
+    assert client.completed[1]["status"] == "cancelled"
+    assert (
+        client.completed[1]["terminal_reason"]
+        == "local_duplicate_execution_rejected_after_checkout"
+    )

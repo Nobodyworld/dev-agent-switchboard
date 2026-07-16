@@ -8,6 +8,8 @@ import pytest
 
 from client.python.execution_worker.config import WorkerConfig
 from client.python.execution_worker.models import AssignedWorkOrder, Checkout
+from client.python.tests.execution_worker_test_support import work_order_payload
+from server.execution.registry import get_trusted_manifest
 
 _TOKEN = "worker-test-token"  # noqa: S105 - non-secret test fixture
 
@@ -62,18 +64,9 @@ def test_worker_config_rejects_unsupported_concurrency(
 
 @pytest.mark.parametrize("repository", ["./repo", "Nobodyworld/..", "../repo"])
 def test_assigned_work_order_rejects_repository_dot_segments(repository: str) -> None:
-    payload = {
-        "id": 1,
-        "repository_full_name": repository,
-        "commit_sha": "a" * 40,
-        "manifest_name": "worker-smoke",
-        "manifest_version": "1",
-        "manifest_digest": "b" * 64,
-        "timeout_seconds": 60,
-        "network_policy": "worker_restricted",
-        "repository_write_allowed": False,
-        "required_capabilities": {},
-    }
+    manifest = get_trusted_manifest("worker-smoke", "1")
+    assert manifest is not None
+    payload = work_order_payload("a" * 40, manifest, repository_full_name=repository)
 
     with pytest.raises(ValueError, match="work-order identity"):
         AssignedWorkOrder.from_payload(payload)

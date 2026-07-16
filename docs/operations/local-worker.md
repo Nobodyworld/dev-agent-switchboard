@@ -83,6 +83,13 @@ from the configured inherited-key allowlist, then receives fixed manifest
 values. Completion data records redacted, bounded summaries; it never includes
 the admin token or a complete inherited environment.
 
+The worker keeps result data structured until final JSON serialization and
+applies an 8,000-character API-summary limit. When needed, it progressively
+compacts only stdout/stderr summaries and sets
+`result_summary_truncated: true`; SHA, step identity/status, exit code,
+duration, terminal reason, truncation state, log references, and safe
+environment summaries remain present. Serialized JSON text is never sliced.
+
 `worker_restricted` means an operator-controlled trusted network posture. It
 does **not** claim per-process network isolation or a firewall sandbox. Select
 `disabled` only when the worker can truthfully support that policy.
@@ -101,13 +108,32 @@ The disposable `checkout` is removed through its exact registered
 canonical-integrity failure changes an otherwise successful terminal result to
 a truthful failure while retaining the run record for diagnosis.
 
-While a step runs, the worker sends worker and run heartbeats, reads current run
-state, watches the overall deadline, and reacts to shutdown. A lost lease,
-`404`/`409` run heartbeat, or server-terminal/cancelled state cancels the local
-process tree and suppresses a stale success completion. Overall deadline and
-operator shutdown are reported as timeout/cancellation while ownership is
-known. Restart never infers lease ownership from residual run directories and
-never re-executes a local run ID already attempted by that worker process.
+If `result.json` cannot be written, the failure cannot suppress the owned
+completion request. An otherwise successful run becomes failed with
+`local_result_record_failed`; an existing execution failure keeps its original
+terminal reason and the additional record failure appears in bounded cleanup
+metadata. Completion is attempted once and is not blindly retried.
+
+While a step runs, the worker sends worker and run heartbeats, watches the
+overall deadline, and reacts to shutdown. Worker liveness and run ownership are
+independent: a transient worker-heartbeat failure does not suppress the run
+heartbeat. The validated run-heartbeat response is the current authoritative
+state. A lost lease, `404`/`409` run heartbeat, or server-terminal state cancels
+the local process tree and suppresses stale success. Malformed or unsupported
+run-heartbeat data fails closed with `invalid_run_heartbeat`; while ownership
+has not been explicitly lost, the worker may send one truthful cancelled
+completion. A transient run-heartbeat transport failure waits until the next
+normal interval rather than retrying immediately.
+
+Shutdown that arrives after server checkout but before local admission sends
+one cancellation with `worker_shutdown_before_start` and cleanup
+`not_started`. Unexpected local concurrency rejection uses
+`local_concurrency_rejected_after_checkout`. Neither path creates a worktree or
+starts a process, and ownership loss during completion is treated as an
+already-disposed lease. Overall deadline and later operator shutdown are
+reported as timeout/cancellation while ownership is known. Restart never
+infers lease ownership from residual run directories and never executes a local
+run ID twice in one worker process.
 
 On POSIX, the worker uses a separate process session, sends `SIGTERM` to the
 whole group, waits briefly, then sends `SIGKILL` if descendants remain. On

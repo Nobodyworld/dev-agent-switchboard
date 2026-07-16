@@ -289,7 +289,12 @@ def run_step(  # noqa: PLR0912, PLR0913, PLR0915 - trusted lifecycle inputs are 
                 break
             run_directory = logs.parent
             if _directory_size(run_directory) > config.disk_limit_bytes:
-                status, reason = "failed", "disk_limit_exceeded"
+                reason = (
+                    "total_output_limit_exceeded"
+                    if _directory_size(logs) > config.total_output_limit
+                    else "disk_limit_exceeded"
+                )
+                status = "failed"
                 _terminate(process)
                 break
             time.sleep(0.02)

@@ -7,6 +7,8 @@ from unittest.mock import Mock
 import requests
 
 from client.python.execution_worker import ExecutionClient
+from client.python.tests.execution_worker_test_support import work_order_payload
+from server.execution.registry import get_trusted_manifest
 
 _TEST_TOKEN = "work-order-test-token"  # noqa: S105 - non-secret test fixture
 
@@ -16,15 +18,9 @@ def test_execution_client_retrieves_assigned_work_order_metadata() -> None:
     response = Mock(spec=requests.Response)
     response.status_code = 200
     response.raise_for_status.return_value = None
-    response.json.return_value = {
-        "id": 17,
-        "repository_full_name": "Nobodyworld/dev-agent-switchboard",
-        "commit_sha": "a" * 40,
-        "manifest_name": "worker-smoke",
-        "manifest_version": "1",
-        "manifest_digest": "b" * 64,
-        "repository_write_allowed": False,
-    }
+    manifest = get_trusted_manifest("worker-smoke", "1")
+    assert manifest is not None
+    response.json.return_value = work_order_payload("a" * 40, manifest, id=17)
     session.request.return_value = response
     client = ExecutionClient(
         "http://example.com", "worker-1", _TEST_TOKEN, session=session

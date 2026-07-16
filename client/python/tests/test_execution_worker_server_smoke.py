@@ -8,6 +8,7 @@ import json
 import subprocess
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from unittest.mock import patch
 from urllib.parse import urlsplit
 
 import httpx
@@ -110,6 +111,19 @@ class _AsgiResponse:
             raise RuntimeError(f"unexpected execution API status: {self.status_code}")
 
 
+class _CountingAsgiSession(_AsgiSession):
+    """Track ambiguous-write-sensitive completion calls over the real API."""
+
+    def __init__(self, app: FastAPI) -> None:
+        super().__init__(app)
+        self.completion_calls = 0
+
+    def request(self, method: str, url: str, **kwargs: object) -> _AsgiResponse:
+        if method.lower() == "post" and url.endswith("/complete"):
+            self.completion_calls += 1
+        return super().request(method, url, **kwargs)
+
+
 def _request(
     app: FastAPI, method: str, path: str, payload: object | None = None
 ) -> dict:
@@ -197,7 +211,16 @@ def test_server_backed_worker_smoke_executes_exact_sha_and_releases_lease(
         )
         assert len(runs) == 1
         run = runs[0]
-        assert run["status"] == "succeeded"
+        assert run["status"] == "succeeded", {
+            key: run[key]
+            for key in (
+                "status",
+                "terminal_reason",
+                "cleanup_status",
+                "result_summary",
+                "evidence_metadata",
+            )
+        }
         assert requested_sha in run["result_summary"]
         assert run["cleanup_status"] == "succeeded"
 
@@ -228,6 +251,94 @@ def test_server_backed_worker_smoke_executes_exact_sha_and_releases_lease(
             return int(workers), int(leases), int(persisted_runs)
 
         assert asyncio.run(database_proof()) == (1, 0, 1)
+    finally:
+        app.dependency_overrides.clear()
+        asyncio.run(engine.dispose())
+
+
+def test_server_backed_local_record_failure_completes_once_and_releases_lease(
+    tmp_path: Path,
+) -> None:
+    canonical, requested_sha, _ = _repository(tmp_path)
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'record-fail.db'}")
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    app = create_app(AppConfig(include_ui=False))
+
+    async def isolated_session() -> AsyncGenerator[AsyncSession, None]:
+        async with sessions() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = isolated_session
+
+    async def prepare() -> None:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+    asyncio.run(prepare())
+    try:
+        created = _request(
+            app,
+            "POST",
+            "/api/execution/work-orders",
+            {
+                "repository_full_name": "Nobodyworld/dev-agent-switchboard",
+                "commit_sha": requested_sha,
+                "manifest": {"name": "worker-smoke", "version": "1"},
+                "timeout_seconds": 120,
+            },
+        )
+        _request(
+            app,
+            "POST",
+            f"/api/execution/work-orders/{created['id']}/approve",
+            {},
+        )
+        config = WorkerConfig(
+            base_url="http://switchboard.test",
+            worker_id="record-failure-worker",
+            display_name="Record failure worker",
+            admin_token=_TOKEN,
+            worker_root=tmp_path / "worker-root",
+            repositories={"Nobodyworld/dev-agent-switchboard": canonical},
+            heartbeat_interval_seconds=0.05,
+        )
+        session = _CountingAsgiSession(app)
+        with ExecutionClient(
+            config.base_url,
+            config.worker_id,
+            config.admin_token,
+            session=session,  # type: ignore[arg-type]
+        ) as client:
+            worker = LocalWorker(config, client)
+            worker.start()
+            with patch.object(
+                LocalWorker, "_write_run_record", side_effect=OSError("disk")
+            ):
+                assert worker.poll_once() is True
+
+        runs = _request(
+            app, "GET", f"/api/execution/runs?work_order_id={created['id']}"
+        )
+        assert len(runs) == 1
+        run = runs[0]
+        assert run["status"] == "failed"
+        assert run["terminal_reason"] == "local_result_record_failed"
+        assert "local_record_failed:OSError" in run["cleanup_status"]
+        assert session.completion_calls == 1
+
+        async def capacity_proof() -> tuple[int, int]:
+            async with sessions() as database:
+                leases = await database.scalar(
+                    select(func.count()).select_from(ExecutionLease)
+                )
+                active = await database.scalar(
+                    select(ExecutionWorker.active_run_count).where(
+                        ExecutionWorker.worker_id == config.worker_id
+                    )
+                )
+            return int(leases), int(active)
+
+        assert asyncio.run(capacity_proof()) == (0, 0)
     finally:
         app.dependency_overrides.clear()
         asyncio.run(engine.dispose())

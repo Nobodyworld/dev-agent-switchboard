@@ -24,6 +24,7 @@ from .runner import (
 from .worktree import DisposableWorktree, create_worktree
 
 _SERVER_TERMINAL_STATUSES = {"succeeded", "failed", "timed_out", "cancelled"}
+RESULT_SUMMARY_LIMIT = 8000
 
 
 def _version_at_least(actual: str, minimum: str) -> bool:
@@ -126,6 +127,11 @@ def _validate_manifest(
         raise ValueError("trusted manifest metadata mismatch")
     if manifest.repository_write_policy.value != "read_only":
         raise ValueError("trusted manifest permits repository writes")
+    unsupported_parameters = set(order.manifest_parameters) - set(
+        manifest.allowed_parameters
+    )
+    if unsupported_parameters:
+        raise ValueError("work order contains unsupported manifest parameters")
     if order.network_policy != config.network_policy_capability:
         raise ValueError("work order network policy is incompatible with worker")
     if manifest.network_policy.value != config.network_policy_capability:
@@ -161,14 +167,25 @@ class _RunMonitor:
             return
         try:
             self.worker.client.heartbeat_worker(status="busy")
-            self.worker.client.heartbeat_run(self.run_id)
-            run = ExecutionRun.from_payload(self.worker.client.get_run(self.run_id))
+        except OSError:
+            # Worker liveness is independent from the owned run lease. A single
+            # bounded transport failure must not suppress run renewal.
+            pass
+        try:
+            run = ExecutionRun.from_payload(
+                self.worker.client.heartbeat_run(self.run_id)
+            )
         except ExecutionOwnershipLostError:
             self.token.cancel("ownership_lost")
             return
-        except (OSError, ValueError):
-            # An unavailable control plane will naturally expire the server lease;
-            # do not pretend local connectivity proves cancellation or ownership.
+        except OSError:
+            # Retry only at the next scheduled monitor tick.
+            return
+        except ValueError:
+            self.token.cancel("invalid_run_heartbeat")
+            return
+        if run.id != self.run_id:
+            self.token.cancel("invalid_run_heartbeat")
             return
         if run.status in _SERVER_TERMINAL_STATUSES:
             self.token.cancel(f"server_terminal:{run.status}")
@@ -219,15 +236,17 @@ class LocalWorker:
             if self._active_token is not None:
                 self._active_token.cancel("worker_shutdown")
 
-    def _begin_run(self, run_id: int) -> bool:
+    def _begin_run(self, run_id: int) -> str | None:
         with self._state_lock:
-            if self._shutdown.is_set() or self._active_run_id is not None:
-                return False
+            if self._shutdown.is_set():
+                return "worker_shutdown_before_start"
+            if self._active_run_id is not None:
+                return "local_concurrency_rejected_after_checkout"
             if run_id in self._executed_run_ids:
-                raise RuntimeError("local execution run was already attempted")
+                return "local_duplicate_execution_rejected_after_checkout"
             self._executed_run_ids.add(run_id)
             self._active_run_id = run_id
-            return True
+            return None
 
     def _end_run(self, run_id: int) -> None:
         with self._state_lock:
@@ -235,31 +254,72 @@ class LocalWorker:
                 self._active_run_id = None
 
     @staticmethod
-    def _summary(order: AssignedWorkOrder, results: list[StepResult]) -> str:
-        return json.dumps(
-            {
-                "checked_out_sha": order.commit_sha,
-                "steps": [
-                    {
-                        "id": result.step_id,
-                        "status": result.status,
-                        "exit_code": result.exit_code,
-                        "duration_seconds": round(result.duration_seconds, 3),
-                        "stdout": result.stdout_summary,
-                        "stderr": result.stderr_summary,
-                        "truncated": result.summaries_truncated,
-                        "logs": [
-                            f"logs/{result.stdout_log}",
-                            f"logs/{result.stderr_log}",
-                        ],
-                        "environment": result.environment_summary,
-                        "terminal_reason": result.terminal_reason,
-                    }
-                    for result in results
-                ],
-            },
-            separators=(",", ":"),
-        )[:8000]
+    def _serialize_summary(summary: Mapping[str, Any]) -> str:
+        return json.dumps(summary, ensure_ascii=False, separators=(",", ":"))
+
+    @classmethod
+    def _summary(
+        cls, order: AssignedWorkOrder, results: list[StepResult]
+    ) -> dict[str, Any]:
+        """Build one bounded structured summary without slicing serialized JSON."""
+
+        summary: dict[str, Any] = {
+            "checked_out_sha": order.commit_sha,
+            "steps": [
+                {
+                    "id": result.step_id,
+                    "status": result.status,
+                    "exit_code": result.exit_code,
+                    "duration_seconds": round(result.duration_seconds, 3),
+                    "stdout": result.stdout_summary,
+                    "stderr": result.stderr_summary,
+                    "truncated": result.summaries_truncated,
+                    "logs": [
+                        f"logs/{result.stdout_log}",
+                        f"logs/{result.stderr_log}",
+                    ],
+                    "environment": result.environment_summary,
+                    "terminal_reason": result.terminal_reason,
+                }
+                for result in results
+            ],
+        }
+        if len(cls._serialize_summary(summary)) <= RESULT_SUMMARY_LIMIT:
+            return summary
+
+        summary["result_summary_truncated"] = True
+        steps = summary["steps"]
+        assert isinstance(steps, list)
+        largest = max(
+            (len(str(step[field])) for step in steps for field in ("stdout", "stderr")),
+            default=0,
+        )
+
+        def compact(limit: int) -> None:
+            for step, result in zip(steps, results, strict=True):
+                assert isinstance(step, dict)
+                stdout = result.stdout_summary
+                stderr = result.stderr_summary
+                step["stdout"] = stdout[:limit]
+                step["stderr"] = stderr[:limit]
+                step["truncated"] = (
+                    result.summaries_truncated
+                    or len(stdout) > limit
+                    or len(stderr) > limit
+                )
+
+        low, high = 0, largest
+        while low < high:
+            candidate = (low + high + 1) // 2
+            compact(candidate)
+            if len(cls._serialize_summary(summary)) <= RESULT_SUMMARY_LIMIT:
+                low = candidate
+            else:
+                high = candidate - 1
+        compact(low)
+        if len(cls._serialize_summary(summary)) > RESULT_SUMMARY_LIMIT:
+            raise RuntimeError("required result metadata exceeds worker summary limit")
+        return summary
 
     @staticmethod
     def _write_run_record(
@@ -268,14 +328,14 @@ class LocalWorker:
         terminal: str,
         reason: str | None,
         cleanup: str,
-        summary: str,
+        summary: Mapping[str, Any],
     ) -> None:
         record = worktree.run_directory / "result.json"
         record.write_text(
             json.dumps(
                 {
                     "cleanup_status": cleanup,
-                    "result_summary": json.loads(summary),
+                    "result_summary": dict(summary),
                     "terminal_reason": reason,
                     "terminal_status": terminal,
                 },
@@ -283,6 +343,22 @@ class LocalWorker:
             ),
             encoding="utf-8",
         )
+
+    def _complete_admission_rejection(self, run_id: int, reason: str) -> None:
+        """Dispose one checked-out lease exactly once without local side effects."""
+
+        try:
+            self.client.complete_run(
+                run_id,
+                status="cancelled",
+                terminal_reason=reason,
+                cleanup_status="not_started",
+                result_summary=self._serialize_summary({"steps": []}),
+                evidence_metadata={"local_record": None},
+            )
+        except ExecutionOwnershipLostError:
+            # The lease has already been safely disposed elsewhere.
+            pass
 
     def poll_once(self) -> bool:  # noqa: PLR0912, PLR0915 - lifecycle state machine
         """Checkout and process at most one run; never execute while draining."""
@@ -293,8 +369,10 @@ class LocalWorker:
         if checkout.run_id is None:
             return False
         assert checkout.work_order_id is not None
-        if not self._begin_run(checkout.run_id):
-            return False
+        admission_rejection = self._begin_run(checkout.run_id)
+        if admission_rejection is not None:
+            self._complete_admission_rejection(checkout.run_id, admission_rejection)
+            return True
         worktree: DisposableWorktree | None = None
         monitor: _RunMonitor | None = None
         results: list[StepResult] = []
@@ -303,6 +381,8 @@ class LocalWorker:
         cleanup: str = "not_started"
         skip_completion = False
         order: AssignedWorkOrder | None = None
+        summary: dict[str, Any] = {"steps": []}
+        local_record_written = False
         try:
             order = AssignedWorkOrder.from_payload(
                 self.client.get_work_order(checkout.work_order_id)
@@ -404,8 +484,10 @@ class LocalWorker:
                     cleanup = f"failed:{type(error).__name__}"
                     if terminal == "succeeded":
                         terminal, reason = "failed", "cleanup_failed"
-                if order is not None:
-                    summary = self._summary(order, results)
+            if order is not None:
+                summary = self._summary(order, results)
+            if worktree is not None:
+                try:
                     self._write_run_record(
                         worktree,
                         terminal=terminal,
@@ -413,23 +495,25 @@ class LocalWorker:
                         cleanup=cleanup,
                         summary=summary,
                     )
+                    local_record_written = True
+                except Exception as error:
+                    record_failure = f"local_record_failed:{type(error).__name__}"
+                    cleanup = f"{cleanup};{record_failure}"[:64]
+                    if terminal == "succeeded":
+                        terminal, reason = "failed", "local_result_record_failed"
             self._end_run(checkout.run_id)
         if skip_completion:
             return True
-        if order is None:
-            summary = json.dumps({"steps": []})
-        else:
-            summary = self._summary(order, results)
         try:
             self.client.complete_run(
                 checkout.run_id,
                 status=terminal,
                 terminal_reason=reason,
                 cleanup_status=cleanup,
-                result_summary=summary,
+                result_summary=self._serialize_summary(summary),
                 evidence_metadata={
                     "checked_out_sha": order.commit_sha if order else None,
-                    "local_record": "result.json" if worktree else None,
+                    "local_record": "result.json" if local_record_written else None,
                 },
             )
         except ExecutionOwnershipLostError:
@@ -437,4 +521,4 @@ class LocalWorker:
         return True
 
 
-__all__ = ["LocalWorker"]
+__all__ = ["RESULT_SUMMARY_LIMIT", "LocalWorker"]

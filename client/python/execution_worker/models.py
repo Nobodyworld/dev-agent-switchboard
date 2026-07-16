@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime as dt
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -11,18 +13,94 @@ _SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _RUN_STATUSES = {"assigned", "running", "succeeded", "failed", "timed_out", "cancelled"}
+_WORK_ORDER_FIELDS = frozenset(
+    {
+        "id",
+        "schema_version",
+        "repository_full_name",
+        "commit_sha",
+        "manifest_name",
+        "manifest_version",
+        "manifest_digest",
+        "manifest_parameters",
+        "required_capabilities",
+        "permitted_paths",
+        "forbidden_scope_notes",
+        "expected_artifact_kinds",
+        "approval_policy",
+        "status",
+        "timeout_seconds",
+        "resource_metadata",
+        "network_policy",
+        "repository_write_allowed",
+        "preferred_executor",
+        "cost_ceiling",
+        "attempt_count",
+        "created_at",
+        "updated_at",
+        "approved_at",
+        "queued_at",
+        "assigned_at",
+        "started_at",
+        "finished_at",
+        "terminal_reason",
+    }
+)
+_FORBIDDEN_EXECUTABLE_KEYS = frozenset(
+    {
+        "argv",
+        "command",
+        "command_string",
+        "shell",
+        "shell_command",
+        "script",
+        "script_contents",
+        "executable",
+        "executable_path",
+    }
+)
+_REPOSITORY_WRITE_KEYS = frozenset(
+    {
+        "repository_write",
+        "repository_write_allowed",
+        "repository_write_capability",
+        "repository_write_policy",
+    }
+)
+_MAX_COLLECTION_ITEMS = 128
+_MAX_METADATA_DEPTH = 16
+_MAX_METADATA_NODES = 4096
+_MAX_METADATA_STRING = 4000
+_MAX_METADATA_KEY = 128
+_MAX_SAFE_INTEGER = (1 << 63) - 1
 
 
-def _text(value: object, field: str, limit: int = 256) -> str:
-    if not isinstance(value, str) or not value or len(value) > limit:
+def _text(
+    value: object, field: str, limit: int = 256, *, allow_empty: bool = False
+) -> str:
+    if (
+        not isinstance(value, str)
+        or (not value and not allow_empty)
+        or len(value) > limit
+    ):
+        raise ValueError(f"invalid {field}")
+    return value
+
+
+def _integer(
+    value: object, field: str, *, minimum: int = 0, maximum: int = _MAX_SAFE_INTEGER
+) -> int:
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or not minimum <= value <= maximum
+    ):
         raise ValueError(f"invalid {field}")
     return value
 
 
 def _positive(value: object, field: str) -> int:
-    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
-        raise ValueError(f"invalid {field}")
-    return value
+    return _integer(value, field, minimum=1)
 
 
 def _mapping(value: object, field: str) -> Mapping[str, Any]:
@@ -33,10 +111,139 @@ def _mapping(value: object, field: str) -> Mapping[str, Any]:
     return value
 
 
-def _list(value: object, field: str) -> list[Any]:
-    if not isinstance(value, list):
+def _list(
+    value: object, field: str, *, limit: int = _MAX_COLLECTION_ITEMS
+) -> list[Any]:
+    if not isinstance(value, list) or len(value) > limit:
         raise ValueError(f"invalid {field}")
     return value
+
+
+def _string_list(
+    value: object, field: str, *, item_limit: int, limit: int
+) -> tuple[str, ...]:
+    items = _list(value, field, limit=limit)
+    return tuple(
+        _text(item, f"{field} entry", item_limit, allow_empty=True) for item in items
+    )
+
+
+def _optional_text(value: object, field: str, limit: int) -> str | None:
+    if value is None:
+        return None
+    return _text(value, field, limit, allow_empty=True)
+
+
+def _optional_datetime(value: object, field: str) -> dt.datetime | None:
+    if value is None:
+        return None
+    raw = _text(value, field, 64)
+    if "T" not in raw:
+        raise ValueError(f"invalid {field}")
+    try:
+        parsed = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(f"invalid {field}") from error
+    return parsed
+
+
+def _required_datetime(value: object, field: str) -> dt.datetime:
+    parsed = _optional_datetime(value, field)
+    if parsed is None:
+        raise ValueError(f"invalid {field}")
+    return parsed
+
+
+def _optional_number(value: object, field: str) -> float | None:
+    if value is None:
+        return None
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ValueError(f"invalid {field}")
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < 0:
+        raise ValueError(f"invalid {field}")
+    return parsed
+
+
+def _normalized_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
+
+
+def _validated_metadata(
+    value: object,
+    *,
+    field: str,
+    allow_root_repository_write_false: bool = False,
+) -> object:
+    """Validate bounded JSON metadata and reject executable/write policy keys."""
+
+    nodes = 0
+
+    def visit(  # noqa: PLR0912 - recursive JSON type/security cases are explicit
+        nested: object, depth: int, *, root: bool = False
+    ) -> object:
+        nonlocal nodes
+        nodes += 1
+        if nodes > _MAX_METADATA_NODES or depth > _MAX_METADATA_DEPTH:
+            raise ValueError(f"invalid {field}")
+        if nested is None or isinstance(nested, bool):
+            return nested
+        if isinstance(nested, int):
+            if abs(nested) > _MAX_SAFE_INTEGER:
+                raise ValueError(f"invalid {field}")
+            return nested
+        if isinstance(nested, float):
+            if not math.isfinite(nested):
+                raise ValueError(f"invalid {field}")
+            return nested
+        if isinstance(nested, str):
+            return _text(nested, field, _MAX_METADATA_STRING, allow_empty=True)
+        if isinstance(nested, Mapping):
+            if len(nested) > _MAX_COLLECTION_ITEMS or not all(
+                isinstance(key, str) for key in nested
+            ):
+                raise ValueError(f"invalid {field}")
+            result: dict[str, object] = {}
+            for key, item in nested.items():
+                if len(key) > _MAX_METADATA_KEY:
+                    raise ValueError(f"invalid {field}")
+                normalized = _normalized_key(key)
+                if normalized in _FORBIDDEN_EXECUTABLE_KEYS:
+                    raise ValueError(
+                        f"{field} must not contain executable field '{normalized}'"
+                    )
+                if normalized in _REPOSITORY_WRITE_KEYS:
+                    allowed = (
+                        root
+                        and allow_root_repository_write_false
+                        and normalized == "repository_write"
+                        and item is False
+                    )
+                    if not allowed:
+                        raise ValueError(f"{field} contains repository-write policy")
+                result[key] = visit(item, depth + 1)
+            return result
+        if isinstance(nested, (list, tuple)):
+            if len(nested) > _MAX_COLLECTION_ITEMS:
+                raise ValueError(f"invalid {field}")
+            converted = [visit(item, depth + 1) for item in nested]
+            return tuple(converted) if isinstance(nested, tuple) else converted
+        raise ValueError(f"invalid {field}")
+
+    return visit(value, 0, root=True)
+
+
+def _metadata_mapping(
+    value: object, *, field: str, allow_root_repository_write_false: bool = False
+) -> Mapping[str, Any]:
+    mapping = _mapping(value, field)
+    validated = _validated_metadata(
+        mapping,
+        field=field,
+        allow_root_repository_write_false=allow_root_repository_write_false,
+    )
+    assert isinstance(validated, dict)
+    return validated
 
 
 def _repository_name(value: object) -> str:
@@ -105,18 +312,43 @@ class SafeManifest:
 @dataclass(frozen=True, slots=True)
 class AssignedWorkOrder:
     id: int
+    schema_version: int
     repository_full_name: str
     commit_sha: str
     manifest_name: str
     manifest_version: str
     manifest_digest: str
-    timeout_seconds: int
-    network_policy: str
+    manifest_parameters: Mapping[str, Any]
     required_capabilities: Mapping[str, Any]
+    permitted_paths: tuple[str, ...]
+    forbidden_scope_notes: str
+    expected_artifact_kinds: tuple[str, ...]
+    approval_policy: str
+    status: str
+    timeout_seconds: int
+    resource_metadata: Mapping[str, Any]
+    network_policy: str
+    repository_write_allowed: bool
+    preferred_executor: str | None
+    cost_ceiling: float | None
+    attempt_count: int
+    created_at: dt.datetime
+    updated_at: dt.datetime
+    approved_at: dt.datetime | None
+    queued_at: dt.datetime | None
+    assigned_at: dt.datetime | None
+    started_at: dt.datetime | None
+    finished_at: dt.datetime | None
+    terminal_reason: str | None
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> AssignedWorkOrder:
         payload = _mapping(payload, "work-order response")
+        if set(payload) != _WORK_ORDER_FIELDS:
+            raise ValueError("invalid work-order response fields")
+        schema_version = _integer(
+            payload.get("schema_version"), "schema version", minimum=1, maximum=1
+        )
         repository = _repository_name(payload.get("repository_full_name"))
         sha = _text(payload.get("commit_sha"), "commit SHA", 40)
         digest = _text(payload.get("manifest_digest"), "manifest digest", 64)
@@ -127,16 +359,72 @@ class AssignedWorkOrder:
         network = _text(payload.get("network_policy"), "network policy")
         if network not in {"disabled", "worker_restricted"}:
             raise ValueError("invalid network policy")
+        approval_policy = _text(payload.get("approval_policy"), "approval policy")
+        if approval_policy != "explicit":
+            raise ValueError("invalid approval policy")
+        status = _text(payload.get("status"), "work-order status")
+        if status not in {"assigned", "running"}:
+            raise ValueError("work order is not active")
         return cls(
             _positive(payload.get("id"), "work order id"),
+            schema_version,
             repository,
             sha,
-            _text(payload.get("manifest_name"), "manifest name"),
-            _text(payload.get("manifest_version"), "manifest version"),
+            _text(payload.get("manifest_name"), "manifest name", 128),
+            _text(payload.get("manifest_version"), "manifest version", 64),
             digest,
-            _positive(payload.get("timeout_seconds"), "work order timeout"),
+            _metadata_mapping(
+                payload.get("manifest_parameters"), field="manifest_parameters"
+            ),
+            _metadata_mapping(
+                payload.get("required_capabilities"),
+                field="required_capabilities",
+                allow_root_repository_write_false=True,
+            ),
+            _string_list(
+                payload.get("permitted_paths"),
+                "permitted_paths",
+                item_limit=512,
+                limit=128,
+            ),
+            _text(
+                payload.get("forbidden_scope_notes"),
+                "forbidden_scope_notes",
+                4000,
+                allow_empty=True,
+            ),
+            _string_list(
+                payload.get("expected_artifact_kinds"),
+                "expected_artifact_kinds",
+                item_limit=128,
+                limit=64,
+            ),
+            approval_policy,
+            status,
+            _integer(
+                payload.get("timeout_seconds"),
+                "work order timeout",
+                minimum=1,
+                maximum=86400,
+            ),
+            _metadata_mapping(
+                payload.get("resource_metadata"), field="resource_metadata"
+            ),
             network,
-            _mapping(payload.get("required_capabilities"), "required_capabilities"),
+            False,
+            _optional_text(
+                payload.get("preferred_executor"), "preferred_executor", 128
+            ),
+            _optional_number(payload.get("cost_ceiling"), "cost_ceiling"),
+            _integer(payload.get("attempt_count"), "attempt_count"),
+            _required_datetime(payload.get("created_at"), "created_at"),
+            _required_datetime(payload.get("updated_at"), "updated_at"),
+            _optional_datetime(payload.get("approved_at"), "approved_at"),
+            _optional_datetime(payload.get("queued_at"), "queued_at"),
+            _optional_datetime(payload.get("assigned_at"), "assigned_at"),
+            _optional_datetime(payload.get("started_at"), "started_at"),
+            _optional_datetime(payload.get("finished_at"), "finished_at"),
+            _optional_text(payload.get("terminal_reason"), "terminal_reason", 4000),
         )
 
 

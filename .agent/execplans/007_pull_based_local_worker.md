@@ -32,9 +32,13 @@ This issue does not deliver the full `validate-switchboard@1` evidence workflow.
 - [x] Add the trusted `worker-smoke@1` identity and fixed steps.
 - [x] Add end-to-end `worker-smoke@1` temporary-repository proof.
 - [x] Add focused security, concurrency, timeout, cancellation, and restart tests.
+- [x] Preserve structured result JSON through bounded final serialization and local record writing.
+- [x] Validate the complete persisted work-order response before any local side effect.
+- [x] Decouple worker liveness from authoritative run-heartbeat validation.
+- [x] Dispose leases rejected by local admission after checkout.
 - [x] Update operator and API documentation.
 - [x] Run the complete public hosted matrix for the connector foundation on `677fa48396db4308661f96d900a49f3ed3ae8805`.
-- [ ] Run complete repository validation.
+- [x] Run complete repository validation.
 - [x] Open draft PR #119 linked to #113.
 - [ ] Record final local-runtime and merge evidence here.
 
@@ -62,6 +66,17 @@ This issue does not deliver the full `validate-switchboard@1` evidence workflow.
   test child, while the same fixed-argv test passes outside that sandbox.
   Evidence: sandbox output was `ERROR: Access denied`; the unrestricted focused
   process-tree test passed on 2026-07-15 without elevation.
+
+- Observation: SQLite-backed API tests serialize lifecycle datetimes as valid
+  offset-free ISO strings, while other deployments may include a UTC offset.
+  Evidence: the real server-backed worker smoke returned an offset-free value;
+  the strict local model therefore validates ISO shape and exact string type
+  without inventing a timezone requirement absent from `WorkOrderOut`.
+
+- Observation: a worker heartbeat failure and an owned run heartbeat are
+  separate failure domains.
+  Evidence: the final review regression raises `OSError` from worker heartbeat
+  and proves the run heartbeat is still issued once in the same monitor tick.
 
 ## Decision Log
 
@@ -113,6 +128,39 @@ This issue does not deliver the full `validate-switchboard@1` evidence workflow.
   cancellation, and recovery are proven for a tested pool.
   Date/Author: 2026-07-15 / Codex
 
+- Decision: keep the result summary as a dictionary until deliberate compact
+  serialization, with an explicit 8,000-character worker limit.
+  Rationale: binary-search compaction trims only stdout/stderr fields, preserves
+  exact SHA and step/result metadata, and marks final compaction with
+  `result_summary_truncated`; serialized JSON is never sliced or reparsed for
+  local persistence.
+  Date/Author: 2026-07-16 / Codex
+
+- Decision: mirror the complete `WorkOrderOut` contract in a strict local
+  dataclass and share one recursive bounded metadata validator across manifest
+  parameters, resource metadata, capabilities, mappings, and collections.
+  Rationale: exact-field validation, normalized executable-key rejection, and
+  nested repository-write policy rejection now happen before worktree or
+  process creation. The legitimate root capability remains
+  `repository_write: false`.
+  Date/Author: 2026-07-16 / Codex
+
+- Decision: treat the validated run-heartbeat response as authoritative and
+  remove the redundant `get_run()` call from each monitor tick.
+  Rationale: malformed heartbeat data now cancels with
+  `invalid_run_heartbeat`, while transient transport failure is retried only at
+  the next scheduled interval. Removing the second read avoids contradictory
+  snapshots and eliminates a separate malformed-state path.
+  Date/Author: 2026-07-16 / Codex
+
+- Decision: make `_begin_run()` return an explicit admission rejection reason
+  and terminally cancel every newly checked-out lease that local admission does
+  not accept.
+  Rationale: shutdown, unexpected local concurrency, and duplicate-attempt
+  rejection now each attempt one non-retried completion without creating a
+  worktree or process; ownership loss is already a safe disposition.
+  Date/Author: 2026-07-16 / Codex
+
 ## Outcomes & Retrospective
 
 ### Local runtime checkpoint (2026-07-15)
@@ -144,6 +192,32 @@ Not complete. At completion, record:
 - final test and coverage counts;
 - final hosted CI run IDs;
 - remaining limitations deferred to #114.
+
+### Final review correction checkpoint (2026-07-16)
+
+- Result finalization: `3 passed`; large stdout/stderr remains valid JSON at or
+  below 8,000 characters, final compaction is marked, and required SHA, step,
+  exit, duration, terminal, truncation, log, and environment metadata remains.
+  Local record failure downgrades success and preserves prior failure reasons.
+- Strict work order: `19 passed`; complete response parsing rejects unknown
+  fields, malformed roots, recursive executable fields, nested/write-enabling
+  repository policy, and unsupported `worker-smoke@1` parameters before both
+  worktree creation and `Popen`.
+- Monitor: `11 passed` outside the restricted Windows sandbox; worker heartbeat
+  failure does not suppress lease renewal, malformed/unsupported heartbeat data
+  fails closed, transient transport waits for the next tick, and cancellation
+  stops parent and child processes without stale success.
+- Checkout race: `6 passed`, including two real server-backed cases; shutdown
+  and concurrency rejection after checkout create no worktree/process, attempt
+  one cancelled completion, release lease/capacity, and allow a second worker
+  to obtain subsequent work.
+- Server-backed smoke/finalization: `2 passed`; exact-SHA `worker-smoke@1`
+  succeeds and forced `result.json` failure produces one failed completion with
+  zero remaining leases and zero active worker capacity.
+- Platform limitation: repository guidance requests mirroring material ExecPlan
+  changes through a live Switchboard file API, but this continuation supplied
+  no running endpoint or agent lease. The Git copy is authoritative; no live
+  mirror was attempted blindly.
 
 ## Context and Orientation
 
@@ -441,6 +515,37 @@ Runtime continuation evidence (2026-07-15):
   tests `2 passed`; and the coverage collection `295 passed, 3 skipped,
   1 deselected`. The deselected Windows termination case passed separately
   outside the sandbox (`1 passed`).
+
+Final review focused evidence (2026-07-16, before complete matrix):
+
+- finalization module: `3 passed`;
+- strict-work-order module: `19 passed`;
+- monitor module: `11 passed` outside the Windows sandbox;
+- checkout-race module: `6 passed`;
+- requested config/runner/runtime/server-smoke subset: `25 passed` before the
+  second server-backed record-failure case was added;
+- server-backed smoke plus forced local-record failure: `2 passed`;
+- requested final focused subset: `26 passed`;
+- separate Windows process-tree regression: `1 passed`;
+- full pytest: `332 passed, 3 skipped` (ignoring only the unreadable permitted
+  `worker-pytest-tmp/` collection path);
+- strict Playwright UI: `2 passed`;
+- exact hosted coverage command: `332 passed, 3 skipped`, 93% measured coverage;
+- current module-specific coverage gate: all 16 thresholds passed;
+- pinned pre-commit, Ruff check, Black, Mypy, and `git diff --check`: passed;
+- `pip check` is limited by the pre-existing global environment conflict:
+  `opencv-python 4.12.0.88` requires NumPy `<2.3.0`, while local NumPy is
+  `2.3.4`; no dependencies were added or changed;
+- standalone Ruff 0.14.2 format-check remains limited to three untouched
+  baseline files (`client/python/switchboard_cli.py`,
+  `server/tests/test_configuration_paths.py`, and
+  `server/tests/test_observability_telemetry.py`); pinned pre-commit formatting
+  passes and those unrelated files were not churned;
+- Bandit cannot analyze Python 3.14 syntax in this environment and emits an
+  exception for each server module; hosted Python 3.11 security is authoritative;
+- `pip-audit`: no known vulnerabilities; Gitleaks: 193 commits scanned, no
+  leaks found;
+- hosted results remain to be recorded after the final commit and push.
 
 Do not commit real tokens, local repository paths, full environment dumps, generated logs, temporary worktrees, virtual environments, or test databases.
 
