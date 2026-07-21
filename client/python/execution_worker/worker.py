@@ -178,11 +178,13 @@ class _RunMonitor:
         except ExecutionOwnershipLostError:
             self.token.cancel("ownership_lost")
             return
+        except ValueError:
+            # Invalid control-plane data must fail closed, including requests'
+            # JSONDecodeError, which also inherits from OSError.
+            self.token.cancel("invalid_run_heartbeat")
+            return
         except OSError:
             # Retry only at the next scheduled monitor tick.
-            return
-        except ValueError:
-            self.token.cancel("invalid_run_heartbeat")
             return
         if run.id != self.run_id:
             self.token.cancel("invalid_run_heartbeat")
