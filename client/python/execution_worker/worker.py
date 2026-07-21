@@ -389,7 +389,6 @@ class LocalWorker:
             return True
         worktree: DisposableWorktree | None = None
         monitor: _RunMonitor | None = None
-        token: CancellationToken | None = None
         results: list[StepResult] = []
         terminal: str = "failed"
         reason: str | None = "worker_initialization_failed"
@@ -458,6 +457,13 @@ class LocalWorker:
                         else:
                             terminal, reason = "timed_out", str(error)
                         break
+                    except Exception:
+                        if token.cancelled:
+                            terminal, reason, skip_completion = (
+                                _cancellation_outcome(token)
+                            )
+                            break
+                        raise
                     results.append(result)
                     if result.status != "succeeded" and step.required:
                         terminal = (
@@ -475,10 +481,7 @@ class LocalWorker:
         except ExecutionOwnershipLostError:
             skip_completion, terminal, reason = True, "cancelled", "ownership_lost"
         except Exception as error:  # terminal outcome must stay truthful and bounded
-            if token is not None and token.cancelled:
-                terminal, reason, skip_completion = _cancellation_outcome(token)
-            else:
-                terminal, reason = "failed", f"worker_error:{type(error).__name__}"
+            terminal, reason = "failed", f"worker_error:{type(error).__name__}"
         finally:
             if monitor is not None:
                 monitor.stop()
