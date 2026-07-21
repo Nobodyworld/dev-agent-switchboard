@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 import pytest
+from requests.exceptions import JSONDecodeError
 
 from client.python.execution_worker.client import ExecutionOwnershipLostError
 from client.python.execution_worker.runner import CancellationToken
@@ -83,6 +84,17 @@ def test_malformed_or_unsupported_run_heartbeat_cancels(
 ) -> None:
     client = _MonitorClient()
     client.run_values = [payload]
+    monitor, token = _monitor(tmp_path, client)
+
+    monitor.tick()
+
+    assert token.cancelled is True
+    assert token.reason == "invalid_run_heartbeat"
+
+
+def test_malformed_json_run_heartbeat_cancels(tmp_path: Path) -> None:
+    client = _MonitorClient()
+    client.run_values = [JSONDecodeError("Expecting value", "not-json", 0)]
     monitor, token = _monitor(tmp_path, client)
 
     monitor.tick()
