@@ -51,6 +51,18 @@ def _requirement_satisfied(actual: object, expected: object) -> bool:
     return False
 
 
+def _cancellation_outcome(token: CancellationToken) -> tuple[str, str, bool]:
+    """Return the authoritative terminal state for one cancelled run."""
+
+    reason = token.reason
+    if reason == "overall_timeout":
+        return "timed_out", reason, False
+    skip_completion = reason == "ownership_lost" or reason.startswith(
+        "server_terminal:"
+    )
+    return "cancelled", reason, skip_completion
+
+
 def _local_capabilities(config: WorkerConfig) -> dict[str, object]:
     registration = discover_worker_registration(config)
     capabilities = dict(registration["capabilities"])
@@ -377,6 +389,7 @@ class LocalWorker:
             return True
         worktree: DisposableWorktree | None = None
         monitor: _RunMonitor | None = None
+        token: CancellationToken | None = None
         results: list[StepResult] = []
         terminal: str = "failed"
         reason: str | None = "worker_initialization_failed"
@@ -412,11 +425,7 @@ class LocalWorker:
             monitor = _RunMonitor(self, checkout.run_id, deadline, token)
             monitor.start()
             if token.cancelled:
-                reason = token.reason
-                skip_completion = reason == "ownership_lost" or reason.startswith(
-                    "server_terminal:"
-                )
-                terminal = "timed_out" if reason == "overall_timeout" else "cancelled"
+                terminal, reason, skip_completion = _cancellation_outcome(token)
             elif self._shutdown.is_set():
                 token.cancel("worker_shutdown")
                 terminal, reason = "cancelled", token.reason
@@ -442,7 +451,10 @@ class LocalWorker:
                             cancellation=token,
                         )
                     except OverallDeadlineExceededError as error:
-                        terminal, reason = "timed_out", str(error)
+                        if token.cancelled:
+                            terminal, reason, skip_completion = _cancellation_outcome(token)
+                        else:
+                            terminal, reason = "timed_out", str(error)
                         break
                     results.append(result)
                     if result.status != "succeeded" and step.required:
@@ -457,20 +469,14 @@ class LocalWorker:
                         )
                         break
                 if token.cancelled:
-                    reason = token.reason
-                    if reason == "overall_timeout":
-                        terminal = "timed_out"
-                    elif reason == "ownership_lost" or reason.startswith(
-                        "server_terminal:"
-                    ):
-                        terminal = "cancelled"
-                        skip_completion = True
-                    else:
-                        terminal = "cancelled"
+                    terminal, reason, skip_completion = _cancellation_outcome(token)
         except ExecutionOwnershipLostError:
             skip_completion, terminal, reason = True, "cancelled", "ownership_lost"
         except Exception as error:  # terminal outcome must stay truthful and bounded
-            terminal, reason = "failed", f"worker_error:{type(error).__name__}"
+            if token is not None and token.cancelled:
+                terminal, reason, skip_completion = _cancellation_outcome(token)
+            else:
+                terminal, reason = "failed", f"worker_error:{type(error).__name__}"
         finally:
             if monitor is not None:
                 monitor.stop()
