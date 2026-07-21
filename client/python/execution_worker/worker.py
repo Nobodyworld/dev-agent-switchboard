@@ -452,7 +452,9 @@ class LocalWorker:
                         )
                     except OverallDeadlineExceededError as error:
                         if token.cancelled:
-                            terminal, reason, skip_completion = _cancellation_outcome(token)
+                            terminal, reason, skip_completion = (
+                                _cancellation_outcome(token)
+                            )
                         else:
                             terminal, reason = "timed_out", str(error)
                         break
