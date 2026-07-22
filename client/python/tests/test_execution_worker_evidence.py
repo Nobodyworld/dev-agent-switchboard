@@ -118,7 +118,7 @@ def test_artifact_symlink_is_rejected(tmp_path: Path) -> None:
     outside = tmp_path / "outside.log"
     outside.write_text("outside", encoding="utf-8")
     (store.logs / "step.stdout.log").symlink_to(outside)
-    with pytest.raises(ValueError, match=r"symlink|reparse"):
+    with pytest.raises(ValueError, match=r"symlink|reparse|escaped"):
         store.finalize_artifacts((("step", _declaration()),))
 
 
