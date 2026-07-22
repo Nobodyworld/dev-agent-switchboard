@@ -11,6 +11,8 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .text_policy import validate_no_absolute_local_paths
+
 ParserKind = Literal[
     "pytest",
     "coverage",
@@ -45,6 +47,13 @@ class EvidenceModel(BaseModel):
     """Deny unknown fields and non-finite numbers in all evidence records."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_absolute_local_paths(cls, value: object) -> object:
+        """Reject local path disclosure anywhere in compact evidence text."""
+
+        return validate_no_absolute_local_paths(value)
 
 
 def validate_relative_path(value: str) -> str:

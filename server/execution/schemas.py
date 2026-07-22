@@ -18,6 +18,10 @@ from .enums import (
     WorkOrderStatus,
 )
 from .evidence import ArtifactRecord, ExecutionEvidence
+from .text_policy import (
+    validate_no_absolute_local_paths,
+    validate_optional_no_absolute_local_path,
+)
 
 _FORBIDDEN_EXECUTABLE_KEYS = frozenset(
     {
@@ -54,6 +58,13 @@ class ExecutionInput(BaseModel):
     """Strict base for all caller-controlled execution request payloads."""
 
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_absolute_local_paths(cls, value: object) -> object:
+        """Reject local path disclosure in execution-plane request text."""
+
+        return validate_no_absolute_local_paths(value)
 
 
 class ManifestReferenceIn(ExecutionInput):
@@ -260,6 +271,10 @@ class WorkOrderOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    _local_path = field_validator("terminal_reason")(
+        validate_optional_no_absolute_local_path
+    )
+
 
 class WorkerOut(BaseModel):
     """Persisted worker capability declaration and capacity state."""
@@ -312,6 +327,10 @@ class ExecutionRunOut(BaseModel):
     updated_at: dt.datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    _local_paths = field_validator(
+        "worker_id", "result_summary", "terminal_reason", "cleanup_status"
+    )(validate_optional_no_absolute_local_path)
 
     @field_validator("evidence_metadata", mode="before")
     @classmethod
