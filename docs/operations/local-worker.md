@@ -34,6 +34,7 @@ is:
   "worker_id": "trusted-workstation-1",
   "display_name": "Trusted workstation 1",
   "worker_root": "C:\\switchboard-worker",
+  "evidence_root": "C:\\switchboard-evidence",
   "repositories": {
     "Nobodyworld/dev-agent-switchboard": "C:\\src\\dev-agent-switchboard"
   },
@@ -45,6 +46,10 @@ is:
   "output_summary_limit": 4096,
   "total_output_limit": 67108864,
   "disk_limit_bytes": 536870912,
+  "evidence_retention_days": 14,
+  "maximum_artifact_count": 128,
+  "maximum_artifact_bytes": 67108864,
+  "maximum_total_evidence_bytes": 536870912,
   "inherited_environment_keys": ["PATH", "USERPROFILE", "SYSTEMROOT", "TEMP", "TMP"],
   "redacted_key_patterns": ["TOKEN", "SECRET", "PASSWORD", "KEY"],
   "redacted_value_patterns": [],
@@ -55,8 +60,12 @@ is:
 
 Repository keys are logical `owner/repository` names. Their values are absolute,
 operator-approved canonical Git checkout paths; a work order cannot select any
-other path. The worker root must be absolute and must not equal, contain, or be
-contained by a registered canonical checkout.
+other path. The worker and evidence roots must be distinct absolute
+operator-owned paths. Neither may overlap a registered canonical checkout, and
+the evidence store also rejects overlap with the disposable source run
+directory. Evidence policy accepts retention from 1 through 3,650 days, at most
+128 artifacts, and bounded per-artifact and total byte limits; the total must
+cover the per-artifact limit.
 
 ## Runtime behavior and limits
 
@@ -66,9 +75,12 @@ will not take new work while draining or after shutdown begins.
 
 Before creating a worktree, the worker checks the exact local trusted manifest,
 name/version/digest, server-safe metadata, required capabilities, read-only
-policy, network policy, timeout, and output limits. Metadata-only
-`validate-switchboard@1` is rejected in this phase. `worker-smoke@1` is the
-only harmless executable proof profile.
+policy, network policy, timeout, and output limits. The reviewed executable
+profiles are `worker-smoke@1` and `validate-switchboard@1`. The validation
+profile runs fixed, shell-free Python version, dependency consistency, Ruff,
+Black, Mypy, pytest-with-coverage, and Bandit steps. Dependency consistency is
+diagnostic-only because it describes the operator's shared environment; all
+other validation steps are required.
 
 For each owned run, the worker creates a detached exact-SHA checkout underneath
 the worker root. Its generated `ownership.json` binds the worker, server run,
@@ -94,13 +106,37 @@ environment summaries remain present. Serialized JSON text is never sliced.
 does **not** claim per-process network isolation or a firewall sandbox. Select
 `disabled` only when the worker can truthfully support that policy.
 
-## Logs, cleanup, cancellation, and restart
+## Evidence, retention, and privacy
 
-Each completed run retains its local directory beneath `worker_root`, including
-`ownership.json`, `logs/*.stdout.log`, `logs/*.stderr.log`, and `result.json`.
-Completion responses use relative `logs/...` references only. These files are
-operator-owned Phase 1 diagnostics: Switchboard does not ingest them, and no
-automatic retention job deletes them in this issue.
+Each admitted run creates exactly one `run-{server_run_id}` directory beneath
+`evidence_root`. Its `ownership.json` records schema version, worker ID, run ID,
+creation time, and deterministic retention expiry. Full stdout/stderr logs and
+`result.json` remain in this marked directory after source cleanup. Artifacts
+are accepted only from trusted manifest declarations, must be contained regular
+non-reparse files, are streamed through size limits and SHA-256 hashing, and are
+recorded with relative POSIX paths.
+
+The worker checks expired evidence at startup and before idle checkout. It
+deletes only direct child directories whose valid ownership marker names the
+same worker and whose expiry is due. Missing, malformed, foreign, nested, or
+reparse-point layouts are preserved and surfaced as failures for operator
+inspection. There is no independent background scheduler.
+
+`GET /api/execution/runs/{run_id}/evidence` returns the strict compact record:
+exact repository/SHA, manifest identity and digest, safe worker environment
+identity, dependency-lock hashes, step outcomes and parsed summaries, artifact
+hashes and expiry, cleanup state, and the canonical fingerprint. It never
+returns artifact bytes or full logs. API summaries apply configured key/value
+redaction plus absolute-path redaction. Local logs have `redaction_state: none`:
+they can contain tool output and must be protected as operator-private data.
+
+If evidence pruning fails, stop the worker, inspect the exact reported child
+under `evidence_root`, correct its ownership or filesystem condition manually,
+and restart. Never bulk-delete the root. If artifact finalization or local
+result writing fails while ownership remains, the worker reports a truthful
+failed terminal result and preserves safe diagnostic files.
+
+## Source cleanup, cancellation, and restart
 
 The disposable `checkout` is removed through its exact registered
 `git worktree remove --force` entry. The worker never runs a global
@@ -141,6 +177,6 @@ Windows it invokes the fixed internal `taskkill /PID <trusted-launched-pid> /T
 /F` command with `shell=False`. No work-order value contributes to termination
 arguments.
 
-Issue #114 remains the boundary for durable server artifact ingestion,
-operator-controlled retention processing, evidence fingerprints, and compact
-evidence APIs.
+Artifact upload/download and server-side artifact-byte retention remain out of
+scope. The server persists only compact evidence and verified artifact metadata;
+later evidence-reuse work may build on the deterministic fingerprint.

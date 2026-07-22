@@ -21,18 +21,21 @@ The compact evidence must identify exactly what was tested, where the trusted ex
 - [x] Issue #114 unblocked and rewritten with locked Phase 1B boundaries.
 - [x] Canonical branch `feat/exact-sha-validation-evidence` created from exact base `f549ab7bb2efc274dc2d79e12502d5653ddc8886`.
 - [x] Existing completion placeholders, execution-run JSON columns, manifest registry, worker result handling, and application configuration entry points inspected.
-- [ ] Define strict versioned artifact and compact evidence models.
-- [ ] Add the trusted `validate-switchboard@1` manifest and immutable safe metadata.
-- [ ] Add a worker-owned evidence-directory lifecycle separate from the disposable source worktree.
-- [ ] Add artifact validation, hashing, redaction metadata, and retention expiry.
-- [ ] Add deterministic evidence fingerprinting from canonical JSON.
-- [ ] Extend worker step results with timestamps and declared parsed result kinds.
-- [ ] Complete runs with strict evidence and artifact metadata.
-- [ ] Add `GET /api/execution/runs/{run_id}/evidence`.
-- [ ] Add marker-verified retention cleanup for expired evidence directories.
-- [ ] Add focused security, schema, fingerprint, parser, retention, and API tests.
-- [ ] Add two server-backed exact-SHA end-to-end executions against temporary repositories.
-- [ ] Update operator and API documentation.
+- [x] Reproduced the hosted pinned-hook failure locally; retained the exact formatter-only mutation and reran all hooks successfully.
+- [x] Re-ran cancellation-precedence, monitor, and runtime regressions after normalization (3 + 12 + 6 tests passed).
+- [x] Define strict versioned artifact and compact evidence models.
+- [x] Add the trusted `validate-switchboard@1` manifest and immutable safe metadata.
+- [x] Add a worker-owned evidence-directory lifecycle separate from the disposable source worktree.
+- [x] Add artifact validation, hashing, redaction metadata, and retention expiry.
+- [x] Add deterministic evidence fingerprinting from canonical JSON.
+- [x] Extend worker step results with timestamps and declared parsed result kinds.
+- [x] Complete runs with strict evidence and artifact metadata.
+- [x] Add `GET /api/execution/runs/{run_id}/evidence`.
+- [x] Add marker-verified retention cleanup for expired evidence directories.
+- [x] Add focused security, schema, fingerprint, parser, retention, and API tests.
+- [x] Add two server-backed exact-SHA end-to-end executions against temporary repositories.
+- [x] Update operator and API documentation.
+- [x] Run the complete local repository validation and record environment limitations.
 - [ ] Run the complete repository validation and protected hosted matrix.
 - [ ] Record final evidence, limitations, and merge result here.
 
@@ -52,6 +55,27 @@ The compact evidence must identify exactly what was tested, where the trusted ex
 
 - Observation: the existing trusted manifest registry already includes private executable steps in the digest and exposes only safe metadata through the API.
   Evidence: #113 added `TrustedStep`, private fixed argv, environment additions, and digest-bound execution definitions while `CommandManifestOut` remains metadata-only.
+
+- Observation: the first planning commit initially failed `end-of-file-fixer` because the new ExecPlan lacked the normalized final newline; the follow-up `docs(evidence): normalize ExecPlan file` retained that hook output.
+  Evidence: branch commits `6a25b7e` and `ed487e1` record the initial document and exact EOF normalization.
+
+- Observation: hosted validation exposed an ownership-loss/process-termination race: a heartbeat could establish authoritative cancellation while process-tree termination raised locally, allowing the outer generic error path to replace cancellation with `worker_error:RuntimeError` and attempt a stale completion.
+  Evidence: commits `92c9834` through `deedf93` and `client/python/tests/test_execution_worker_cancellation_precedence.py` cover ownership loss, server-terminal state, and ordinary runner exceptions.
+
+- Observation: the exact pinned local pre-commit mutation was limited to wrapping two 92-character `_cancellation_outcome(token)` assignments in `client/python/execution_worker/worker.py`; the second all-files run passed with no further changes.
+  Evidence: local `python -m pre_commit run --all-files --show-diff-on-failure` failed only Ruff E501/Ruff format on worker lines 454 and 460, then passed after retaining the six-line formatter output in commit `892a3ef`.
+
+- Observation: pytest currently emits a cache warning because `.pytest_cache/v/cache` cannot be created over an existing local path, but the required worker regressions complete successfully using system temporary repositories.
+  Evidence: cancellation-precedence reported 3 passed, monitor 12 passed, and runtime 6 passed; each reported only `PytestCacheWarning` for the repository cache path.
+
+- Observation: the operator's shared Python environment has an unrelated `opencv-python 4.12.0.88` / `numpy 2.3.4` dependency conflict, so `python -m pip check` is truthful diagnostic evidence rather than a required validation gate inside the trusted manifest.
+  Evidence: the first server-backed validation failed only at dependency health; making that declared step diagnostic-only allowed the required repository checks to determine the terminal outcome while preserving the failed dependency audit.
+
+- Observation: a direct ORM-created active run exposed that the migration-free implementation must preserve the existing non-null `{}` database sentinel for absent evidence rather than introduce a nullable column that existing #112 databases do not have.
+  Evidence: the focused concurrency invariant initially failed with `NOT NULL constraint failed: execution_runs.evidence_metadata`; restoring `nullable=False, default=dict`, explicitly persisting `{}`, and normalizing that sentinel to API `null` preserved the deployed schema. Persistence, startup, and strict schema tests then passed (19 tests), while the evidence endpoint returns 404 for absent evidence and 500 for a nonempty malformed record.
+
+- Observation: tool output may contain absolute installation paths even when argv and environment metadata are safe.
+  Evidence: the dependency diagnostic exposed a local site-packages path; bounded API summaries now redact Windows and POSIX absolute paths, with runner and server-backed API assertions covering the boundary.
 
 ## Decision Log
 
@@ -83,9 +107,32 @@ The compact evidence must identify exactly what was tested, where the trusted ex
   Rationale: retention behavior can be proven through startup/idle maintenance or an explicit worker maintenance call. A separate scheduler is unnecessary for the first end-to-end evidence contract.
   Date/Author: 2026-07-21 / ChatGPT connector planning
 
+- Decision: authoritative cancellation continues to outrank a simultaneous local runner or process-tree termination exception.
+  Rationale: ownership loss and server-terminal state are facts established by the control plane; emitting a local failed completion after either fact is stale and unsafe. Overall timeout remains `timed_out`, other owned cancellation remains `cancelled`, and an ordinary uncancelled runner exception remains a failed completion.
+  Date/Author: 2026-07-21 / Codex implementation
+
+- Decision: keep raw local command logs explicitly marked `redaction_state: none` while redacting compact API summaries.
+  Rationale: local evidence is operator-private diagnostic material and must remain faithful for audit; the API boundary must not expose full logs, absolute paths, secrets, or arbitrary environment values.
+  Date/Author: 2026-07-21 / Codex implementation
+
 ## Outcomes & Retrospective
 
-Not complete. At completion, record:
+Implementation is complete pending the full local and hosted validation matrix.
+
+- `validate-switchboard@1` currently resolves to manifest digest `10e99418e4e6f0e9f4a6e95fb5b9a267dab4eeac4671cf58533c8b9afe1fed98`; every executable field, parser declaration, artifact declaration, fixed environment value, and dependency-lock path participates in the digest.
+- Evidence and artifact schema version 1 use strict Pydantic models. The fingerprint is SHA-256 over UTF-8 JSON with sorted keys, compact separators, `ensure_ascii=False`, and the `fingerprint` field omitted.
+- The worker-owned marker records schema version, worker/run identity, creation, and expiry. Source worktrees are removed immediately; marked local evidence is retained for the configured 1--3,650 day period within count and byte limits.
+- Supported parsed kinds are pytest counts, coverage, combined pytest/coverage, Bandit security audit, and dependency audit. Parser failure is recorded as `parser_failed` without fabricating results or changing a successful process exit by itself.
+- The exact blocked evidence/worker command passed after final adjustments with 31 passed and one expected POSIX-only symlink skip in 14.83 seconds. The full focused execution-worker/server-execution set passed with exit 0 in 141.4 seconds before the final migration-free sentinel regression was added; the affected persistence/startup/schema subset then passed 19 tests and the two-run server-backed evidence test passed again.
+- The required server-backed validation completed twice against temporary repositories and returned retrievable compact evidence for exact SHAs `3a8422b70e15133be064094e46358c22a661a929` and `1bb9bc24daadd3d46064323a76a25ff353b6ea65`. Both runs verified the detached SHA, artifact hashes, retained logs, source cleanup, canonical checkout integrity, and API redaction boundaries.
+- Known local limitations are the operator environment's pre-existing `opencv-python`/`numpy` `pip check` conflict and the unreadable repository `.pytest_cache/v/cache` path warning. `worker_restricted` remains an operator-controlled network posture, not per-process firewall isolation.
+- Complete local validation: pre-commit passed every hook; TODO metadata, standalone Ruff, Black, and Mypy (161 source files) passed; final full pytest reported 367 passed and 4 skipped; strict Playwright reported 2 passed with no skips; the instrumented suite before the final sentinel-only regression reported 366 passed and 4 skipped with 93% aggregate measured coverage; every configured module threshold passed (lowest measured configured module: 87.76% against an 80% threshold).
+- Security and documentation validation: Bandit 1.8.6 passed under isolated CPython 3.11, matching CI. The shared CPython 3.14 installation cannot produce a valid Bandit scan because Bandit accesses the removed `ast.Constant.s` attribute, and its CLI shim is missing due to an invalid `~andit` distribution. `pip-audit` found no known vulnerabilities, Gitleaks found no leaks across 199 commits, and Lychee passed with two redirect hints.
+- `python -m pip check` remains the sole non-passing local command because of the external `opencv-python 4.12.0.88` requirement `numpy<2.3.0,>=2` versus installed `numpy 2.3.4`; it also reports the invalid `~andit` distribution. Repository-required validation itself is covered by the passing isolated scanner and hosted Python 3.11 matrix.
+
+At final handoff, add hosted workflow identifiers/conclusions and the complete repository validation results. Deferred scope remains evidence reuse, GitHub integration, cost routing, MCP, RPA, artifact upload/download, and per-worker credentials.
+
+Completion evidence includes:
 
 - final manifest identity and digest behavior;
 - evidence-root configuration and ownership marker format;

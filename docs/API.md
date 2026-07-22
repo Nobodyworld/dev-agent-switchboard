@@ -32,6 +32,7 @@ Use this page as the concise endpoint index; use [ai-interface.md](ai-interface.
 | `/api/execution/checkout` | `POST` | Atomically assign one capability-compatible queued work order to one worker. |
 | `/api/execution/runs` | `GET` | List historical execution attempts; filter with `work_order_id`. |
 | `/api/execution/runs/{id}` | `GET` | Read a bounded execution-run record. |
+| `/api/execution/runs/{id}/evidence` | `GET` | Read strict, versioned compact evidence for a completed run; full logs remain worker-local. |
 | `/api/execution/runs/{id}/heartbeat` | `POST` | Refresh a lease owned by the named worker and mark first execution start. |
 | `/api/execution/runs/{id}/complete` | `POST` | Record `succeeded`, `failed`, `timed_out`, or `cancelled` after ownership validation. |
 | `/api/execution/leases/expire` | `POST` | Timeout stale runs, release worker capacity, and safely requeue their work orders. |
@@ -85,9 +86,13 @@ records return `404`, invalid lifecycle/ownership/approval conflicts return
 responses (`422`). A normal empty checkout returns `200` with a machine-readable
 reason instead of treating no available work as a server failure.
 
-No route executes a command, creates a worktree, writes to a target repository,
-or returns full logs. Those behaviors remain out of scope for issues #113 and
-#114.
+The outbound worker, rather than an API route, resolves reviewed executable
+definitions and validates detached exact-SHA worktrees. The evidence endpoint
+returns only strict bounded identities, summaries, relative artifact references,
+SHA-256 hashes, retention timestamps, cleanup outcomes, and a deterministic
+fingerprint. It returns `404` when the run or evidence is absent and `500` when
+persisted evidence is malformed. Full logs, absolute paths, tokens, arbitrary
+environment values, and artifact bytes are never returned.
 
 ## Related Docs
 
