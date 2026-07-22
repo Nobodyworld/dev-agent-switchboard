@@ -36,8 +36,8 @@ The compact evidence must identify exactly what was tested, where the trusted ex
 - [x] Add two server-backed exact-SHA end-to-end executions against temporary repositories.
 - [x] Update operator and API documentation.
 - [x] Run the complete local repository validation and record environment limitations.
-- [ ] Run the complete repository validation and protected hosted matrix.
-- [ ] Record final evidence, limitations, and merge result here.
+- [x] Run the complete repository validation and protected hosted matrix.
+- [x] Record final evidence, limitations, and draft/unmerged handoff state here.
 
 ## Surprises & Discoveries
 
@@ -76,6 +76,9 @@ The compact evidence must identify exactly what was tested, where the trusted ex
 
 - Observation: tool output may contain absolute installation paths even when argv and environment metadata are safe.
   Evidence: the dependency diagnostic exposed a local site-packages path; bounded API summaries now redact Windows and POSIX absolute paths, with runner and server-backed API assertions covering the boundary.
+
+- Observation: the first hosted Python 3.11 run rejected the POSIX symlink fixture with the safe message `evidence path escaped its owned run directory`, while the test regex accepted only `symlink|reparse`.
+  Evidence: CI run `29883368990` failed only that assertion. Commit `946a7e9` broadened the assertion to the already-supported `escaped` rejection; final CI run `29883500759` then passed every job.
 
 ## Decision Log
 
@@ -129,8 +132,10 @@ Implementation is complete pending the full local and hosted validation matrix.
 - Complete local validation: pre-commit passed every hook; TODO metadata, standalone Ruff, Black, and Mypy (161 source files) passed; final full pytest reported 367 passed and 4 skipped; strict Playwright reported 2 passed with no skips; the instrumented suite before the final sentinel-only regression reported 366 passed and 4 skipped with 93% aggregate measured coverage; every configured module threshold passed (lowest measured configured module: 87.76% against an 80% threshold).
 - Security and documentation validation: Bandit 1.8.6 passed under isolated CPython 3.11, matching CI. The shared CPython 3.14 installation cannot produce a valid Bandit scan because Bandit accesses the removed `ast.Constant.s` attribute, and its CLI shim is missing due to an invalid `~andit` distribution. `pip-audit` found no known vulnerabilities, Gitleaks found no leaks across 199 commits, and Lychee passed with two redirect hints.
 - `python -m pip check` remains the sole non-passing local command because of the external `opencv-python 4.12.0.88` requirement `numpy<2.3.0,>=2` versus installed `numpy 2.3.4`; it also reports the invalid `~andit` distribution. Repository-required validation itself is covered by the passing isolated scanner and hosted Python 3.11 matrix.
+- Hosted validation for implementation/test head `946a7e9b65c18c7c4f621eac51dea460e14484e6` passed in CI run `29883500759`: link check, lint, typecheck, test, security, secrets audit, strict browser UI, and coverage all concluded `success`. Commitlint run `29883500819` also concluded `success`.
+- PR #120 remained open, draft, cleanly mergeable, and unmerged at handoff. Issue #104, releases, branch history, and `main` were not modified.
 
-At final handoff, add hosted workflow identifiers/conclusions and the complete repository validation results. Deferred scope remains evidence reuse, GitHub integration, cost routing, MCP, RPA, artifact upload/download, and per-worker credentials.
+Deferred scope remains evidence reuse, GitHub integration, cost routing, MCP, RPA, artifact upload/download, and per-worker credentials.
 
 Completion evidence includes:
 
