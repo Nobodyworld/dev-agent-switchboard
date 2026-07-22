@@ -32,8 +32,20 @@ Completion note (indented, one line):
 - [x] Verify lease ownership, expiry races, and dependency unlocking with objective integration tests — TK-20260627-003
   - Completed: 2026-06-27 — PR: pending — rejected wrong-agent lifecycle actions, prevented expired-heartbeat revival, and validated expiry re-checkout plus dependency unlocking in the passing integration suite.
 - [ ] Validate live-file symlink safety and enforce a configurable upload-size limit — TK-20260627-004
-  - Progress: 2026-06-27 — configurable streaming limit implemented and symlink-escape regression added; local Windows symlink creation was unavailable, so Linux execution remains required.
-- [x] Run and record all release gates from a clean Python 3.11 environment — TK-20260627-005
-  - Completed: 2026-06-27 — PR: pending — Python 3.11.14 produced 226 passed/2 skipped, passing Ruff, Bandit, TODO, coverage, and pip-audit gates; strict mypy still reports 76 existing errors.
+  - Progress: 2026-06-27 — configurable streaming limit implemented and symlink-escape regression added; Linux execution remains required and is tracked by issue #104.
+- [x] Run and record release-quality gates from a clean Python 3.11 environment — TK-20260627-005
+  - Completed: 2026-06-27 — historical clean-environment evidence recorded; current validation results belong in active PRs, living ExecPlans, and `PUBLIC_RELEASE_AUDIT.md`, while the protected matrix now includes strict Mypy.
 - [x] Reconcile README repository-essential links and replace stale status claims — TK-20260627-006
-  - Completed: 2026-06-27 — PR: pending — corrected docs paths, marked the 2025 report historical, and published the current hardening status.
+  - Completed: 2026-06-27 — corrected docs paths, marked the 2025 report historical, and established the public status and release-audit records.
+- [x] Implement the versioned execution control plane with explicit approval, workers, runs, leases, and trusted manifest identities — TK-20260713-001
+  - Completed: 2026-07-13 — PR: #116 — issue #112 merged at `765b7167457e523b9edc0b230039ed407060274b`.
+- [x] Implement the outbound trusted local worker with exact-SHA disposable worktrees and fixed reviewed argv — TK-20260716-001
+  - Completed: 2026-07-16 — PR: #119 — issue #113 merged at `f549ab7bb2efc274dc2d79e12502d5653ddc8886`.
+- [ ] Merge the reviewed exact-SHA compact evidence workflow after explicit owner authorization — TK-20260722-001
+  - Progress: 2026-07-22 — issue #114 / PR #120 is ready, mergeable, fully validated, and unmerged at reviewed head `e938d3fdc3937babb4f13d3a7980a6c704b8cebd`.
+- [ ] Select one immutable release-candidate SHA and complete Linux, clean-clone, Docker, and final audit gates — TK-20260722-002
+  - Tracked by issues #95 and #104; formal release and production deployment remain unauthorized.
+- [ ] Implement exact evidence reuse with worker-local availability proof — TK-20260722-003
+  - Tracked by issue #121 and blocked until PR #120 merges.
+- [ ] Implement the outbound GitHub exact-PR validation and compact-result adapter — TK-20260722-004
+  - Tracked by issue #122 and blocked until PR #120 merges.
