@@ -43,7 +43,7 @@ The compact evidence must identify exactly what was tested, where the trusted ex
 - [x] Reject absolute local paths recursively in compact evidence and in persisted completion/run text.
 - [x] Add direct Windows, POSIX, UNC, `file:` URI, safe-relative, safe-URI, persistence, and fail-closed API regressions.
 - [x] Re-run the complete focused and repository validation after the connector correction.
-- [ ] Record the final hosted exact-SHA workflow IDs and draft PR handoff state after the connector correction.
+- [x] Record the final hosted exact-SHA workflow IDs and draft PR handoff state after the connector correction.
 
 ## Surprises & Discoveries
 
@@ -146,6 +146,7 @@ Implementation and complete local validation are complete pending the final host
 - Connector correction complete local validation: the exact pinned all-files pre-commit command passed with the new helper staged and included; standalone Ruff passed; standalone Black passed (the pinned all-files hooks formatted and checked the full tracked Python set); Mypy passed 162 source files; TODO metadata passed; final full pytest passed 384 tests with 4 skips and 349 existing deprecation warnings in 314.14 seconds; the final instrumented run passed the same 384/4 result at 93% aggregate coverage in 311.38 seconds; all 16 configured coverage thresholds passed, with the lowest `plan_latency.py` result at 87.76% against 80%; strict Playwright passed 2 tests with zero skips in 37.10 seconds.
 - Connector correction security and documentation validation: isolated CPython 3.11 Bandit 1.8.6 passed; `pip-audit` reported no known vulnerabilities after one network-bound timeout and a successful unchanged retry; Gitleaks scanned 203 commits and found no leaks; Lychee passed on an unchanged retry after four external URLs initially timed out, with two redirect hints and no errors. `git diff --check` passed.
 - The known non-gating shared-interpreter `python -m pip check` diagnostic remains unchanged: `opencv-python 4.12.0.88` requires `numpy<2.3.0,>=2` while NumPy 2.3.4 is installed, and the CPython 3.14 environment reports an invalid `~andit` distribution. Dependencies were not changed.
+- Connector correction hosted validation: exact code-bearing SHA `b6274bd8f43f6df5504d5787f1bb3e418ff518e7` passed Commitlint run `29901308518` and CI run `29901308554`. CI passed lint, typecheck, pytest, security, link check, secrets audit, coverage, and strict browser jobs. Its only annotations were GitHub's Node 20 action-deprecation notices, unrelated to issue #114. PR #120 remained open, draft, and unmerged after both workflows completed.
 
 - `validate-switchboard@1` currently resolves to manifest digest `10e99418e4e6f0e9f4a6e95fb5b9a267dab4eeac4671cf58533c8b9afe1fed98`; every executable field, parser declaration, artifact declaration, fixed environment value, and dependency-lock path participates in the digest.
 - Evidence and artifact schema version 1 use strict Pydantic models. The fingerprint is SHA-256 over UTF-8 JSON with sorted keys, compact separators, `ensure_ascii=False`, and the `fingerprint` field omitted.
