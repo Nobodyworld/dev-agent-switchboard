@@ -31,10 +31,12 @@ from .enums import (
     is_terminal_run,
     is_terminal_work_order,
 )
+from .evidence import ExecutionEvidence
 from .exceptions import (
     ApprovalDeniedError,
     ExecutionNotFoundError,
     LifecycleConflictError,
+    MalformedEvidenceError,
     ManifestIntegrityError,
     ManifestParameterError,
     OwnershipConflictError,
@@ -409,6 +411,17 @@ class ExecutionService:
             raise ExecutionNotFoundError("execution_run_not_found")
         return run
 
+    async def get_run_evidence(self, run_id: int) -> ExecutionEvidence:
+        """Return strict persisted compact evidence or fail explicitly."""
+
+        run = await self.get_run(run_id)
+        if not run.evidence_metadata:
+            raise ExecutionNotFoundError("execution_evidence_not_found")
+        try:
+            return ExecutionEvidence.model_validate(run.evidence_metadata)
+        except (TypeError, ValueError) as error:
+            raise MalformedEvidenceError("malformed_execution_evidence") from error
+
     async def list_runs(self, work_order_id: int | None = None) -> list[ExecutionRun]:
         """Return historical attempts, optionally for one work order."""
 
@@ -544,6 +557,7 @@ class ExecutionService:
     ) -> ExecutionRun:
         """Consume one lease, terminalize its records, and release capacity once."""
 
+        await self._validate_completion_evidence(snapshot, completion)
         now = self._clock()
         status = completion.status
         target_work_order_status = WorkOrderStatus(status.value)
@@ -568,9 +582,14 @@ class ExecutionService:
                     "terminal_reason": terminal_reason,
                     "cleanup_status": completion.cleanup_status,
                     "artifact_metadata": [
-                        dict(item) for item in completion.artifact_metadata
+                        item.model_dump(mode="json")
+                        for item in completion.artifact_metadata
                     ],
-                    "evidence_metadata": dict(completion.evidence_metadata),
+                    "evidence_metadata": (
+                        completion.evidence_metadata.model_dump(mode="json")
+                        if completion.evidence_metadata is not None
+                        else {}
+                    ),
                 },
             )
             work_order_updated = await self._repository.finish_active_work_order(
@@ -588,3 +607,28 @@ class ExecutionService:
         if run is None:  # pragma: no cover - direct update cannot remove a run
             raise ExecutionNotFoundError("execution_run_not_found")
         return run
+
+    async def _validate_completion_evidence(
+        self, snapshot: LeaseSnapshot, completion: ExecutionCompletion
+    ) -> None:
+        """Bind worker evidence to the exact leased run and approved work order."""
+
+        evidence = completion.evidence_metadata
+        if evidence is None:
+            if completion.artifact_metadata:
+                raise LifecycleConflictError("artifacts_require_execution_evidence")
+            return
+        order = await self.get_work_order(snapshot.work_order_id, refresh=True)
+        if (
+            evidence.run_id != snapshot.execution_run_id
+            or evidence.work_order_id != snapshot.work_order_id
+            or evidence.worker_id != snapshot.worker_id
+            or evidence.repository_full_name != order.repository_full_name
+            or evidence.tested_sha != order.commit_sha
+            or evidence.manifest_name != order.manifest_name
+            or evidence.manifest_version != order.manifest_version
+            or evidence.manifest_digest != order.manifest_digest
+            or evidence.terminal_status != completion.status.value
+            or tuple(evidence.artifacts) != completion.artifact_metadata
+        ):
+            raise LifecycleConflictError("execution_evidence_identity_mismatch")

@@ -86,7 +86,32 @@ async def test_manifest_api_never_exposes_executable_fields() -> None:
     ]
 
 
-def test_validate_switchboard_remains_metadata_only() -> None:
+def test_validate_switchboard_is_fixed_executable_and_api_safe() -> None:
     manifest = get_trusted_manifest("validate-switchboard", "1")
     assert manifest is not None
-    assert manifest.execution_steps == ()
+    assert manifest.execution_steps
+    assert all(
+        step.argv and isinstance(step.argv, tuple) for step in manifest.execution_steps
+    )
+    assert all(step.working_directory == "." for step in manifest.execution_steps)
+    serialized = str(manifest.fixed_step_metadata)
+    assert "argv" not in serialized
+    assert "executable" not in serialized
+    assert "script" not in serialized
+
+
+def test_validate_switchboard_digest_binds_fixed_executable_fields() -> None:
+    manifest = get_trusted_manifest("validate-switchboard", "1")
+    assert manifest is not None
+    first = manifest.execution_steps[0]
+    changed_step = replace(first, argv=("python", "-VV"))
+    changed_manifest = replace(
+        manifest,
+        execution_steps=(changed_step, *manifest.execution_steps[1:]),
+        fixed_step_metadata=[
+            changed_step.safe_metadata(),
+            *[step.safe_metadata() for step in manifest.execution_steps[1:]],
+        ],
+    )
+
+    assert changed_manifest.digest != manifest.digest

@@ -318,6 +318,7 @@ class ExecutionRepository:
             assigned_at=now,
             lease_expires_at=expires_at,
             last_heartbeat_at=now,
+            evidence_metadata={},
         )
         self.session.add(run)
         await self.session.flush()
