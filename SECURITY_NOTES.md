@@ -6,6 +6,7 @@ For current guidance and status, use:
 
 - [`SECURITY.md`](SECURITY.md) for supported reporting and deployment boundaries;
 - [`PUBLIC_RELEASE_AUDIT.md`](PUBLIC_RELEASE_AUDIT.md) for the current developer-preview and formal-release disposition;
+- [`docs/operations/local-worker.md`](docs/operations/local-worker.md) for trusted repository mapping, worker configuration, retained evidence, and local execution limitations;
 - issue [#95](https://github.com/Nobodyworld/dev-agent-switchboard/issues/95) for release gates;
 - issue [#104](https://github.com/Nobodyworld/dev-agent-switchboard/issues/104) for Linux, Docker, and clean-environment validation;
 - the active pull request and living ExecPlan for exact run identifiers, test counts, coverage measurements, and environment limitations.
