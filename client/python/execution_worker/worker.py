@@ -2,18 +2,41 @@
 
 from __future__ import annotations
 
+import datetime as dt
+import hashlib
+import importlib.metadata
 import json
+import platform
 import threading
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
-from server.execution.registry import TrustedManifest, get_trusted_manifest
+from server.execution.evidence import (
+    ArtifactRecord,
+    DependencyLockHash,
+    EnvironmentIdentity,
+    ExecutionEvidence,
+    ExecutionEvidenceDraft,
+    StepEvidence,
+    TerminalStatus,
+    ToolIdentity,
+    finalize_evidence,
+)
+from server.execution.registry import TrustedManifest, TrustedStep, get_trusted_manifest
 
 from .capabilities import discover_worker_registration
 from .client import ExecutionClient, ExecutionOwnershipLostError
 from .config import WorkerConfig
+from .evidence import (
+    EvidenceLimits,
+    EvidenceStore,
+    create_evidence_store,
+    hash_declared_file,
+    prune_expired_evidence,
+)
 from .models import AssignedWorkOrder, Checkout, ExecutionRun, SafeManifest
 from .runner import (
     CancellationToken,
@@ -25,6 +48,70 @@ from .worktree import DisposableWorktree, create_worktree
 
 _SERVER_TERMINAL_STATUSES = {"succeeded", "failed", "timed_out", "cancelled"}
 RESULT_SUMMARY_LIMIT = 8000
+STEP_EVIDENCE_SUMMARY_LIMIT = 4096
+_ENVIRONMENT_TOOLS = ("ruff", "black", "mypy", "pytest", "coverage", "bandit")
+
+
+def _environment_identity() -> EnvironmentIdentity:
+    tools: list[ToolIdentity] = []
+    for name in _ENVIRONMENT_TOOLS:
+        try:
+            version = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+        tools.append(ToolIdentity(name=name, version=version))
+    architecture = platform.machine() or "unknown"
+    operating_system = platform.system().lower() or "unknown"
+    python_version = platform.python_version()
+    fingerprint_payload = {
+        "architecture": architecture,
+        "operating_system": operating_system,
+        "python_version": python_version,
+        "tools": [item.model_dump(mode="json") for item in tools],
+    }
+    encoded = json.dumps(fingerprint_payload, sort_keys=True, separators=(",", ":"))
+    return EnvironmentIdentity(
+        architecture=architecture,
+        operating_system=operating_system,
+        python_version=python_version,
+        tools=tools,
+        fingerprint=hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
+    )
+
+
+def _step_evidence(
+    results: list[StepResult], artifacts: list[ArtifactRecord]
+) -> list[StepEvidence]:
+    artifact_paths = {artifact.relative_path for artifact in artifacts}
+    evidence: list[StepEvidence] = []
+    for result in results:
+        summary = "\n".join(
+            item for item in (result.stdout_summary, result.stderr_summary) if item
+        )[:STEP_EVIDENCE_SUMMARY_LIMIT]
+        paths = [
+            f"logs/{result.stdout_log}",
+            f"logs/{result.stderr_log}",
+        ]
+        evidence.append(
+            StepEvidence(
+                step_id=result.step_id,
+                title=result.title,
+                status=result.status,
+                started_at=result.started_at,
+                finished_at=result.finished_at,
+                duration_seconds=result.duration_seconds,
+                exit_code=result.exit_code,
+                terminal_reason=result.terminal_reason,
+                summary=summary,
+                summary_truncated=(
+                    result.summaries_truncated
+                    or len(summary) >= STEP_EVIDENCE_SUMMARY_LIMIT
+                ),
+                log_artifact_paths=[path for path in paths if path in artifact_paths],
+                parsed_result=result.parsed_result,
+            )
+        )
+    return evidence
 
 
 def _version_at_least(actual: str, minimum: str) -> bool:
@@ -49,6 +136,20 @@ def _requirement_satisfied(actual: object, expected: object) -> bool:
             and _version_at_least(actual, minimum)
         )
     return False
+
+
+def _cancellation_outcome(
+    token: CancellationToken,
+) -> tuple[TerminalStatus, str, bool]:
+    """Return the authoritative terminal state for one cancelled run."""
+
+    reason = token.reason
+    if reason == "overall_timeout":
+        return "timed_out", reason, False
+    skip_completion = reason == "ownership_lost" or reason.startswith(
+        "server_terminal:"
+    )
+    return "cancelled", reason, skip_completion
 
 
 def _local_capabilities(config: WorkerConfig) -> dict[str, object]:
@@ -222,6 +323,13 @@ class LocalWorker:
     _active_token: CancellationToken | None = field(default=None, init=False)
 
     def start(self) -> None:
+        prune = prune_expired_evidence(
+            self.config.evidence_root,
+            worker_id=self.config.worker_id,
+            now=dt.datetime.now(dt.UTC),
+        )
+        if prune.failures:
+            raise RuntimeError(f"evidence_retention_failed:{','.join(prune.failures)}")
         self.client.register_worker(discover_worker_registration(self.config))
 
     @property
@@ -323,28 +431,83 @@ class LocalWorker:
             raise RuntimeError("required result metadata exceeds worker summary limit")
         return summary
 
-    @staticmethod
-    def _write_run_record(
-        worktree: DisposableWorktree,
-        *,
-        terminal: str,
-        reason: str | None,
-        cleanup: str,
-        summary: Mapping[str, Any],
-    ) -> None:
-        record = worktree.run_directory / "result.json"
-        record.write_text(
-            json.dumps(
-                {
-                    "cleanup_status": cleanup,
-                    "result_summary": dict(summary),
-                    "terminal_reason": reason,
-                    "terminal_status": terminal,
-                },
-                separators=(",", ":"),
+    def _create_evidence_store(
+        self, run_id: int, created_at: dt.datetime
+    ) -> EvidenceStore:
+        return create_evidence_store(
+            evidence_root=self.config.evidence_root,
+            worker_root=self.config.worker_root,
+            repository_roots=tuple(self.config.repositories.values()),
+            worker_id=self.config.worker_id,
+            run_id=run_id,
+            created_at=created_at,
+            retention_days=self.config.evidence_retention_days,
+            limits=EvidenceLimits(
+                maximum_artifact_count=self.config.maximum_artifact_count,
+                maximum_artifact_bytes=self.config.maximum_artifact_bytes,
+                maximum_total_bytes=self.config.maximum_total_evidence_bytes,
             ),
-            encoding="utf-8",
         )
+
+    @staticmethod
+    def _hash_dependency_locks(
+        manifest: TrustedManifest, checkout: Path
+    ) -> list[DependencyLockHash]:
+        hashes: list[DependencyLockHash] = []
+        for relative_path in manifest.dependency_lock_paths:
+            _size, digest = hash_declared_file(checkout, relative_path)
+            hashes.append(
+                DependencyLockHash(relative_path=relative_path, sha256=digest)
+            )
+        return hashes
+
+    def _build_evidence(  # noqa: PLR0913 - canonical evidence inputs are explicit
+        self,
+        *,
+        order: AssignedWorkOrder,
+        run_id: int,
+        manifest: TrustedManifest,
+        started_at: dt.datetime,
+        finished_at: dt.datetime,
+        terminal: TerminalStatus,
+        reason: str | None,
+        results: list[StepResult],
+        artifacts: list[ArtifactRecord],
+        dependency_locks: list[DependencyLockHash],
+        dependency_lock_status: str,
+        artifact_status: str,
+        cleanup: str,
+        local_record_status: str,
+    ) -> ExecutionEvidence:
+        failing_step = next(
+            (result.step_id for result in results if result.status != "succeeded"),
+            None,
+        )
+        draft = ExecutionEvidenceDraft(
+            work_order_id=order.id,
+            run_id=run_id,
+            repository_full_name=order.repository_full_name,
+            tested_sha=order.commit_sha.lower(),
+            manifest_name=manifest.name,
+            manifest_version=manifest.version,
+            manifest_digest=manifest.digest,
+            worker_id=self.config.worker_id,
+            environment=_environment_identity(),
+            dependency_lock_hashes=dependency_locks,
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_seconds=max(0.0, (finished_at - started_at).total_seconds()),
+            terminal_status=terminal,
+            terminal_reason=reason,
+            failing_step=failing_step,
+            steps=_step_evidence(results, artifacts),
+            artifacts=artifacts,
+            dependency_lock_status=dependency_lock_status,
+            artifact_finalization_status=artifact_status,
+            source_cleanup_status=cleanup,
+            local_record_status=local_record_status,
+        )
+        return finalize_evidence(draft)
 
     def _complete_admission_rejection(self, run_id: int, reason: str) -> None:
         """Dispose one checked-out lease exactly once without local side effects."""
@@ -356,7 +519,7 @@ class LocalWorker:
                 terminal_reason=reason,
                 cleanup_status="not_started",
                 result_summary=self._serialize_summary({"steps": []}),
-                evidence_metadata={"local_record": None},
+                evidence_metadata=None,
             )
         except ExecutionOwnershipLostError:
             # The lease has already been safely disposed elsewhere.
@@ -376,15 +539,23 @@ class LocalWorker:
             self._complete_admission_rejection(checkout.run_id, admission_rejection)
             return True
         worktree: DisposableWorktree | None = None
+        store: EvidenceStore | None = None
         monitor: _RunMonitor | None = None
+        manifest: TrustedManifest | None = None
         results: list[StepResult] = []
-        terminal: str = "failed"
+        attempted_steps: list[TrustedStep] = []
+        artifacts: list[ArtifactRecord] = []
+        dependency_locks: list[DependencyLockHash] = []
+        dependency_lock_status = "not_declared"
+        artifact_status = "not_started"
+        terminal: TerminalStatus = "failed"
         reason: str | None = "worker_initialization_failed"
         cleanup: str = "not_started"
         skip_completion = False
         order: AssignedWorkOrder | None = None
         summary: dict[str, Any] = {"steps": []}
-        local_record_written = False
+        evidence: ExecutionEvidence | None = None
+        started_at = dt.datetime.now(dt.UTC)
         try:
             order = AssignedWorkOrder.from_payload(
                 self.client.get_work_order(checkout.work_order_id)
@@ -412,15 +583,13 @@ class LocalWorker:
             monitor = _RunMonitor(self, checkout.run_id, deadline, token)
             monitor.start()
             if token.cancelled:
-                reason = token.reason
-                skip_completion = reason == "ownership_lost" or reason.startswith(
-                    "server_terminal:"
-                )
-                terminal = "timed_out" if reason == "overall_timeout" else "cancelled"
+                terminal, reason, skip_completion = _cancellation_outcome(token)
             elif self._shutdown.is_set():
                 token.cancel("worker_shutdown")
                 terminal, reason = "cancelled", token.reason
             else:
+                started_at = dt.datetime.now(dt.UTC)
+                store = self._create_evidence_store(checkout.run_id, started_at)
                 worktree = create_worktree(
                     self.config.repository_path(order.repository_full_name),
                     self.config.worker_root,
@@ -430,20 +599,33 @@ class LocalWorker:
                 )
                 terminal, reason, cleanup = "succeeded", None, "pending"
                 for step in manifest.execution_steps:
+                    attempted_steps.append(step)
                     if self._shutdown.is_set():
                         token.cancel("worker_shutdown")
                     try:
                         result = run_step(
                             step,
                             worktree.checkout,
-                            worktree.logs,
+                            store.logs,
                             self.config,
                             deadline,
                             cancellation=token,
                         )
                     except OverallDeadlineExceededError as error:
-                        terminal, reason = "timed_out", str(error)
+                        if token.cancelled:
+                            terminal, reason, skip_completion = _cancellation_outcome(
+                                token
+                            )
+                        else:
+                            terminal, reason = "timed_out", str(error)
                         break
+                    except Exception:
+                        if token.cancelled:
+                            terminal, reason, skip_completion = _cancellation_outcome(
+                                token
+                            )
+                            break
+                        raise
                     results.append(result)
                     if result.status != "succeeded" and step.required:
                         terminal = (
@@ -457,16 +639,7 @@ class LocalWorker:
                         )
                         break
                 if token.cancelled:
-                    reason = token.reason
-                    if reason == "overall_timeout":
-                        terminal = "timed_out"
-                    elif reason == "ownership_lost" or reason.startswith(
-                        "server_terminal:"
-                    ):
-                        terminal = "cancelled"
-                        skip_completion = True
-                    else:
-                        terminal = "cancelled"
+                    terminal, reason, skip_completion = _cancellation_outcome(token)
         except ExecutionOwnershipLostError:
             skip_completion, terminal, reason = True, "cancelled", "ownership_lost"
         except Exception as error:  # terminal outcome must stay truthful and bounded
@@ -476,6 +649,30 @@ class LocalWorker:
                 monitor.stop()
             with self._state_lock:
                 self._active_token = None
+            if worktree is not None and manifest is not None:
+                if manifest.dependency_lock_paths:
+                    try:
+                        dependency_locks = self._hash_dependency_locks(
+                            manifest, worktree.checkout
+                        )
+                        dependency_lock_status = "succeeded"
+                    except Exception as error:
+                        dependency_lock_status = f"failed:{type(error).__name__}"
+                        if terminal == "succeeded":
+                            terminal, reason = "failed", "dependency_lock_hash_failed"
+                if store is not None:
+                    try:
+                        declarations = tuple(
+                            (step.id, artifact)
+                            for step in attempted_steps
+                            for artifact in step.artifacts
+                        )
+                        artifacts = store.finalize_artifacts(declarations)
+                        artifact_status = "succeeded"
+                    except Exception as error:
+                        artifact_status = f"failed:{type(error).__name__}"
+                        if terminal == "succeeded":
+                            terminal, reason = "failed", "artifact_finalization_failed"
             if worktree is not None:
                 try:
                     worktree.cleanup()
@@ -488,21 +685,61 @@ class LocalWorker:
                         terminal, reason = "failed", "cleanup_failed"
             if order is not None:
                 summary = self._summary(order, results)
-            if worktree is not None:
+            if (
+                store is not None
+                and order is not None
+                and manifest is not None
+                and worktree is not None
+            ):
                 try:
-                    self._write_run_record(
-                        worktree,
+                    finished_at = dt.datetime.now(dt.UTC)
+                    evidence = self._build_evidence(
+                        order=order,
+                        run_id=checkout.run_id,
+                        manifest=manifest,
+                        started_at=started_at,
+                        finished_at=finished_at,
                         terminal=terminal,
                         reason=reason,
+                        results=results,
+                        artifacts=artifacts,
+                        dependency_locks=dependency_locks,
+                        dependency_lock_status=dependency_lock_status,
+                        artifact_status=artifact_status,
                         cleanup=cleanup,
-                        summary=summary,
+                        local_record_status="succeeded",
                     )
-                    local_record_written = True
+                    store.write_result(
+                        {
+                            "evidence": evidence.model_dump(mode="json"),
+                            "result_summary": summary,
+                        }
+                    )
                 except Exception as error:
-                    record_failure = f"local_record_failed:{type(error).__name__}"
-                    cleanup = f"{cleanup};{record_failure}"[:64]
+                    record_failure = f"failed:{type(error).__name__}"
                     if terminal == "succeeded":
                         terminal, reason = "failed", "local_result_record_failed"
+                    try:
+                        evidence = self._build_evidence(
+                            order=order,
+                            run_id=checkout.run_id,
+                            manifest=manifest,
+                            started_at=started_at,
+                            finished_at=dt.datetime.now(dt.UTC),
+                            terminal=terminal,
+                            reason=reason,
+                            results=results,
+                            artifacts=artifacts,
+                            dependency_locks=dependency_locks,
+                            dependency_lock_status=dependency_lock_status,
+                            artifact_status=artifact_status,
+                            cleanup=cleanup,
+                            local_record_status=record_failure,
+                        )
+                    except Exception:
+                        evidence = None
+                        cleanup = f"{cleanup};evidence_failed"[:64]
+                        terminal, reason = "failed", "evidence_finalization_failed"
             self._end_run(checkout.run_id)
         if skip_completion:
             return True
@@ -513,10 +750,14 @@ class LocalWorker:
                 terminal_reason=reason,
                 cleanup_status=cleanup,
                 result_summary=self._serialize_summary(summary),
-                evidence_metadata={
-                    "checked_out_sha": order.commit_sha if order else None,
-                    "local_record": "result.json" if local_record_written else None,
-                },
+                artifact_metadata=(
+                    [item.model_dump(mode="json") for item in artifacts]
+                    if evidence is not None
+                    else []
+                ),
+                evidence_metadata=(
+                    evidence.model_dump(mode="json") if evidence is not None else None
+                ),
             )
         except ExecutionOwnershipLostError:
             pass

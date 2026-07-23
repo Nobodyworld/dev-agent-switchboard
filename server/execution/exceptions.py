@@ -37,3 +37,7 @@ class RepositoryWritePolicyError(ExecutionDomainError):
 
 class OwnershipConflictError(ExecutionDomainError):
     """Raised when a worker does not own the active execution lease."""
+
+
+class MalformedEvidenceError(ExecutionDomainError):
+    """Raised when persisted compact evidence fails its strict contract."""

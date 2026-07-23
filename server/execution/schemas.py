@@ -7,7 +7,7 @@ import re
 from collections.abc import Mapping
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .enums import (
     ApprovalPolicy,
@@ -16,6 +16,11 @@ from .enums import (
     RepositoryWritePolicy,
     WorkerStatus,
     WorkOrderStatus,
+)
+from .evidence import ArtifactRecord, ExecutionEvidence
+from .text_policy import (
+    validate_no_absolute_local_paths,
+    validate_optional_no_absolute_local_path,
 )
 
 _FORBIDDEN_EXECUTABLE_KEYS = frozenset(
@@ -53,6 +58,13 @@ class ExecutionInput(BaseModel):
     """Strict base for all caller-controlled execution request payloads."""
 
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_absolute_local_paths(cls, value: object) -> object:
+        """Reject local path disclosure in execution-plane request text."""
+
+        return validate_no_absolute_local_paths(value)
 
 
 class ManifestReferenceIn(ExecutionInput):
@@ -170,17 +182,35 @@ class ExecutionCompletionIn(ExecutionInput):
     result_summary: str | None = Field(default=None, max_length=32768)
     terminal_reason: str | None = Field(default=None, max_length=4000)
     cleanup_status: str | None = Field(default=None, max_length=64)
-    artifact_metadata: list[dict[str, Any]] = Field(
+    artifact_metadata: list[ArtifactRecord] = Field(
         default_factory=list, max_length=128
     )
-    evidence_metadata: dict[str, Any] = Field(default_factory=dict)
+    evidence_metadata: ExecutionEvidence | None = None
+
+    @field_validator("evidence_metadata", mode="before")
+    @classmethod
+    def normalize_legacy_empty_evidence(cls, value: object) -> object:
+        """Accept the Phase 1A empty-object sentinel as absent evidence."""
+
+        return None if value == {} else value
 
     @model_validator(mode="after")
     def reject_executable_result_metadata(self) -> ExecutionCompletionIn:
         """Completion reports remain metadata-only placeholders in Phase 1A."""
 
-        _reject_executable_keys(self.artifact_metadata, field_name="artifact_metadata")
-        _reject_executable_keys(self.evidence_metadata, field_name="evidence_metadata")
+        artifact_payload = [
+            item.model_dump(mode="json") for item in self.artifact_metadata
+        ]
+        _reject_executable_keys(artifact_payload, field_name="artifact_metadata")
+        if self.evidence_metadata is not None:
+            evidence_payload = self.evidence_metadata.model_dump(mode="json")
+            _reject_executable_keys(evidence_payload, field_name="evidence_metadata")
+            if self.evidence_metadata.artifacts != self.artifact_metadata:
+                raise ValueError("artifact metadata must match complete evidence")
+            if self.evidence_metadata.worker_id != self.worker_id:
+                raise ValueError("evidence worker identity must match completion")
+            if self.evidence_metadata.terminal_status != self.status:
+                raise ValueError("evidence terminal status must match completion")
         return self
 
 
@@ -241,6 +271,10 @@ class WorkOrderOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    _local_path = field_validator("terminal_reason")(
+        validate_optional_no_absolute_local_path
+    )
+
 
 class WorkerOut(BaseModel):
     """Persisted worker capability declaration and capacity state."""
@@ -271,7 +305,7 @@ class WorkerOut(BaseModel):
 
 
 class ExecutionRunOut(BaseModel):
-    """Historical execution-attempt record with bounded metadata placeholders."""
+    """Historical execution-attempt record with strict compact metadata."""
 
     id: int
     work_order_id: int
@@ -287,12 +321,23 @@ class ExecutionRunOut(BaseModel):
     result_summary: str | None
     terminal_reason: str | None
     cleanup_status: str | None
-    artifact_metadata: list[dict[str, Any]]
-    evidence_metadata: dict[str, Any]
+    artifact_metadata: list[ArtifactRecord]
+    evidence_metadata: ExecutionEvidence | None
     created_at: dt.datetime
     updated_at: dt.datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    _local_paths = field_validator(
+        "worker_id", "result_summary", "terminal_reason", "cleanup_status"
+    )(validate_optional_no_absolute_local_path)
+
+    @field_validator("evidence_metadata", mode="before")
+    @classmethod
+    def normalize_legacy_empty_evidence(cls, value: object) -> object:
+        """Expose the non-null database sentinel as API null."""
+
+        return None if value == {} else value
 
 
 class CheckoutOut(BaseModel):

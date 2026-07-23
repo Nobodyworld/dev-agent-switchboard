@@ -121,17 +121,18 @@ The following always require a separate approval tier and are not part of Phase
 - administrator elevation;
 - destructive operations outside worker-owned paths.
 
-### Future artifact retention and evidence redaction (#114)
+### Local artifact retention and compact evidence (#114)
 
-Issue #112 persists only bounded artifact/evidence metadata placeholders; it
-does not store artifacts, logs, hashes, or retention records. In #114,
-artifacts will be stored beneath a configured Switchboard storage root in a
-run-owned directory, with configurable retention and metadata retained after
-artifact expiry.
+Issue #114 replaces the #112 placeholders with strict versioned evidence and
+artifact records. Full files remain beneath a separate worker-configured,
+run-owned evidence root. The worker verifies containment, regular-file status,
+declared paths, byte limits, SHA-256 hashes, and deterministic expiry before it
+reports metadata. Marker-verified pruning removes only expired owned children.
 
-That later evidence implementation will return bounded summaries and metadata
-rather than full logs, and will use an explicit environment allowlist plus
-secret/pattern redaction before any result leaves a worker.
+The evidence API returns bounded summaries and safe relative references rather
+than full logs. It applies the explicit environment allowlist, configured
+secret/pattern redaction, and absolute-path redaction before data leaves the
+worker. A canonical JSON SHA-256 fingerprint binds the complete compact record.
 
 ### Defer provider routing
 
@@ -230,8 +231,8 @@ An execution run includes at least:
 - lease and heartbeat metadata;
 - queued, assigned, started, and finished timestamps;
 - terminal status and bounded result/cleanup metadata;
-- artifact/evidence metadata placeholders only (no stored files or
-  fingerprints in #112).
+- strict artifact metadata and versioned compact evidence, including a
+  deterministic fingerprint after #114 completion.
 
 Only one active execution run may exist for a work order at a time.
 

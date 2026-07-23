@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import json
 from http import HTTPStatus
 
 import pytest
@@ -25,6 +27,14 @@ from server.execution.enums import (
     WorkerStatus,
     WorkOrderStatus,
 )
+from server.execution.evidence import (
+    ArtifactRecord,
+    EnvironmentIdentity,
+    ExecutionEvidence,
+    ExecutionEvidenceDraft,
+    StepEvidence,
+    finalize_evidence,
+)
 from server.execution.exceptions import (
     ApprovalDeniedError,
     LifecycleConflictError,
@@ -34,12 +44,113 @@ from server.execution.exceptions import (
 from server.execution.repository import ExecutionRepository
 from server.execution.schemas import WorkOrderCreateIn
 from server.execution.service import ExecutionService
-from server.models import ExecutionLease, Lease, Task
+from server.models import ExecutionLease, ExecutionRun, Lease, Task
 from server.settings import reload_admin_token
 from server.task_status import TaskStatus
 from server.time_utils import utcnow_naive
 
 VALID_SHA = "a" * 40
+
+
+def _evidence_for_run(
+    *, work_order_id: int, run_id: int, worker_id: str, manifest_digest: str
+) -> ExecutionEvidence:
+    now = dt.datetime(2026, 7, 22, 12, tzinfo=dt.UTC)
+    artifact = ArtifactRecord(
+        kind="command-log",
+        relative_path="logs/tests.stdout.log",
+        size_bytes=4,
+        sha256="b" * 64,
+        media_type="text/plain",
+        retention_expires_at=now + dt.timedelta(days=14),
+        redaction_state="none",
+        produced_by_step="tests",
+    )
+    return finalize_evidence(
+        ExecutionEvidenceDraft(
+            work_order_id=work_order_id,
+            run_id=run_id,
+            repository_full_name="Nobodyworld/dev-agent-switchboard",
+            tested_sha=VALID_SHA,
+            manifest_name="validate-switchboard",
+            manifest_version="1",
+            manifest_digest=manifest_digest,
+            worker_id=worker_id,
+            environment=EnvironmentIdentity(
+                operating_system="windows",
+                architecture="amd64",
+                python_version="3.11.9",
+                fingerprint="c" * 64,
+            ),
+            started_at=now,
+            finished_at=now + dt.timedelta(seconds=1),
+            duration_seconds=1,
+            terminal_status="succeeded",
+            steps=[
+                StepEvidence(
+                    step_id="tests",
+                    title="Run tests",
+                    status="succeeded",
+                    started_at=now,
+                    finished_at=now + dt.timedelta(seconds=1),
+                    duration_seconds=1,
+                    exit_code=0,
+                    summary="1 passed",
+                    log_artifact_paths=[artifact.relative_path],
+                )
+            ],
+            artifacts=[artifact],
+            dependency_lock_status="not_declared",
+            artifact_finalization_status="succeeded",
+            source_cleanup_status="succeeded",
+            local_record_status="succeeded",
+        )
+    )
+
+
+def _recompute_raw_evidence_fingerprint(payload: dict[str, object]) -> None:
+    canonical = dict(payload)
+    canonical.pop("fingerprint", None)
+    encoded = json.dumps(
+        canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+    payload["fingerprint"] = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+async def _create_api_execution(
+    client: AsyncClient, *, worker_id: str
+) -> tuple[dict[str, object], int]:
+    created = await client.post(
+        "/api/execution/work-orders",
+        json={
+            "repository_full_name": "Nobodyworld/dev-agent-switchboard",
+            "commit_sha": VALID_SHA,
+            "manifest": {"name": "validate-switchboard", "version": "1"},
+        },
+    )
+    assert created.status_code == HTTPStatus.OK
+    work_order = created.json()
+    approved = await client.post(
+        f"/api/execution/work-orders/{work_order['id']}/approve", json={}
+    )
+    assert approved.status_code == HTTPStatus.OK
+    registered = await client.post(
+        "/api/execution/workers",
+        json={
+            "worker_id": worker_id,
+            "display_name": "Malformed worker regression",
+            "operating_system": "windows",
+            "architecture": "amd64",
+            "python_version": "3.11.9",
+        },
+    )
+    assert registered.status_code == HTTPStatus.OK
+    checkout = await client.post(
+        "/api/execution/checkout", json={"worker_id": worker_id}
+    )
+    assert checkout.status_code == HTTPStatus.OK
+    run_id = checkout.json()["run"]["id"]
+    return work_order, run_id
 
 
 def _work_order_draft(
@@ -506,6 +617,153 @@ async def test_execution_api_rejects_nested_executable_metadata() -> None:
         response = await client.post("/api/execution/work-orders", json=payload)
 
     assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.parametrize(
+    "summary",
+    [
+        r"malformed worker retained C:\Users\worker\checkout\test.log",
+        "malformed worker retained /home/worker/checkout/test.log",
+    ],
+)
+@pytest.mark.asyncio
+async def test_malformed_worker_nested_evidence_path_fails_before_persistence(
+    summary: str,
+) -> None:
+    transport = ASGITransport(app=app)
+    worker_id = "malformed-evidence-worker"
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        work_order, run_id = await _create_api_execution(client, worker_id=worker_id)
+        evidence = _evidence_for_run(
+            work_order_id=int(work_order["id"]),
+            run_id=run_id,
+            worker_id=worker_id,
+            manifest_digest=str(work_order["manifest_digest"]),
+        )
+        evidence_payload = evidence.model_dump(mode="json")
+        evidence_payload["steps"][0]["summary"] = summary
+        _recompute_raw_evidence_fingerprint(evidence_payload)
+
+        rejected = await client.post(
+            f"/api/execution/runs/{run_id}/complete",
+            json={
+                "worker_id": worker_id,
+                "status": "succeeded",
+                "result_summary": "ordinary summary",
+                "artifact_metadata": [
+                    item.model_dump(mode="json") for item in evidence.artifacts
+                ],
+                "evidence_metadata": evidence_payload,
+            },
+        )
+        assert rejected.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+
+        persisted = await client.get(f"/api/execution/runs/{run_id}")
+        listed = await client.get("/api/execution/runs")
+
+    assert persisted.status_code == HTTPStatus.OK
+    assert persisted.json()["status"] == "assigned"
+    assert persisted.json()["result_summary"] is None
+    assert persisted.json()["evidence_metadata"] is None
+    assert listed.status_code == HTTPStatus.OK
+    assert summary not in listed.text
+
+
+@pytest.mark.asyncio
+async def test_completion_paths_rejected_then_safe_references_persist() -> None:
+    transport = ASGITransport(app=app)
+    worker_id = "malformed-completion-worker"
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        _work_order, run_id = await _create_api_execution(client, worker_id=worker_id)
+        for field, value in (
+            ("result_summary", r"result at C:\worker\result.json"),
+            ("result_summary", "result at /srv/worker/result.json"),
+            ("terminal_reason", r"cleanup_failed:C:\worker\checkout"),
+            ("terminal_reason", "cleanup_failed:/tmp/checkout"),
+        ):
+            rejected = await client.post(
+                f"/api/execution/runs/{run_id}/complete",
+                json={
+                    "worker_id": worker_id,
+                    "status": "succeeded",
+                    field: value,
+                },
+            )
+            assert rejected.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+            unchanged = await client.get(f"/api/execution/runs/{run_id}")
+            assert unchanged.status_code == HTTPStatus.OK
+            assert unchanged.json()["status"] == "assigned"
+            assert unchanged.json()["result_summary"] is None
+
+        accepted = await client.post(
+            f"/api/execution/runs/{run_id}/complete",
+            json={
+                "worker_id": worker_id,
+                "status": "succeeded",
+                "result_summary": (
+                    "Report artifacts/report.json and log logs/tests.stdout.log"
+                ),
+                "terminal_reason": "validation_completed",
+                "cleanup_status": "succeeded",
+            },
+        )
+        listed = await client.get("/api/execution/runs")
+
+    assert accepted.status_code == HTTPStatus.OK
+    assert accepted.json()["status"] == "succeeded"
+    assert listed.status_code == HTTPStatus.OK
+    assert listed.json()[0]["result_summary"] == (
+        "Report artifacts/report.json and log logs/tests.stdout.log"
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_and_evidence_apis_fail_closed_for_persisted_local_paths() -> None:
+    transport = ASGITransport(app=app)
+    worker_id = "corrupt-persisted-worker"
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        work_order, run_id = await _create_api_execution(client, worker_id=worker_id)
+
+    async with AsyncSessionLocal() as session:
+        run = await session.get(ExecutionRun, run_id)
+        assert run is not None
+        run.result_summary = r"persisted leak C:\worker\result.json"
+        await session.commit()
+
+    fail_closed_transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(
+        transport=fail_closed_transport, base_url="http://test"
+    ) as client:
+        listed = await client.get("/api/execution/runs")
+    assert listed.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+    assert r"C:\worker\result.json" not in listed.text
+
+    evidence = _evidence_for_run(
+        work_order_id=int(work_order["id"]),
+        run_id=run_id,
+        worker_id=worker_id,
+        manifest_digest=str(work_order["manifest_digest"]),
+    )
+    malformed_evidence = evidence.model_dump(mode="json")
+    steps = malformed_evidence["steps"]
+    assert isinstance(steps, list)
+    step = steps[0]
+    assert isinstance(step, dict)
+    step["summary"] = "persisted leak /home/worker/result.json"
+    _recompute_raw_evidence_fingerprint(malformed_evidence)
+    async with AsyncSessionLocal() as session:
+        run = await session.get(ExecutionRun, run_id)
+        assert run is not None
+        run.result_summary = "safe relative log logs/tests.stdout.log"
+        run.evidence_metadata = malformed_evidence
+        await session.commit()
+
+    async with AsyncClient(
+        transport=fail_closed_transport, base_url="http://test"
+    ) as client:
+        evidence_response = await client.get(f"/api/execution/runs/{run_id}/evidence")
+    assert evidence_response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+    assert "/home/worker/result.json" not in evidence_response.text
 
 
 @pytest.mark.asyncio
