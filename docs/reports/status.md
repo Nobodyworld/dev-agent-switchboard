@@ -68,6 +68,9 @@ The authoritative release tracker is issue
 Linux, Docker, and clean-environment evidence handoff is issue
 [#104](https://github.com/Nobodyworld/dev-agent-switchboard/issues/104).
 
+No immutable release-candidate SHA has been selected yet. Issue #104 will record one
+only after the release-scoped documentation decision is resolved.
+
 Before a formal release, the project still requires:
 
 1. one immutable release-candidate SHA;
