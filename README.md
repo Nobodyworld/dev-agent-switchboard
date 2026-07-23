@@ -1,8 +1,8 @@
 # Switchboard
 
-**Real-time agent coordination with dependency-aware leasing and trusted local execution.**
+**Real-time agent coordination with dependency-aware leasing, trusted local execution, and compact exact-SHA evidence.**
 
-Switchboard is a reference implementation for coordinating multiple agents against a shared task graph. Agents can discover ready work, lease tasks, publish mutable reference files, and observe plan changes without each project needing its own orchestration service. The merged execution foundation also supports explicitly approved, outbound local work against operator-allowlisted repositories using exact-SHA disposable worktrees and immutable reviewed commands.
+Switchboard is a reference implementation for coordinating multiple agents against a shared task graph. Agents can discover ready work, lease tasks, publish mutable reference files, and observe plan changes without each project needing its own orchestration service. The merged execution foundation also supports explicitly approved, outbound local work against operator-allowlisted repositories using exact-SHA disposable worktrees and immutable reviewed commands. Completed validation runs retain full logs locally while exposing strict compact evidence, hashes, parsed results, cleanup state, and deterministic fingerprints through the control plane.
 
 ![Switchboard dashboard state demonstration](docs/assets/switchboard-dashboard.png)
 
@@ -11,6 +11,7 @@ Switchboard is a reference implementation for coordinating multiple agents again
 - **Dependency-aware coordination** — tasks become available as prerequisites complete.
 - **Lease-based ownership** — agents claim work with expiry and heartbeat semantics that reduce duplicate execution.
 - **Trusted local execution** — approved exact-SHA work orders are claimed by an outbound local worker using fixed reviewed argv, read-only disposable worktrees, bounded output, cancellation, and cleanup.
+- **Compact validation evidence** — `validate-switchboard@1` records strict step outcomes, parsed test/coverage/security summaries, dependency-lock hashes, retained artifact hashes, and a deterministic fingerprint without returning full local logs.
 - **Live state synchronization** — plan changes are broadcast to the dashboard and clients over WebSockets.
 - **Live-file hosting** — agents can fetch mutable documents by URL; mutation endpoints can be protected with an admin token.
 - **Operational visibility** — health, readiness, diagnostics, metrics hooks, structured logs, and rate limiting.
@@ -22,6 +23,7 @@ Autonomous coding agents, deterministic local workers, script runners, and human
 - a plan that changes as tasks complete;
 - a queue that respects dependencies and ownership;
 - an explicit approval and lease boundary for trusted local execution;
+- compact proof of exactly what commit, manifest, environment, and dependency inputs were validated;
 - a lightweight document surface for prompts, checklists, and runtime notes;
 - a dashboard that exposes coordination state.
 
@@ -146,7 +148,7 @@ See [SECURITY.md](SECURITY.md) and [docs/configuration.md](docs/configuration.md
 ## Documentation
 
 - **[Architecture](docs/visuals/ARCHITECTURE_DIAGRAM.md)** — components, data flow, and security boundaries.
-- **[API Reference](docs/API.md)** — endpoints and examples.
+- **[API Reference](docs/API.md)** — endpoints and examples, including compact execution evidence.
 - **[Configuration](docs/configuration.md)** — environment variables and runtime settings.
 - **[Agent Integration](docs/ai-interface.md)** — how agents interact with Switchboard.
 - **[Local Worker Operations](docs/operations/local-worker.md)** — trusted repository mapping, worker configuration, execution, evidence retention, and limitations.
@@ -200,6 +202,7 @@ Formal release authorization remains blocked until the Linux symlink-containment
 1. Review the dashboard screenshot and [architecture diagram](docs/visuals/ARCHITECTURE_DIAGRAM.md).
 2. Read the [two-agent workflow](docs/visuals/TWO_AGENT_WORKFLOW.md).
 3. Review the [local worker operations guide](docs/operations/local-worker.md).
-4. Run the quick start locally.
-5. Review [SECURITY.md](SECURITY.md), the [public status page](docs/reports/status.md), and the [release audit](PUBLIC_RELEASE_AUDIT.md).
-6. Inspect the task, lease, execution-worker, live-file, WebSocket, and browser tests.
+4. Review the compact execution/evidence endpoints in [docs/API.md](docs/API.md).
+5. Run the quick start locally.
+6. Review [SECURITY.md](SECURITY.md), the [public status page](docs/reports/status.md), and the [release audit](PUBLIC_RELEASE_AUDIT.md).
+7. Inspect the task, lease, execution-worker, evidence, live-file, WebSocket, and browser tests.

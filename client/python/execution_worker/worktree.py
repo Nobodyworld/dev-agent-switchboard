@@ -170,7 +170,7 @@ class DisposableWorktree:
             raise RuntimeError("canonical checkout integrity changed")
 
     def cleanup(self) -> None:
-        """Remove only this registered disposable checkout; retain run logs/record."""
+        """Remove only this registered disposable source run directory."""
 
         self._verify_ownership()
         if _registered_worktree(self.canonical, self.checkout):
@@ -178,6 +178,8 @@ class DisposableWorktree:
         if self.checkout.exists() or self.checkout.is_symlink():
             _remove_owned_directory(self.checkout, self.run_directory)
         self.verify_canonical_integrity()
+        self._verify_ownership()
+        _remove_owned_directory(self.run_directory, self.root)
 
 
 def create_worktree(
@@ -241,6 +243,8 @@ def create_worktree(
         if checkout.exists() or checkout.is_symlink():
             _remove_owned_directory(checkout, run)
         worktree.verify_canonical_integrity()
+        worktree._verify_ownership()
+        _remove_owned_directory(run, root)
         raise
     return worktree
 

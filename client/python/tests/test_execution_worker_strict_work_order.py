@@ -109,6 +109,7 @@ def test_unsupported_manifest_parameters_reject_before_worktree_or_process(
         display_name="Worker 1",
         admin_token=_TOKEN,
         worker_root=tmp_path / "worker-root",
+        evidence_root=tmp_path / "evidence-root",
         repositories={"Nobodyworld/dev-agent-switchboard": tmp_path / "canonical"},
     )
     worker = LocalWorker(config, client)  # type: ignore[arg-type]

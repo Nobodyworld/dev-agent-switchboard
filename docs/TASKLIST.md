@@ -41,11 +41,11 @@ Completion note (indented, one line):
   - Completed: 2026-07-13 — PR: #116 — issue #112 merged at `765b7167457e523b9edc0b230039ed407060274b`.
 - [x] Implement the outbound trusted local worker with exact-SHA disposable worktrees and fixed reviewed argv — TK-20260716-001
   - Completed: 2026-07-16 — PR: #119 — issue #113 merged at `f549ab7bb2efc274dc2d79e12502d5653ddc8886`.
-- [ ] Merge the reviewed exact-SHA compact evidence workflow after explicit owner authorization — TK-20260722-001
-  - Progress: 2026-07-22 — issue #114 / PR #120 is ready, mergeable, fully validated, and unmerged at reviewed head `e938d3fdc3937babb4f13d3a7980a6c704b8cebd`.
+- [x] Merge the reviewed exact-SHA compact evidence workflow after explicit owner authorization — TK-20260722-001
+  - Completed: 2026-07-23 — PR: #120 — issue #114 squash-merged at `dcb8e283f8445dd76f215a98023197d8ed5acab3` after connector review and a fully green protected matrix.
 - [ ] Select one immutable release-candidate SHA and complete Linux, clean-clone, Docker, and final audit gates — TK-20260722-002
   - Tracked by issues #95 and #104; formal release and production deployment remain unauthorized.
-- [ ] Implement exact evidence reuse with worker-local availability proof — TK-20260722-003
-  - Tracked by issue #121 and blocked until PR #120 merges.
-- [ ] Implement the outbound GitHub exact-PR validation and compact-result adapter — TK-20260722-004
-  - Tracked by issue #122 and blocked until PR #120 merges.
+- [ ] Implement the outbound GitHub exact-PR validation and compact-result adapter — TK-20260722-003
+  - Tracked by issue #122; implementation is unblocked from the #120 merge and fresh execution must remain supported.
+- [ ] Implement exact evidence reuse with worker-local availability proof — TK-20260722-004
+  - Tracked by issue #121; implementation is unblocked from the #120 merge and remains opt-in after fresh execution.

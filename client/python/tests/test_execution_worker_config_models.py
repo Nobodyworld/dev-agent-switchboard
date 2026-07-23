@@ -20,6 +20,7 @@ def _payload(root: Path) -> dict[str, object]:
         "worker_id": "worker-1",
         "display_name": "Worker 1",
         "worker_root": str(root / "worker"),
+        "evidence_root": str(root / "evidence"),
         "repositories": {"Nobodyworld/example": str(root / "canonical")},
         "max_concurrency": 1,
     }

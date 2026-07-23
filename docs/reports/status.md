@@ -1,6 +1,6 @@
 # Public Developer Preview Status
 
-_Last reviewed: 2026-07-22_
+_Last reviewed: 2026-07-23_
 
 ## Classification
 
@@ -23,13 +23,22 @@ The merged foundation includes:
   execution runs, leases, heartbeats, cancellation, and terminal completion;
 - an outbound-only trusted local worker using operator-allowlisted repositories,
   exact-SHA disposable worktrees, immutable fixed argv, bounded output, retained
-  local logs, ownership checks, cancellation, process-tree termination, and cleanup.
+  local logs, ownership checks, cancellation, process-tree termination, and cleanup;
+- the merged `validate-switchboard@1` workflow with strict compact evidence,
+  worker-owned retained artifacts, dependency-lock hashes, parsed validation results,
+  deterministic fingerprints, server-side local-path rejection, and the read-only
+  `GET /api/execution/runs/{run_id}/evidence` endpoint.
 
-The exact-SHA compact-evidence workflow is tracked by issue
+The exact-SHA evidence work merged through issue
 [#114](https://github.com/Nobodyworld/dev-agent-switchboard/issues/114) and pull
-request [#120](https://github.com/Nobodyworld/dev-agent-switchboard/pull/120).
-Consult those records rather than this page for its current merge state, tested
-head SHA, manifest digest, and validation evidence.
+request [#120](https://github.com/Nobodyworld/dev-agent-switchboard/pull/120) at:
+
+```text
+dcb8e283f8445dd76f215a98023197d8ed5acab3
+```
+
+Consult those records and the living ExecPlan for the manifest digest, executed
+validation, exact proof SHAs, and implementation limitations.
 
 ## Validation posture
 
@@ -46,7 +55,7 @@ The protected GitHub Actions matrix exercises:
 - strict browser UI tests that fail when skipped.
 
 Exact run identifiers, counts, coverage measurements, and environment limitations
-belong in the active pull request, living ExecPlan, and release audit. This page
+belong in active pull requests, living ExecPlans, and the release audit. This page
 intentionally avoids duplicating rapidly stale numeric evidence.
 
 ## Formal release remains blocked
@@ -58,26 +67,28 @@ Linux, Docker, and clean-environment evidence handoff is issue
 
 Before a formal release, the project still requires:
 
-1. an explicit owner decision on release scope;
-2. one immutable release-candidate SHA;
-3. the Linux symlink-containment regression to execute and pass without a skip;
-4. complete clean-clone validation against that exact SHA;
-5. a successful Docker build or a precise documented blocker;
-6. final public-security and repository-setting review;
-7. an updated `PUBLIC_RELEASE_AUDIT.md` containing executed evidence and explicit
+1. one immutable release-candidate SHA;
+2. the Linux symlink-containment regression to execute and pass without a skip;
+3. complete clean-clone validation against that exact SHA;
+4. a successful Docker build or a precise documented blocker;
+5. final public-security and repository-setting review;
+6. an updated `PUBLIC_RELEASE_AUDIT.md` containing executed evidence and explicit
    release authorization.
+
+The merged evidence workflow is part of the current product baseline. Its merge did
+not by itself authorize a release, production deployment, or public hosted service.
 
 ## Product roadmap
 
 The execution-broker roadmap is tracked in issue
 [#111](https://github.com/Nobodyworld/dev-agent-switchboard/issues/111).
 
-The next bounded slices are:
+The next bounded slices are now unblocked from the Phase 1B merge:
 
-- [#121](https://github.com/Nobodyworld/dev-agent-switchboard/issues/121) — exact
-  evidence reuse with worker-local availability proof;
 - [#122](https://github.com/Nobodyworld/dev-agent-switchboard/issues/122) — resolve
-  an exact GitHub pull-request head and publish compact validation evidence.
+  an exact GitHub pull-request head and publish compact validation evidence;
+- [#121](https://github.com/Nobodyworld/dev-agent-switchboard/issues/121) — exact
+  evidence reuse with worker-local availability proof.
 
-Do not infer that roadmap work is merged or release-authorized merely because an
-issue has been specified.
+Fresh execution remains the baseline. Do not infer that roadmap work is implemented,
+merged, or release-authorized merely because its issue is fully specified.

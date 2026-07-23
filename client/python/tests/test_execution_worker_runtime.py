@@ -91,6 +91,7 @@ def _config(tmp_path: Path, repository: Path, **overrides: object) -> WorkerConf
         "display_name": "Worker 1",
         "admin_token": _TOKEN,
         "worker_root": tmp_path / "worker-root",
+        "evidence_root": tmp_path / "evidence-root",
         "repositories": {"Nobodyworld/dev-agent-switchboard": repository},
         "heartbeat_interval_seconds": 0.05,
     }
@@ -113,8 +114,8 @@ def test_worker_smoke_retains_logs_removes_checkout_and_reports_exact_sha(
 
     assert worker.poll_once() is True
 
-    run_directory = next((tmp_path / "worker-root").glob("run-*"))
-    assert not (run_directory / "checkout").exists()
+    assert list((tmp_path / "worker-root").glob("run-*")) == []
+    run_directory = tmp_path / "evidence-root" / "run-7"
     assert (run_directory / "logs" / "python-version.stdout.log").exists()
     assert (run_directory / "result.json").is_file()
     assert _git(canonical, "rev-parse", "HEAD") == sha
@@ -211,8 +212,8 @@ def test_mid_step_ownership_loss_cancels_without_success(
 
     assert time.monotonic() - started < _CANCELLATION_SECONDS
     assert client.completed == []
-    run_directory = next((tmp_path / "worker-root").glob("run-*"))
-    assert not (run_directory / "checkout").exists()
+    assert list((tmp_path / "worker-root").glob("run-*")) == []
+    assert (tmp_path / "evidence-root" / "run-7" / "result.json").is_file()
 
 
 def test_same_local_run_id_is_never_executed_twice(tmp_path: Path) -> None:

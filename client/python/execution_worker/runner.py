@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import os
+import re
 import signal
 import subprocess
 import threading
@@ -13,9 +15,14 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from server.execution.evidence import ParsedResult, TerminalStatus
 from server.execution.registry import TrustedStep
 
 from .config import WorkerConfig
+from .parsers import parse_result
+
+_WINDOWS_ABSOLUTE_PATH = re.compile(r"(?i)\b[A-Z]:\\[^\s\r\n\"']+")
+_POSIX_ABSOLUTE_PATH = re.compile(r"(?<![:A-Za-z0-9])/(?:[^\s\r\n\"']+/?)+")
 
 
 class OverallDeadlineExceededError(RuntimeError):
@@ -49,7 +56,8 @@ class CancellationToken:
 @dataclass(frozen=True, slots=True)
 class StepResult:
     step_id: str
-    status: str
+    title: str
+    status: TerminalStatus
     exit_code: int | None
     duration_seconds: float
     stdout_summary: str
@@ -58,6 +66,9 @@ class StepResult:
     stdout_log: str
     stderr_log: str
     environment_summary: dict[str, str]
+    started_at: dt.datetime
+    finished_at: dt.datetime
+    parsed_result: ParsedResult | None
     terminal_reason: str | None = None
 
 
@@ -65,7 +76,8 @@ def _redact(value: str, config: WorkerConfig) -> str:
     for pattern in config.redacted_value_patterns:
         if pattern:
             value = value.replace(pattern, "[REDACTED]")
-    return value
+    value = _WINDOWS_ABSOLUTE_PATH.sub("[LOCAL_PATH]", value)
+    return _POSIX_ABSOLUTE_PATH.sub("[LOCAL_PATH]", value)
 
 
 def environment_summary(
@@ -191,9 +203,10 @@ def _terminate(process: subprocess.Popen[bytes], *, grace_seconds: float = 2.0) 
 def _result(  # noqa: PLR0913 - immutable result records keep call-site context clear
     *,
     step: TrustedStep,
-    status: str,
+    status: TerminalStatus,
     process: subprocess.Popen[bytes],
     started: float,
+    started_at: dt.datetime,
     stdout_path: Path,
     stderr_path: Path,
     config: WorkerConfig,
@@ -203,8 +216,20 @@ def _result(  # noqa: PLR0913 - immutable result records keep call-site context 
     limit = min(step.output_summary_limit, config.output_summary_limit)
     out, out_cut = _summary(stdout_path, limit, config)
     err, err_cut = _summary(stderr_path, limit, config)
+    finished_at = dt.datetime.now(dt.UTC)
+    parsed_result = (
+        parse_result(
+            step.parser_kind,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
+            command_succeeded=status == "succeeded",
+        )
+        if step.parser_kind is not None
+        else None
+    )
     return StepResult(
         step_id=step.id,
+        title=step.title,
         status=status,
         exit_code=process.returncode,
         duration_seconds=time.monotonic() - started,
@@ -214,6 +239,9 @@ def _result(  # noqa: PLR0913 - immutable result records keep call-site context 
         stdout_log=stdout_path.name,
         stderr_log=stderr_path.name,
         environment_summary=environment_summary(environment, config),
+        started_at=started_at,
+        finished_at=finished_at,
+        parsed_result=parsed_result,
         terminal_reason=terminal_reason,
     )
 
@@ -256,6 +284,7 @@ def run_step(  # noqa: PLR0912, PLR0913, PLR0915 - trusted lifecycle inputs are 
         float(step.timeout_seconds), config.maximum_step_timeout_seconds, remaining
     )
     started = time.monotonic()
+    started_at = dt.datetime.now(dt.UTC)
     with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
         process = subprocess.Popen(
             step.argv,
@@ -266,7 +295,7 @@ def run_step(  # noqa: PLR0912, PLR0913, PLR0915 - trusted lifecycle inputs are 
             stderr=stderr,
             start_new_session=os.name != "nt",
         )
-        status = "failed"
+        status: TerminalStatus = "failed"
         reason: str | None = None
         while process.poll() is None:
             now = time.monotonic()
@@ -312,6 +341,7 @@ def run_step(  # noqa: PLR0912, PLR0913, PLR0915 - trusted lifecycle inputs are 
         status=status,
         process=process,
         started=started,
+        started_at=started_at,
         stdout_path=stdout_path,
         stderr_path=stderr_path,
         config=config,

@@ -8,7 +8,7 @@ import subprocess
 import sys
 import threading
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from unittest.mock import patch
 
 import pytest
@@ -23,6 +23,7 @@ from server.execution.registry import TrustedStep
 
 _TOKEN = "worker-test-token"  # noqa: S105 - non-secret test fixture
 _LARGE_LOG_BYTES = 100
+_EXPECTED_REDACTED_PATHS = 2
 
 
 def _config(tmp_path: Path, **overrides: object) -> WorkerConfig:
@@ -32,6 +33,7 @@ def _config(tmp_path: Path, **overrides: object) -> WorkerConfig:
         "display_name": "Worker 1",
         "admin_token": _TOKEN,
         "worker_root": tmp_path / "worker-root",
+        "evidence_root": tmp_path / "evidence-root",
         "repositories": {"Nobodyworld/example": tmp_path / "canonical"},
     }
     values.update(overrides)
@@ -94,6 +96,31 @@ def test_summary_is_bounded_and_redacts_values(tmp_path: Path) -> None:
     assert "worker-secret" not in result.stdout_summary
     assert result.summaries_truncated is True
     assert (tmp_path / "logs" / result.stdout_log).stat().st_size > _LARGE_LOG_BYTES
+
+
+def test_summary_redacts_absolute_local_paths(tmp_path: Path) -> None:
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    config = _config(tmp_path, output_summary_limit=4096)
+    posix_path = f"/{PurePosixPath('var', 'tmp', 'secret.log')}"
+    step = _step(
+        sys.executable,
+        "-c",
+        f"print(r'C:\\worker\\secret.log'); print({posix_path!r})",
+    )
+
+    result = run_step(
+        step,
+        checkout,
+        tmp_path / "logs",
+        config,
+        time.monotonic() + 10,
+    )
+
+    assert result.status == "succeeded"
+    assert "C:\\worker" not in result.stdout_summary
+    assert str(PurePosixPath("var", "tmp")) not in result.stdout_summary
+    assert result.stdout_summary.count("[LOCAL_PATH]") == _EXPECTED_REDACTED_PATHS
 
 
 def test_total_output_limit_terminates_fixed_process(tmp_path: Path) -> None:

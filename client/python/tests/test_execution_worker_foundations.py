@@ -34,6 +34,7 @@ def _config(tmp_path: Path) -> WorkerConfig:
         display_name="Worker 1",
         admin_token=_TEST_TOKEN,
         worker_root=tmp_path / "worker-root",
+        evidence_root=tmp_path / "evidence-root",
         repositories={
             "Nobodyworld/dev-agent-switchboard": tmp_path / "canonical-repository"
         },
@@ -144,6 +145,7 @@ def test_worker_config_rejects_relative_and_invalid_registry_entries(
             display_name="Worker 1",
             admin_token=_TEST_TOKEN,
             worker_root=Path("relative-root"),
+            evidence_root=tmp_path / "evidence-root",
             repositories={"Nobodyworld/repo": tmp_path / "repo"},
         )
 
@@ -154,6 +156,7 @@ def test_worker_config_rejects_relative_and_invalid_registry_entries(
             display_name="Worker 1",
             admin_token=_TEST_TOKEN,
             worker_root=tmp_path / "worker-root",
+            evidence_root=tmp_path / "evidence-root",
             repositories={"../escape": tmp_path / "repo"},
         )
 

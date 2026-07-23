@@ -12,6 +12,7 @@ from .enums import (
     WorkerStatus,
     WorkOrderStatus,
 )
+from .evidence import ArtifactRecord, ExecutionEvidence
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,8 +68,8 @@ class ExecutionCompletion:
     result_summary: str | None = None
     terminal_reason: str | None = None
     cleanup_status: str | None = None
-    artifact_metadata: tuple[dict[str, Any], ...] = field(default_factory=tuple)
-    evidence_metadata: dict[str, Any] = field(default_factory=dict)
+    artifact_metadata: tuple[ArtifactRecord, ...] = field(default_factory=tuple)
+    evidence_metadata: ExecutionEvidence | None = None
 
 
 @dataclass(frozen=True, slots=True)

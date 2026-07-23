@@ -46,15 +46,12 @@ def test_owned_worktree_cleanup_retains_run_logs_and_preserves_unrelated_worktre
         worker_id="worker-1",
         execution_run_id=11,
     )
-    log = worktree.logs / "worker.stdout.log"
-    log.write_text("retained\n", encoding="utf-8")
-
     assert _git(worktree.checkout, "rev-parse", "HEAD") == sha
     assert worktree.marker.is_file()
     worktree.cleanup()
 
     assert not worktree.checkout.exists()
-    assert log.read_text(encoding="utf-8") == "retained\n"
+    assert not worktree.run_directory.exists()
     assert unrelated.exists()
     assert unrelated.as_posix() in _git(canonical, "worktree", "list", "--porcelain")
     worktree.verify_canonical_integrity()

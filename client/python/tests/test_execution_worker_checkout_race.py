@@ -213,6 +213,7 @@ def test_server_backed_rejection_releases_capacity_for_second_worker(  # noqa: P
             display_name="Race worker",
             admin_token=_TOKEN,
             worker_root=tmp_path / "worker-root",
+            evidence_root=tmp_path / "evidence-root",
             repositories={"Nobodyworld/dev-agent-switchboard": canonical},
         )
 
@@ -273,6 +274,7 @@ def test_server_backed_rejection_releases_capacity_for_second_worker(  # noqa: P
             display_name="Second worker",
             admin_token=_TOKEN,
             worker_root=tmp_path / "second-worker-root",
+            evidence_root=tmp_path / "second-evidence-root",
             repositories={"Nobodyworld/dev-agent-switchboard": canonical},
         )
         with ExecutionClient(

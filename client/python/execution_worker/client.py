@@ -154,7 +154,9 @@ class ExecutionClient:
                 "terminal_reason": terminal_reason,
                 "cleanup_status": cleanup_status,
                 "artifact_metadata": artifact_metadata or [],
-                "evidence_metadata": dict(evidence_metadata or {}),
+                "evidence_metadata": (
+                    dict(evidence_metadata) if evidence_metadata is not None else None
+                ),
             },
             ownership_sensitive=True,
         )

@@ -22,11 +22,13 @@ from server.execution.entities import (
     WorkOrderDraft,
 )
 from server.execution.enums import ExecutionRunStatus
+from server.execution.evidence import ExecutionEvidence
 from server.execution.exceptions import (
     ApprovalDeniedError,
     ExecutionDomainError,
     ExecutionNotFoundError,
     LifecycleConflictError,
+    MalformedEvidenceError,
     ManifestIntegrityError,
     ManifestParameterError,
     OwnershipConflictError,
@@ -58,6 +60,8 @@ def _raise_domain_error(error: ExecutionDomainError) -> NoReturn:
 
     if isinstance(error, ExecutionNotFoundError):
         raise HTTPException(status_code=404, detail=str(error)) from error
+    if isinstance(error, MalformedEvidenceError):
+        raise HTTPException(status_code=500, detail=str(error)) from error
     if isinstance(
         error,
         (UnknownManifestError, ManifestParameterError, RepositoryWritePolicyError),
@@ -406,6 +410,20 @@ async def get_run(
     except ExecutionDomainError as error:
         await _rollback_and_raise(session, error)
     return ExecutionRunOut.model_validate(run)
+
+
+@router.get("/api/execution/runs/{run_id}/evidence", response_model=ExecutionEvidence)
+async def get_run_evidence(
+    run_id: int,
+    service: ExecutionServiceDependency,
+    session: SessionDependency,
+) -> ExecutionEvidence:
+    """Return strict compact evidence without local paths or full logs."""
+
+    try:
+        return await service.get_run_evidence(run_id)
+    except ExecutionDomainError as error:
+        await _rollback_and_raise(session, error)
 
 
 @router.post("/api/execution/runs/{run_id}/heartbeat", response_model=ExecutionRunOut)
