@@ -29,6 +29,9 @@ The merged foundation includes:
   deterministic fingerprints, server-side local-path rejection, and the read-only
   `GET /api/execution/runs/{run_id}/evidence` endpoint.
 
+Operator setup, repository allowlisting, evidence retention, and trust limitations are
+documented in the [local worker operations guide](../operations/local-worker.md).
+
 The exact-SHA evidence work merged through issue
 [#114](https://github.com/Nobodyworld/dev-agent-switchboard/issues/114) and pull
 request [#120](https://github.com/Nobodyworld/dev-agent-switchboard/pull/120) at:
