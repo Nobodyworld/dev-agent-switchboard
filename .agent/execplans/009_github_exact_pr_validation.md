@@ -34,8 +34,9 @@ The feature is successful when a mocked GitHub PR can be resolved into an exact-
 - [x] Add a server-backed mocked-GitHub end-to-end proof.
 - [x] Update operator, API, security, architecture, and integration documentation.
 - [x] Run focused and complete local validation.
-- [ ] Push one intentional commit to update the existing draft PR #125.
-- [ ] Record final hosted Commitlint and complete CI evidence.
+- [x] Push intentional implementation and focused CI-correction commits to
+  update the existing draft PR #125.
+- [x] Record final hosted Commitlint and complete CI evidence.
 
 ## Surprises & Discoveries
 
@@ -259,7 +260,11 @@ access. Focused suites, full pytest, strict browser tests, configured coverage
 thresholds, formatting, lint, typing, dependency checks, security checks,
 secret scanning, and link validation pass. Four full-suite skips are existing
 Windows filesystem/privilege cases; strict browser validation has zero skips.
-Commit, push, final remote verification, and hosted workflow results remain.
+The implementation and focused CI-correction commits are pushed only to the
+canonical branch. Hosted Commitlint `30128491708` and CI `30128491658` both
+succeeded, including all CI lint, typecheck, test, security, secrets-audit,
+link, browser, and coverage jobs. Draft PR #125 remains open and unmerged;
+final remote equality and cleanliness are verified at handoff.
 
 ## Context and Orientation
 
@@ -423,7 +428,10 @@ Record here during implementation:
 - Lychee: 167 total links, 78 unique, 162 successful, five excluded, two
   redirects, zero timeouts, zero unknown links, and zero errors;
 - `git diff --check`: passed before final staging;
-- final Commitlint and CI run identifiers;
+- final implementation Commitlint `30128491708`: success;
+- final implementation CI `30128491658`: success, including successful lint,
+  typecheck, test, security, secrets audit, link check, strict browser, and
+  coverage jobs;
 - any transport, rate-limit, or installation limitations.
 
 ## Interfaces and Dependencies
