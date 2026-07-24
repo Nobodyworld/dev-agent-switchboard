@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 from server.extensions.runtime import reload_extensions
 
@@ -26,6 +27,10 @@ class FileUploadConfigurationError(ValueError):
     """Raised when live-file upload settings are invalid."""
 
 
+class GitHubConfigurationError(ValueError):
+    """Raised when outbound GitHub adapter settings are invalid."""
+
+
 RATE_LIMIT_REQUESTS_ENV = "SWITCHBOARD_RATE_LIMIT_REQUESTS"
 RATE_LIMIT_WINDOW_ENV = "SWITCHBOARD_RATE_LIMIT_WINDOW_SECONDS"
 RATE_LIMIT_TRUSTED_ENV = "SWITCHBOARD_RATE_LIMIT_TRUSTED_BYPASS"
@@ -36,16 +41,26 @@ ADMIN_TOKEN_ENV = "SWITCHBOARD_ADMIN_TOKEN"  # noqa: S105  # nosec B105
 EXTENSION_MODULES_ENV = "SWITCHBOARD_EXTENSIONS"
 ENABLE_BUILTIN_EXTENSIONS_ENV = "SWITCHBOARD_ENABLE_BUILTIN_EXTENSIONS"
 MAX_LIVE_FILE_BYTES_ENV = "SWITCHBOARD_MAX_LIVE_FILE_BYTES"
+GITHUB_TOKEN_ENV = "SWITCHBOARD_GITHUB_TOKEN"  # noqa: S105  # nosec B105
+GITHUB_API_URL_ENV = "SWITCHBOARD_GITHUB_API_URL"
+OPERATOR_ID_ENV = "SWITCHBOARD_OPERATOR_ID"
 
 _DEFAULT_REQUESTS = 120
 _DEFAULT_WINDOW_SECONDS = 60
 _DEFAULT_LEASE_SECONDS = 300
 _DEFAULT_MAX_LIVE_FILE_BYTES = 10 * 1024 * 1024
+DEFAULT_GITHUB_API_URL = "https://api.github.com"
+DEFAULT_OPERATOR_ID = "local-operator"
+MAX_GITHUB_TOKEN_LENGTH = 4096
 
 
 _EXTENSION_NAME_PATTERN = re.compile(
     r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*"
 )
+_GITHUB_API_PATH_PATTERN = re.compile(r"^(/[A-Za-z0-9._~-]+)*$")
+_GITHUB_HOST_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
+_GITHUB_TOKEN_PATTERN = re.compile(r"^[\x21-\x7e]{1,4096}$")
+_OPERATOR_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,127}$")
 
 
 @dataclass(frozen=True)
@@ -86,6 +101,24 @@ class SettingsBundle:
     rate_limit: RateLimitSettings
     lease: LeaseSettings
     extensions: ExtensionSettings
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubSettings:
+    """Server-only outbound GitHub settings with a non-representable token."""
+
+    api_url: str
+    operator_id: str
+    token: str = field(repr=False)
+
+    @property
+    def host(self) -> str:
+        """Return the configured lowercase API hostname."""
+
+        hostname = urlsplit(self.api_url).hostname
+        if hostname is None:  # pragma: no cover - construction validates this
+            raise GitHubConfigurationError("github_api_url_invalid")
+        return hostname.lower()
 
 
 def _parse_int(
@@ -276,3 +309,65 @@ def reload_max_live_file_bytes() -> int:
 
     get_max_live_file_bytes.cache_clear()
     return get_max_live_file_bytes()
+
+
+def _normalize_github_api_url(raw: str) -> str:
+    value = raw.strip()
+    parsed = urlsplit(value)
+    try:
+        port = parsed.port
+    except ValueError as error:
+        raise GitHubConfigurationError("github_api_url_invalid") from error
+    if (
+        parsed.scheme.lower() != "https"
+        or not parsed.hostname
+        or not _GITHUB_HOST_PATTERN.fullmatch(parsed.hostname)
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise GitHubConfigurationError("github_api_url_must_be_https")
+    path = parsed.path.rstrip("/")
+    if not _GITHUB_API_PATH_PATTERN.fullmatch(path) or any(
+        part in {".", ".."} for part in path.split("/")
+    ):
+        raise GitHubConfigurationError("github_api_url_invalid")
+    port_suffix = f":{port}" if port is not None else ""
+    return f"https://{parsed.hostname.lower()}{port_suffix}{path}"
+
+
+@lru_cache(maxsize=1)
+def get_github_settings() -> GitHubSettings:
+    """Return strict server-only settings for the manual GitHub adapter."""
+
+    token = os.getenv(GITHUB_TOKEN_ENV)
+    if token is None or not token.strip():
+        raise GitHubConfigurationError("github_token_not_configured")
+    normalized_token = token.strip()
+    if len(
+        normalized_token
+    ) > MAX_GITHUB_TOKEN_LENGTH or not _GITHUB_TOKEN_PATTERN.fullmatch(
+        normalized_token
+    ):
+        raise GitHubConfigurationError("github_token_invalid")
+
+    operator_id = os.getenv(OPERATOR_ID_ENV, DEFAULT_OPERATOR_ID).strip()
+    if not _OPERATOR_ID_PATTERN.fullmatch(operator_id):
+        raise GitHubConfigurationError("github_operator_id_invalid")
+
+    api_url = _normalize_github_api_url(
+        os.getenv(GITHUB_API_URL_ENV, DEFAULT_GITHUB_API_URL)
+    )
+    return GitHubSettings(
+        api_url=api_url,
+        operator_id=operator_id,
+        token=normalized_token,
+    )
+
+
+def reload_github_settings() -> GitHubSettings:
+    """Clear cached GitHub adapter settings and return the refreshed values."""
+
+    get_github_settings.cache_clear()
+    return get_github_settings()

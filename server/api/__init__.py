@@ -22,6 +22,7 @@ from .routers import (
     configuration,
     execution,
     files,
+    github_execution,
     observability,
     plan,
     system_state,
@@ -70,6 +71,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     app.include_router(configuration.router)
     app.include_router(execution.router)
+    app.include_router(github_execution.router)
     app.include_router(observability.router)
     app.include_router(system_state.router)
     app.include_router(tasks.router)

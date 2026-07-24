@@ -9,7 +9,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from server.api import lifecycle as lifecycle_module
 from server.execution.repository import ExecutionRepository
-from server.models import CommandManifest, ExecutionWorkOrder, Task
+from server.models import (
+    CommandManifest,
+    ExecutionWorkOrder,
+    GitHubValidationRequest,
+    Task,
+)
 
 
 @pytest.mark.asyncio
@@ -33,6 +38,7 @@ async def test_fresh_database_creates_execution_tables_and_seeds_manifest(
             "execution_workers",
             "execution_runs",
             "execution_leases",
+            "github_validation_requests",
         }.issubset(tables)
 
         async with factory() as session:
@@ -65,6 +71,7 @@ async def test_existing_core_database_starts_with_additive_execution_tables(
             tables = await connection.run_sync(_table_names)
         assert "tasks" in tables
         assert "execution_work_orders" in tables
+        assert "github_validation_requests" in tables
 
         async with factory() as session:
             repository = ExecutionRepository(session)
@@ -80,6 +87,7 @@ def test_execution_models_are_new_tables_not_task_columns() -> None:
     assert "commit_sha" not in Task.__table__.columns
     assert "commit_sha" in ExecutionWorkOrder.__table__.columns
     assert "digest" in CommandManifest.__table__.columns
+    assert "idempotency_key" in GitHubValidationRequest.__table__.columns
 
 
 def _table_names(sync_connection) -> set[str]:

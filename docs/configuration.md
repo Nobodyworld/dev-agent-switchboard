@@ -16,6 +16,23 @@ The FastAPI application serves a typed `ConfigurationResponse` at `GET /api/conf
 
 All sensitive fields (such as `DATABASE_URL` credentials or `SWITCHBOARD_ADMIN_TOKEN`) remain redacted.
 
+## Outbound GitHub adapter
+
+The manual exact-PR adapter uses server-only environment configuration:
+
+- `SWITCHBOARD_GITHUB_TOKEN` — required fine-grained PAT with no default;
+- `SWITCHBOARD_GITHUB_API_URL` — optional HTTPS API base, defaulting exactly to
+  `https://api.github.com`;
+- `SWITCHBOARD_OPERATOR_ID` — optional bounded operator identity, defaulting to
+  `local-operator`.
+
+The token requires repository **Metadata: read** and **Pull requests: read and
+write**. It is deliberately absent from the configuration API, CLI, and UI,
+including configured/unconfigured indicators, and is never forwarded to local
+workers. See
+[GitHub exact pull-request validation](operations/github-exact-pr-validation.md)
+for the complete operator and security contract.
+
 ## CLI: `switchboard-cli config`
 
 The Python CLI gains a `config` subcommand:

@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -41,6 +42,7 @@ __all__ = [
     "ExecutionWorkOrder",
     "ExecutionWorker",
     "FileEntry",
+    "GitHubValidationRequest",
     "Lease",
     "PlanVersion",
     "SystemState",
@@ -549,6 +551,165 @@ class ExecutionLease(Base):
         DateTime, nullable=False, index=True
     )
     last_heartbeat_at: Mapped[dt.datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, default=utcnow_naive, nullable=False
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime,
+        default=utcnow_naive,
+        onupdate=utcnow_naive,
+        nullable=False,
+    )
+
+
+class GitHubValidationRequest(Base):
+    """Server-owned GitHub request identity and publication lifecycle."""
+
+    __tablename__ = "github_validation_requests"
+    __table_args__ = (
+        UniqueConstraint(
+            "idempotency_key", name="uq_github_validation_idempotency_key"
+        ),
+        UniqueConstraint("work_order_id", name="uq_github_validation_work_order"),
+        CheckConstraint(
+            "schema_version = 1", name="ck_github_validation_schema_version"
+        ),
+        CheckConstraint(
+            "length(idempotency_key) = 64",
+            name="ck_github_validation_idempotency_length",
+        ),
+        CheckConstraint(
+            "length(head_sha) = 40", name="ck_github_validation_head_sha_length"
+        ),
+        CheckConstraint(
+            "length(base_sha) = 40", name="ck_github_validation_base_sha_length"
+        ),
+        CheckConstraint(
+            "length(manifest_digest) = 64",
+            name="ck_github_validation_manifest_digest_length",
+        ),
+        CheckConstraint(
+            "pull_request_number >= 1",
+            name="ck_github_validation_pull_request_number",
+        ),
+        CheckConstraint(
+            "repository_id >= 1 AND pull_request_id >= 1 "
+            "AND head_repository_id >= 1",
+            name="ck_github_validation_stable_numeric_ids",
+        ),
+        CheckConstraint(
+            "length(github_api_url) BETWEEN 1 AND 512 "
+            "AND length(github_host) BETWEEN 1 AND 255",
+            name="ck_github_validation_configured_origin_bounds",
+        ),
+        CheckConstraint(
+            "length(repository_full_name) BETWEEN 3 AND 255 "
+            "AND length(head_repository_full_name) BETWEEN 3 AND 255",
+            name="ck_github_validation_repository_identity_bounds",
+        ),
+        CheckConstraint(
+            "length(repository_node_id) BETWEEN 1 AND 128 "
+            "AND length(pull_request_node_id) BETWEEN 1 AND 128",
+            name="ck_github_validation_node_identity_bounds",
+        ),
+        CheckConstraint(
+            "pull_request_state IN ('open', 'closed')",
+            name="ck_github_validation_pull_request_state",
+        ),
+        CheckConstraint(
+            "length(base_ref) BETWEEN 1 AND 255 "
+            "AND length(head_ref) BETWEEN 1 AND 255",
+            name="ck_github_validation_ref_bounds",
+        ),
+        CheckConstraint(
+            "length(manifest_name) BETWEEN 1 AND 128 "
+            "AND length(manifest_version) BETWEEN 1 AND 64 "
+            "AND length(operator_id) BETWEEN 1 AND 128",
+            name="ck_github_validation_server_identity_bounds",
+        ),
+        CheckConstraint(
+            "managed_comment_id IS NULL OR managed_comment_id >= 1",
+            name="ck_github_validation_managed_comment_id",
+        ),
+        CheckConstraint(
+            "publication_head_sha IS NULL OR length(publication_head_sha) = 40",
+            name="ck_github_validation_publication_head_sha_length",
+        ),
+        CheckConstraint(
+            "last_transport_reason IS NULL "
+            "OR length(last_transport_reason) BETWEEN 1 AND 64",
+            name="ck_github_validation_transport_reason_bounds",
+        ),
+        CheckConstraint(
+            "publication_reason IS NULL "
+            "OR length(publication_reason) BETWEEN 1 AND 64",
+            name="ck_github_validation_publication_reason_bounds",
+        ),
+        CheckConstraint(
+            (
+                "publication_state IN "
+                "('not_published', 'published_current', 'published_stale', "
+                "'retryable_failure', 'failed')"
+            ),
+            name="ck_github_validation_publication_state",
+        ),
+        CheckConstraint(
+            "publication_decision IN ('not_evaluated', 'current', 'stale')",
+            name="ck_github_validation_publication_decision",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    github_api_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    github_host: Mapped[str] = mapped_column(String(255), nullable=False)
+    repository_full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    repository_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    repository_node_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    pull_request_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    pull_request_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    pull_request_node_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    pull_request_state: Mapped[str] = mapped_column(String(16), nullable=False)
+    pull_request_draft: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    pull_request_merged: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    base_ref: Mapped[str] = mapped_column(String(255), nullable=False)
+    base_sha: Mapped[str] = mapped_column(String(40), nullable=False)
+    head_ref: Mapped[str] = mapped_column(String(255), nullable=False)
+    head_sha: Mapped[str] = mapped_column(String(40), nullable=False)
+    head_repository_full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    head_repository_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    manifest_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    manifest_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    manifest_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    operator_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    work_order_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("execution_work_orders.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    terminal_run_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("execution_runs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    managed_comment_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    publication_state: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="not_published"
+    )
+    publication_decision: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="not_evaluated"
+    )
+    publication_head_sha: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    last_transport_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    publication_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_resolved_at: Mapped[dt.datetime] = mapped_column(DateTime, nullable=False)
+    last_publication_attempt_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    published_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime, default=utcnow_naive, nullable=False
     )

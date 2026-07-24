@@ -44,7 +44,11 @@ from .runner import (
     StepResult,
     run_step,
 )
-from .worktree import DisposableWorktree, create_worktree
+from .worktree import (
+    DisposableWorktree,
+    LocalCommitUnavailableError,
+    create_worktree,
+)
 
 _SERVER_TERMINAL_STATUSES = {"succeeded", "failed", "timed_out", "cancelled"}
 RESULT_SUMMARY_LIMIT = 8000
@@ -642,6 +646,8 @@ class LocalWorker:
                     terminal, reason, skip_completion = _cancellation_outcome(token)
         except ExecutionOwnershipLostError:
             skip_completion, terminal, reason = True, "cancelled", "ownership_lost"
+        except LocalCommitUnavailableError:
+            terminal, reason = "failed", "requested_sha_not_available_locally"
         except Exception as error:  # terminal outcome must stay truthful and bounded
             terminal, reason = "failed", f"worker_error:{type(error).__name__}"
         finally:

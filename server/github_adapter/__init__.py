@@ -1,0 +1,10 @@
+"""Server-owned outbound GitHub exact-pull-request validation adapter."""
+
+from .service import GitHubAdapterService, GitHubRequestStatus
+from .transport import GitHubTransport
+
+__all__ = [
+    "GitHubAdapterService",
+    "GitHubRequestStatus",
+    "GitHubTransport",
+]

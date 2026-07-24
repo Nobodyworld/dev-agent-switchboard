@@ -67,6 +67,17 @@ directory. Evidence policy accepts retention from 1 through 3,650 days, at most
 128 artifacts, and bounded per-artifact and total byte limits; the total must
 cover the per-artifact limit.
 
+For GitHub exact-PR requests, the adapter resolves identity but does not fetch
+source. The exact resolved head commit object must already exist in this
+configured canonical repository. The worker runs a local `git cat-file` check
+before creating its disposable worktree and never fetches, adds a remote,
+writes a ref, or substitutes another SHA. A missing object fails the run with
+`requested_sha_not_available_locally`, produces no success evidence, and
+leaves the canonical repository unchanged. Fork heads follow the same rule.
+See
+[GitHub exact pull-request validation](github-exact-pr-validation.md)
+for the operator workflow.
+
 ## Runtime behavior and limits
 
 Phase 1 is deliberately single-concurrency. Configuration must set
