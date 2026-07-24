@@ -62,9 +62,7 @@ class GitHubValidationRequestOut(BaseModel):
     work_order_status: str = Field(min_length=1, max_length=32)
     terminal_run_id: int | None = Field(default=None, ge=1)
     terminal_run_status: str | None = Field(default=None, max_length=32)
-    evidence_fingerprint: str | None = Field(
-        default=None, pattern=r"^[0-9a-f]{64}$"
-    )
+    evidence_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     managed_comment_id: int | None = Field(default=None, ge=1)
     publication_state: Literal[
         "not_published",
@@ -74,9 +72,7 @@ class GitHubValidationRequestOut(BaseModel):
         "failed",
     ]
     publication_decision: Literal["not_evaluated", "current", "stale"]
-    publication_head_sha: str | None = Field(
-        default=None, pattern=r"^[0-9a-f]{40}$"
-    )
+    publication_head_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
     transport_reason: str | None = Field(default=None, max_length=64)
     publication_reason: str | None = Field(default=None, max_length=64)
     created_at: dt.datetime
@@ -86,9 +82,7 @@ class GitHubValidationRequestOut(BaseModel):
     published_at: dt.datetime | None
 
     @classmethod
-    def from_status(
-        cls, status: GitHubRequestStatus
-    ) -> GitHubValidationRequestOut:
+    def from_status(cls, status: GitHubRequestStatus) -> GitHubValidationRequestOut:
         """Validate a service snapshot at the final response boundary."""
 
         return cls.model_validate(status)

@@ -82,21 +82,28 @@ class GitHubRequestStatus:
     published_at: dt.datetime | None
 
 
+@dataclass(frozen=True, slots=True)
+class GitHubAdapterDependencies:
+    """Server-owned collaborators used by the GitHub adapter service."""
+
+    repository: GitHubAdapterRepository
+    execution: ExecutionService
+    transport: GitHubTransport
+
+
 class GitHubAdapterService:
     """Resolve immutable GitHub identity into the existing execution plane."""
 
     def __init__(
         self,
         *,
-        repository: GitHubAdapterRepository,
-        execution: ExecutionService,
-        transport: GitHubTransport,
+        dependencies: GitHubAdapterDependencies,
         settings: GitHubSettings,
         clock: Callable[[], dt.datetime],
     ) -> None:
-        self._repository = repository
-        self._execution = execution
-        self._transport = transport
+        self._repository = dependencies.repository
+        self._execution = dependencies.execution
+        self._transport = dependencies.transport
         self._settings = settings
         self._clock = clock
 
@@ -119,8 +126,7 @@ class GitHubAdapterService:
             repository_full_name, pull_request_number, require_head=True
         )
         if (
-            resolved.repository_full_name.casefold()
-            != repository_full_name.casefold()
+            resolved.repository_full_name.casefold() != repository_full_name.casefold()
             or resolved.head_sha is None
             or resolved.head_repository_full_name is None
             or resolved.head_repository_id is None
@@ -377,13 +383,9 @@ class GitHubAdapterService:
             except (ExecutionNotFoundError, MalformedEvidenceError):
                 continue
             return run, evidence
-        raise GitHubTerminalEvidenceRequiredError(
-            "github_terminal_evidence_required"
-        )
+        raise GitHubTerminalEvidenceRequiredError("github_terminal_evidence_required")
 
-    async def _status(
-        self, request: GitHubValidationRequest
-    ) -> GitHubRequestStatus:
+    async def _status(self, request: GitHubValidationRequest) -> GitHubRequestStatus:
         work_order = await self._execution.get_work_order(request.work_order_id)
         runs = await self._execution.list_runs(request.work_order_id)
         run = next(
@@ -420,9 +422,7 @@ class GitHubAdapterService:
             work_order_id=request.work_order_id,
             work_order_status=work_order.status.value,
             terminal_run_id=run.id if run is not None else None,
-            terminal_run_status=(
-                run.status.value if run is not None else None
-            ),
+            terminal_run_status=(run.status.value if run is not None else None),
             evidence_fingerprint=fingerprint,
             managed_comment_id=request.managed_comment_id,
             publication_state=request.publication_state,

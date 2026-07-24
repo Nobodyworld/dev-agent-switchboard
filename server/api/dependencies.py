@@ -15,7 +15,10 @@ from server.application import (
 from server.db import get_session
 from server.execution.service import ExecutionService
 from server.github_adapter.repository import GitHubAdapterRepository
-from server.github_adapter.service import GitHubAdapterService
+from server.github_adapter.service import (
+    GitHubAdapterDependencies,
+    GitHubAdapterService,
+)
 from server.github_adapter.transport import GitHubTransport
 from server.settings import (
     GitHubConfigurationError,
@@ -49,9 +52,11 @@ def get_github_adapter_service(
     except GitHubConfigurationError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     return GitHubAdapterService(
-        repository=GitHubAdapterRepository(session),
-        execution=build_execution_service(session),
-        transport=GitHubTransport(settings),
+        dependencies=GitHubAdapterDependencies(
+            repository=GitHubAdapterRepository(session),
+            execution=build_execution_service(session),
+            transport=GitHubTransport(settings),
+        ),
         settings=settings,
         clock=utcnow_naive,
     )

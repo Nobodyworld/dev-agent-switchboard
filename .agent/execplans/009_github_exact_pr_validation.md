@@ -143,6 +143,21 @@ The feature is successful when a mocked GitHub PR can be resolved into an exact-
   artifacts only and are removed before staging.
   Evidence: `lychee.toml` and the successful 2026-07-24 run summarized below.
 
+- Observation: the first hosted implementation CI run found that the local
+  pre-commit invocation occurred before the new adapter modules were staged.
+  `--all-files` therefore checked only files already tracked by Git, while the
+  Linux runner checked the newly committed modules and reported one
+  `PLR0913`, four Ruff formatting changes, and one Black formatting change.
+  The reported detect-secrets failure was partly hook-chain fallout and also
+  identified two credential-redaction sentinels assigned to a variable named
+  `secret`; no real or fixture credential was present. The service now accepts
+  one typed dependency bundle, the pinned formatters have processed all
+  tracked files, and the redaction sentinels use a non-credential identifier.
+  Evidence: Commitlint run `30127902826` succeeded; CI run `30127902796`
+  passed test, typecheck, security, links, and secrets-audit jobs but failed
+  lint. The focused correction rerun produced `52 passed`, full Mypy remained
+  clean across 172 files, Bandit passed, and every pre-commit hook passed.
+
 ## Decision Log
 
 - Decision: implement a managed PR comment rather than the Checks API in the first slice.
@@ -368,6 +383,8 @@ Record here during implementation:
   `37.72s` under the task-only standalone CPython 3.11.14 environment;
 - the final combined adapter/startup/worker rerun after replacing
   credential-shaped test placeholders produced `52 passed` in `54.80s`;
+- the focused post-hosted-lint correction rerun produced `52 passed` in
+  `55.27s`; full Mypy, Bandit, and every pinned pre-commit hook also passed;
 - mocked stale-head and idempotency proof includes current, moved, unavailable,
   stable-identity mismatch, ambiguous create recovery, copied-marker
   resistance, and rate-limit retry scenarios;

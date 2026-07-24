@@ -51,7 +51,10 @@ from server.github_adapter.rendering import (
 )
 from server.github_adapter.repository import GitHubAdapterRepository
 from server.github_adapter.schemas import GitHubValidationCreateIn
-from server.github_adapter.service import GitHubAdapterService
+from server.github_adapter.service import (
+    GitHubAdapterDependencies,
+    GitHubAdapterService,
+)
 from server.github_adapter.transport import (
     GitHubComment,
     GitHubTransport,
@@ -181,9 +184,11 @@ def _service(
     session: AsyncSession, transport: FakeGitHubTransport
 ) -> GitHubAdapterService:
     return GitHubAdapterService(
-        repository=GitHubAdapterRepository(session),
-        execution=build_execution_service(session),
-        transport=transport,
+        dependencies=GitHubAdapterDependencies(
+            repository=GitHubAdapterRepository(session),
+            execution=build_execution_service(session),
+            transport=transport,
+        ),
         settings=_settings(),
         clock=utcnow_naive,
     )

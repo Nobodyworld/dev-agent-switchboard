@@ -26,10 +26,9 @@ def managed_comment_marker(idempotency_key: str) -> str:
 def has_exact_marker(body: str, marker: str) -> bool:
     """Return whether a bounded remote comment begins with the exact marker."""
 
-    return (
-        len(body.encode("utf-8")) <= MAX_RENDERED_COMMENT_BYTES
-        and body.splitlines()[:1] == [marker]
-    )
+    return len(
+        body.encode("utf-8")
+    ) <= MAX_RENDERED_COMMENT_BYTES and body.splitlines()[:1] == [marker]
 
 
 def render_managed_comment(
@@ -131,9 +130,7 @@ def render_managed_comment(
     return rendered
 
 
-def _first_audit(
-    audits: Sequence[AuditSummary], kind: str
-) -> AuditSummary | None:
+def _first_audit(audits: Sequence[AuditSummary], kind: str) -> AuditSummary | None:
     return next((audit for audit in audits if audit.kind == kind), None)
 
 

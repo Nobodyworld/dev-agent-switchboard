@@ -31,9 +31,7 @@ SAFE_READ_ATTEMPTS = 3
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-_NODE_ID = re.compile(
-    rf"^[A-Za-z0-9_=-]{{1,{MAX_GITHUB_NODE_ID_LENGTH}}}$"
-)
+_NODE_ID = re.compile(rf"^[A-Za-z0-9_=-]{{1,{MAX_GITHUB_NODE_ID_LENGTH}}}$")
 _DISPLAY_TEXT = re.compile(r"^[^\x00-\x1f\x7f]{1,255}$")
 _TRANSIENT_READ_STATUSES = frozenset({502, 503, 504})
 _AMBIGUOUS_WRITE_STATUSES = frozenset({408, 425, 500, 502, 503, 504})
@@ -435,18 +433,21 @@ class GitHubTransport:
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "switchboard-validation-adapter/1",
         }
-        async with httpx.AsyncClient(
-            base_url=self._base_url,
-            timeout=timeout,
-            follow_redirects=False,
-            transport=self._transport,
-            trust_env=False,
-        ) as client, client.stream(
-            method,
-            route,
-            headers=headers,
-            json=json_body,
-        ) as response:
+        async with (
+            httpx.AsyncClient(
+                base_url=self._base_url,
+                timeout=timeout,
+                follow_redirects=False,
+                transport=self._transport,
+                trust_env=False,
+            ) as client,
+            client.stream(
+                method,
+                route,
+                headers=headers,
+                json=json_body,
+            ) as response,
+        ):
             self._validate_response_origin(response.request.url)
             collected = bytearray()
             async for chunk in response.aiter_bytes():
@@ -725,10 +726,7 @@ def _is_rate_limited(status: int, headers: httpx.Headers) -> bool:
         return True
     if status != httpx.codes.FORBIDDEN:
         return False
-    return (
-        headers.get("x-ratelimit-remaining") == "0"
-        or "retry-after" in headers
-    )
+    return headers.get("x-ratelimit-remaining") == "0" or "retry-after" in headers
 
 
 __all__ = [

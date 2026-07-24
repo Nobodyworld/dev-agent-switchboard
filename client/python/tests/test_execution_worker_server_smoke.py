@@ -34,7 +34,10 @@ from server.execution.evidence import ExecutionEvidence, compute_evidence_finger
 from server.execution.registry import get_trusted_manifest
 from server.github_adapter.errors import GitHubAmbiguousWriteError
 from server.github_adapter.repository import GitHubAdapterRepository
-from server.github_adapter.service import GitHubAdapterService
+from server.github_adapter.service import (
+    GitHubAdapterDependencies,
+    GitHubAdapterService,
+)
 from server.github_adapter.transport import (
     GitHubComment,
     GitHubTransport,
@@ -686,9 +689,11 @@ def test_mocked_github_request_executes_exact_local_head_and_publishes_once(  # 
             token=_GITHUB_TEST_TOKEN,
         )
         return GitHubAdapterService(
-            repository=GitHubAdapterRepository(session),
-            execution=build_execution_service(session),
-            transport=github,
+            dependencies=GitHubAdapterDependencies(
+                repository=GitHubAdapterRepository(session),
+                execution=build_execution_service(session),
+                transport=github,
+            ),
             settings=settings,
             clock=utcnow_naive,
         )

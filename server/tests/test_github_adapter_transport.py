@@ -139,11 +139,11 @@ def test_missing_token_fails_with_bounded_reason(
 def test_token_is_absent_from_repr_and_configuration_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    secret = "sensitive-header-test-placeholder"  # noqa: S105
-    monkeypatch.setenv("SWITCHBOARD_GITHUB_TOKEN", secret)
+    sentinel = "sensitive-header-test-placeholder"
+    monkeypatch.setenv("SWITCHBOARD_GITHUB_TOKEN", sentinel)
     settings = get_github_settings()
 
-    assert secret not in repr(settings)
+    assert sentinel not in repr(settings)
     assert "token=" not in repr(settings)
 
     monkeypatch.setenv("SWITCHBOARD_GITHUB_API_URL", "http://api.github.com")
@@ -151,18 +151,18 @@ def test_token_is_absent_from_repr_and_configuration_errors(
     with pytest.raises(GitHubConfigurationError) as caught:
         get_github_settings()
     assert str(caught.value) == "github_api_url_must_be_https"
-    assert secret not in str(caught.value)
+    assert sentinel not in str(caught.value)
 
 
 def test_token_is_absent_from_operator_configuration_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    secret = "sensitive-snapshot-test-placeholder"  # noqa: S105
-    monkeypatch.setenv("SWITCHBOARD_GITHUB_TOKEN", secret)
+    sentinel = "sensitive-snapshot-test-placeholder"
+    monkeypatch.setenv("SWITCHBOARD_GITHUB_TOKEN", sentinel)
 
     snapshot = ConfigurationService().snapshot()
 
-    assert secret not in repr(snapshot)
+    assert sentinel not in repr(snapshot)
     assert all(item.name != "SWITCHBOARD_GITHUB_TOKEN" for item in snapshot.environment)
 
 
