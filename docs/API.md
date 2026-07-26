@@ -107,16 +107,24 @@ comment identity, and publication state are server-owned. Unknown fields,
 including commands, URLs, paths, status, hashes, worker IDs, and comment IDs,
 return `422`.
 
-An identical stable PR + exact head + trusted manifest request returns the same
-adapter and work-order identities. A new head creates a distinct request. The
-work order remains `pending_approval` until the normal explicit approval route
-is called.
+An identical authenticated actor + stable PR + exact head + trusted manifest
+request returns the same adapter and work-order identities. A new head or
+credential actor creates a distinct request. Stable actor ownership identifiers
+remain server-owned and are not returned. The work order remains
+`pending_approval` until the normal explicit approval route is called.
 
 Publication requires terminal compact evidence and re-resolves the PR
 immediately before its managed comment is written. A moved or unavailable head
 is published as stale without changing the historical tested SHA. Responses
 and comments exclude credentials, remote response bodies, commands, full logs,
 environment values, local paths, and artifact locations.
+
+Every comment update is preceded by an authoritative fixed-route read that
+verifies ID, configured actor, exact repository/PR association, API origin, and
+first-line marker. Ambiguous create recovery uses a validated bounded
+newest-page window. A database-backed publication lease permits one remote
+writer per adapter request; concurrent callers receive bounded
+`github_publication_in_progress` status without writing remotely.
 
 See
 [GitHub exact pull-request validation](operations/github-exact-pr-validation.md)

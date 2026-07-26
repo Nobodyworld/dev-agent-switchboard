@@ -29,7 +29,10 @@ The manual exact-PR adapter uses server-only environment configuration:
 The token requires repository **Metadata: read** and **Pull requests: read and
 write**. It is deliberately absent from the configuration API, CLI, and UI,
 including configured/unconfigured indicators, and is never forwarded to local
-workers. See
+workers. The adapter resolves the credential's stable actor identity before
+creating a request, binds it into deterministic request identity and managed
+comment ownership, and never exposes that ownership identity through the
+configuration surface. See
 [GitHub exact pull-request validation](operations/github-exact-pr-validation.md)
 for the complete operator and security contract.
 

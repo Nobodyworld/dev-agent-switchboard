@@ -33,18 +33,40 @@ The feature is successful when a mocked GitHub PR can be resolved into an exact-
 - [x] Add focused security, transport, schema, persistence, idempotency, stale-head, and publication tests.
 - [x] Add a server-backed mocked-GitHub end-to-end proof.
 - [x] Update operator, API, security, architecture, and integration documentation.
-- [x] Run focused and complete local validation.
+- [x] Run the original focused and complete local validation baseline; these
+  results are superseded by connector reviews `4777156809` and `4780239219`.
 - [x] Push intentional implementation and focused CI-correction commits to
   update the existing draft PR #125.
-- [x] Record final hosted Commitlint and complete CI evidence.
+- [x] Read and record connector reviews `4777156809` and `4780239219`.
+- [x] Preserve and audit interrupted actor/comment correction work at the
+  required remote head without resetting, stashing, rebasing, or cleaning.
+- [x] Bind authoritative credential-actor identity into immutable request
+  identity and managed-comment ownership.
+- [x] Verify persisted comment IDs, author identity, exact target association,
+  origin, and marker before every update.
+- [x] Add bounded newest-page recovery with strict pagination validation.
+- [x] Add a database-backed expiring publication lease with conditional
+  finalization across server processes.
+- [x] Add direct actor, user-marker, persisted-ID, pagination, ambiguity,
+  concurrency, expiry, stale-holder, and startup compatibility regressions.
+- [x] Update affected public operator, API, configuration, and architecture
+  documentation.
+- [x] Complete the corrected full validation, coverage, browser, security,
+  dependency, secret, and link matrix.
+- [x] Complete the public-repository hygiene audit and remove generated
+  validation artifacts.
+- [x] Commit the corrected head in focused Conventional Commits.
+- [ ] Push the corrected head only to the existing branch.
+- [ ] Record final hosted workflow IDs after the corrected pushed head is green.
 
 ## Surprises & Discoveries
 
-- Observation: the repository's established schema-upgrade path uses additive
-  `Base.metadata.create_all()` startup behavior and startup compatibility tests;
-  it does not run the historical Alembic revisions during application startup.
-  A new focused adapter table therefore upgrades existing databases safely
-  without runtime column DDL.
+- Observation: the repository's established schema-upgrade path starts with
+  `Base.metadata.create_all()` and focused startup compatibility checks rather
+  than replaying historical Alembic revisions. Because `create_all()` does not
+  add columns to an existing table, the correction uses bounded additive
+  startup DDL for only the new nullable actor and publication-lease fields,
+  followed by the normal metadata creation path.
   Evidence: `server/api/lifecycle.py`,
   `server/tests/test_execution_startup.py`, and the existing separate execution
   tables in `server/models.py`.
@@ -57,12 +79,10 @@ The feature is successful when a mocked GitHub PR can be resolved into an exact-
   lifecycle fields, while `ExecutionRun.evidence_metadata` is strict worker
   evidence and intentionally excludes remote publication state.
 
-- Observation: the shared Python 3.14 interpreter has an unrelated
-  `opencv-python`/NumPy conflict. Initial validation recovered the isolated
-  Python 3.11.14 venv at
-  `C:\tmp\switchboard-github-exact-pr-validation-venv`; final validation uses
-  the task-only standalone Python 3.11.14 installation recorded below so
-  Windows worker children resolve the same tool environment.
+- Observation: the shared interpreter has an unrelated
+  `opencv-python`/NumPy conflict. Validation therefore uses an isolated
+  task-only Python 3.11 environment outside the repository so Windows worker
+  children resolve the same tool environment.
   Evidence: shared `python -m pip check` reported the conflict; the isolated
   environment installed `server/requirements-dev.txt` and reports no broken
   requirements.
@@ -71,10 +91,9 @@ The feature is successful when a mocked GitHub PR can be resolved into an exact-
   executable search location of a Windows child launched as literal `python`.
   The venv launcher delegates to the Astral base process, whose executable
   directory contains another `python.exe`; Windows selects that before
-  `PATH`. A task-only standalone CPython 3.11.14 installation under
-  `C:\tmp\switchboard-github-exact-pr-validation-python311` keeps the parent,
-  unchanged reviewed child command, and installed tools in one isolated
-  application directory.
+  `PATH`. A standalone isolated Python 3.11 environment keeps the parent,
+  unchanged reviewed child command, and installed tools in one task-only
+  application directory outside the repository.
   Evidence: the activated venv rerun produced `2 passed, 2 failed`, both at
   Ruff; the standalone environment then produced `4 passed` for the complete
   server-backed worker file without changing worker interpreter selection or
@@ -154,10 +173,37 @@ The feature is successful when a mocked GitHub PR can be resolved into an exact-
   `secret`; no real or fixture credential was present. The service now accepts
   one typed dependency bundle, the pinned formatters have processed all
   tracked files, and the redaction sentinels use a non-credential identifier.
-  Evidence: Commitlint run `30127902826` succeeded; CI run `30127902796`
-  passed test, typecheck, security, links, and secrets-audit jobs but failed
-  lint. The focused correction rerun produced `52 passed`, full Mypy remained
-  clean across 172 files, Bandit passed, and every pre-commit hook passed.
+  Evidence: the earlier hosted Commitlint run succeeded; the corresponding CI
+  run passed test, typecheck, security, links, and secrets-audit jobs but
+  failed lint. The focused correction rerun produced `52 passed`, full Mypy
+  remained clean across 172 files, Bandit passed, and every pre-commit hook
+  passed.
+
+- Observation: connector review `4777156809` established that deterministic
+  marker text and a persisted numeric ID are candidates, not ownership proof.
+  Authoritative comment ownership requires the configured credential actor,
+  exact repository/PR association, configured origin, exact ID, and exact
+  first-line marker before every update.
+  Evidence: the recovered correction now resolves the actor through the fixed
+  authenticated-user operation and retrieves persisted comments through the
+  fixed repository comment route.
+
+- Observation: ambiguous create recovery cannot depend on the oldest first
+  page. The transport now validates bounded `Link` metadata against the
+  configured origin and exact comments route, constructs last-page requests
+  internally, and inspects only the newest page plus at most one preceding
+  page. An incomplete window fails closed.
+  Evidence: direct regressions cover more than 100 comments, cross-origin and
+  cross-repository links, malformed/oversized metadata, and a managed comment
+  outside page one.
+
+- Observation: connector review `4780239219` established that sequential
+  idempotency and process-local locking cannot serialize publication across
+  multiple server processes.
+  Evidence: publication now uses an atomic conditional database lease committed
+  before remote operations. Conditional finalization and expiry prevent stale
+  holders from clearing or overwriting a newer holder, and two independent
+  sessions/services produce one remote create.
 
 ## Decision Log
 
@@ -224,12 +270,44 @@ The feature is successful when a mocked GitHub PR can be resolved into an exact-
 - Decision: use
   `<!-- switchboard-validation:v1:<64-lowercase-hex-idempotency-hash> -->`
   as the exact managed-comment marker and persist the created comment ID.
-  Rationale: the hash binds the configured GitHub host, stable repository and
-  PR identity, exact tested SHA, and trusted manifest name/version/digest.
-  Publication lists a bounded first page to recover the exact marker before a
-  create, never retries comment creation blindly, and updates only the
-  persisted managed identity or an exact-marker recovery.
+  Rationale: the hash binds the configured GitHub host, stable credential
+  actor, repository and PR identity, exact tested SHA, and trusted manifest
+  name/version/digest. The marker identifies a recovery candidate but never
+  authenticates ownership by itself.
   Date/Author: 2026-07-24 / Codex implementation
+
+- Decision: resolve the configured credential actor through one fixed bounded
+  authenticated-user operation before creating immutable adapter identity.
+  Persist only its stable numeric ID and node ID, include both in the
+  deterministic idempotency hash, and compare both during every publication.
+  Rationale: credential rotation to another actor must create a distinct
+  request and must never inherit or edit the prior actor's managed comment.
+  Date/Author: 2026-07-26 / connector correction
+
+- Decision: retrieve a persisted comment through the fixed repository comment
+  route before every PATCH and validate exact ID, configured actor, target
+  repository/PR association, configured origin, and first-line marker.
+  Rationale: neither remote marker text nor a numeric database ID proves that
+  Switchboard owns the remote comment. Deleted, user-authored, cross-target,
+  marker-mismatched, and actor-mismatched IDs must never authorize an edit.
+  Date/Author: 2026-07-26 / connector correction
+
+- Decision: recover candidates through validated newest-page pagination,
+  inspecting the last page and at most one preceding page.
+  Rationale: an ambiguous create appears among recent comments, while supplied
+  pagination URLs remain untrusted. Cross-origin, wrong-route, malformed,
+  oversized, or unexpected-query metadata fails closed, and incomplete
+  recovery windows cannot authorize another write.
+  Date/Author: 2026-07-26 / connector correction
+
+- Decision: serialize publication with a database-backed, expiring atomic
+  lease committed before remote operations and finalized conditionally by the
+  holder.
+  Rationale: Switchboard can run multiple server processes. Only a persisted
+  compare-and-set boundary prevents concurrent callers from independently
+  creating comments; expiry permits recovery after interruption and
+  conditional finalization fences stale holders.
+  Date/Author: 2026-07-26 / connector correction
 
 - Decision: the adapter resolves identity but never synchronizes source.
   Rationale: no Git fetch, remote mutation, ref write, or GitHub credential is
@@ -241,30 +319,20 @@ The feature is successful when a mocked GitHub PR can be resolved into an exact-
 
 ## Outcomes & Retrospective
 
-An interrupted local-only draft has been recovered and audited. It contains the
-initial settings, one-table persistence model, transport, repository, renderer,
-service, schemas, and API route definitions. The recovered draft is now wired
-into the application, corrected for the audited defects, covered by mocked
-transport/service/API/startup and real-worker acceptance tests, and documented.
-The local implementation and required validation matrix are complete. The
-adapter exposes the three authenticated manual endpoints, stores one narrow
-request lifecycle record, creates an ordinary pending exact-SHA work order,
-preserves explicit approval, uses fresh local execution, rechecks the head
-immediately before publication, and creates or updates one bounded managed
-comment. A moved head is retained as historical tested identity and published
-as stale. Missing local commit objects fail with the requested SHA preserved,
-no evidence, no fetch, no substitution, and no canonical-repository mutation.
+Connector reviews `4777156809` and `4780239219` superseded the earlier green
+implementation baseline and reopened the local outcome. The interrupted
+correction draft was preserved at the required remote head and locked
+merge-base. Actor-bound immutable identity, authoritative comment validation,
+bounded newest-page recovery, and database-backed publication serialization
+are now implemented locally with direct mocked/offline regressions.
 
-All GitHub tests use mocked transports and no live token or GitHub network
-access. Focused suites, full pytest, strict browser tests, configured coverage
-thresholds, formatting, lint, typing, dependency checks, security checks,
-secret scanning, and link validation pass. Four full-suite skips are existing
-Windows filesystem/privilege cases; strict browser validation has zero skips.
-The implementation and focused CI-correction commits are pushed only to the
-canonical branch. Hosted Commitlint `30128491708` and CI `30128491658` both
-succeeded, including all CI lint, typecheck, test, security, secrets-audit,
-link, browser, and coverage jobs. Draft PR #125 remains open and unmerged;
-final remote equality and cleanliness are verified at handoff.
+The final corrected local behavior now passes the focused actor/comment/lease
+suite, complete pytest, strict browser run, aggregate and per-module coverage,
+formatting, lint, typing, dependency, security, secret, and link gates. The
+public hygiene audit is clean, and generated validation artifacts have been
+removed. The remaining outcome is operational: push the corrected head and
+record the resulting hosted workflow IDs. Until then, draft PR #125 must remain
+open, draft, unmerged, and not merge-ready.
 
 ## Context and Orientation
 
@@ -365,6 +433,8 @@ The complete local and hosted matrix must pass. The draft PR must include exact 
 
 Record here during implementation:
 
+- All validation results below that predate connector reviews `4777156809` and
+  `4780239219` are historical baselines only and are not final merge evidence.
 - exact GitHub credential mode: one server/operator fine-grained PAT in
   `SWITCHBOARD_GITHUB_TOKEN`; minimum repository permissions are Metadata
   (read) and Pull requests (read and write);
@@ -390,6 +460,9 @@ Record here during implementation:
   credential-shaped test placeholders produced `52 passed` in `54.80s`;
 - the focused post-hosted-lint correction rerun produced `52 passed` in
   `55.27s`; full Mypy, Bandit, and every pinned pre-commit hook also passed;
+- the final combined actor/comment/pagination/publication-lease/startup,
+  execution-concurrency, and server-backed worker correction suite produced
+  `92 passed` in `111.99s`;
 - mocked stale-head and idempotency proof includes current, moved, unavailable,
   stable-identity mismatch, ambiguous create recovery, copied-marker
   resistance, and rate-limit retry scenarios;
@@ -399,12 +472,12 @@ Record here during implementation:
 - Ruff: passed;
 - Black: passed;
 - Mypy: success with no issues in 172 source files;
-- complete pytest: `430 passed, 4 skipped, 5 warnings` in `446.20s`;
+- corrected complete pytest: `466 passed, 4 skipped, 5 warnings` in `386.80s`;
 - strict Playwright browser suite:
-  `2 passed` in `22.74s`, with `SWITCHBOARD_STRICT_PLAYWRIGHT=1` and zero
+  `2 passed` in `10.26s`, with `SWITCHBOARD_STRICT_PLAYWRIGHT=1` and zero
   skips;
 - configured coverage run:
-  `430 passed, 4 skipped, 5 warnings` in `501.62s`, 91% aggregate coverage;
+  `466 passed, 4 skipped, 5 warnings` in `384.57s`, 91% aggregate coverage;
 - coverage gate results:
   `contracts.py` 95.40% >= 85%,
   `interfaces.py` 94.17% >= 85%,
@@ -424,14 +497,12 @@ Record here during implementation:
   `configuration_service.py` 91.30% >= 85%;
 - Bandit: passed;
 - `pip-audit`: no known vulnerabilities found;
-- Gitleaks: scanned 219 commits / approximately 3.86 MB with no leaks;
+- Gitleaks: scanned 222 commits / approximately 4.02 MB with no leaks;
 - Lychee: 167 total links, 78 unique, 162 successful, five excluded, two
   redirects, zero timeouts, zero unknown links, and zero errors;
 - `git diff --check`: passed before final staging;
-- final implementation Commitlint `30128491708`: success;
-- final implementation CI `30128491658`: success, including successful lint,
-  typecheck, test, security, secrets audit, link check, strict browser, and
-  coverage jobs;
+- final corrected Commitlint workflow: pending after push;
+- final corrected CI workflow: pending after push;
 - any transport, rate-limit, or installation limitations.
 
 ## Interfaces and Dependencies

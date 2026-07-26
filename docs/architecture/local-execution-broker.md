@@ -138,9 +138,10 @@ worker. A canonical JSON SHA-256 fingerprint binds the complete compact record.
 
 The first GitHub adapter is a server-side, synchronous translation layer. An
 authenticated operator supplies only an allowlisted repository, pull-request
-number, and trusted manifest identity. The adapter resolves stable GitHub
-repository/PR identity and one exact current head SHA, persists one
-deterministic adapter request, and creates a normal pending work order. The
+number, and trusted manifest identity. The adapter first resolves the configured
+credential's stable actor identity, then resolves stable GitHub repository/PR
+identity and one exact current head SHA. The actor, target, head, and manifest
+bind one deterministic adapter request and normal pending work order. The
 existing explicit approval, lease, worker, evidence, and repository-read-only
 boundaries remain authoritative.
 
@@ -148,7 +149,11 @@ Immediately before publication, the server resolves the PR again. An unchanged
 head can receive one bounded managed comment for the exact tested SHA; a moved
 or unavailable head is marked stale and never receives a current-success
 claim. The adapter persists comment ownership and recovers an ambiguous create
-by exact deterministic marker instead of retrying POST blindly.
+only after verifying configured-actor authorship, exact repository/PR
+association, configured origin, and the deterministic marker. Bounded
+newest-page recovery never follows supplied pagination URLs. A database-backed
+expiring publication lease serializes remote writes across server processes;
+stale attempts cannot finalize over a newer holder.
 
 GitHub credentials remain server-only. The adapter does not fetch source or
 give credentials/network access to the worker. The exact resolved commit object
