@@ -613,6 +613,12 @@ class GitHubValidationRequest(Base):
             name="ck_github_validation_node_identity_bounds",
         ),
         CheckConstraint(
+            "(github_actor_id IS NULL AND github_actor_node_id IS NULL) OR "
+            "(github_actor_id >= 1 AND "
+            "length(github_actor_node_id) BETWEEN 1 AND 128)",
+            name="ck_github_validation_actor_identity",
+        ),
+        CheckConstraint(
             "pull_request_state IN ('open', 'closed')",
             name="ck_github_validation_pull_request_state",
         ),
@@ -657,6 +663,16 @@ class GitHubValidationRequest(Base):
             "publication_decision IN ('not_evaluated', 'current', 'stale')",
             name="ck_github_validation_publication_decision",
         ),
+        CheckConstraint(
+            "(publication_claim_token IS NULL "
+            "AND publication_claimed_at IS NULL "
+            "AND publication_claim_expires_at IS NULL) OR "
+            "(length(publication_claim_token) = 64 "
+            "AND publication_claimed_at IS NOT NULL "
+            "AND publication_claim_expires_at IS NOT NULL "
+            "AND publication_claim_expires_at > publication_claimed_at)",
+            name="ck_github_validation_publication_claim",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -667,6 +683,8 @@ class GitHubValidationRequest(Base):
     repository_full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     repository_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     repository_node_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    github_actor_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    github_actor_node_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     pull_request_number: Mapped[int] = mapped_column(Integer, nullable=False)
     pull_request_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     pull_request_node_id: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -705,6 +723,15 @@ class GitHubValidationRequest(Base):
     publication_head_sha: Mapped[str | None] = mapped_column(String(40), nullable=True)
     last_transport_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     publication_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    publication_claim_token: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    publication_claimed_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    publication_claim_expires_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime, nullable=True, index=True
+    )
     last_resolved_at: Mapped[dt.datetime] = mapped_column(DateTime, nullable=False)
     last_publication_attempt_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime, nullable=True

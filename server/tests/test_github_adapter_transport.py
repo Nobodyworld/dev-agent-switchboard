@@ -17,7 +17,11 @@ from server.github_adapter.errors import (
 )
 from server.github_adapter.transport import (
     MAX_GITHUB_COLLECTION_ITEMS,
+    MAX_GITHUB_COMMENT_PAGES,
+    MAX_GITHUB_LAST_PAGE,
+    MAX_GITHUB_LINK_HEADER_LENGTH,
     MAX_GITHUB_RESPONSE_BYTES,
+    GitHubActorIdentity,
     GitHubTransport,
 )
 from server.settings import (
@@ -31,6 +35,8 @@ REPOSITORY = "Nobodyworld/dev-agent-switchboard"
 HEAD_SHA = "a" * 40
 BASE_SHA = "b" * 40
 TOKEN = "offline-transport-secret-placeholder"  # noqa: S105
+CREDENTIAL_ACTOR = GitHubActorIdentity(actor_id=700, node_id="U_credential")
+MANAGED_MARKER = "<!-- switchboard-validation:v1:" + "c" * 64 + " -->"
 
 
 @pytest.fixture(autouse=True)
@@ -90,6 +96,41 @@ def _pull_payload(
                 _repository_payload() if head_repository is None else head_repository
             ),
         },
+    }
+
+
+def _actor_payload(
+    *,
+    actor_id: int = CREDENTIAL_ACTOR.actor_id,
+    node_id: str = CREDENTIAL_ACTOR.node_id,
+    response_sentinel: str | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "id": actor_id,
+        "node_id": node_id,
+        "login": "credential-actor",
+    }
+    if response_sentinel is not None:
+        payload["bio"] = response_sentinel
+    return payload
+
+
+def _comment_payload(
+    comment_id: int,
+    body: str,
+    *,
+    actor_id: int = CREDENTIAL_ACTOR.actor_id,
+    actor_node_id: str = CREDENTIAL_ACTOR.node_id,
+    pull_request_number: int = 125,
+) -> dict[str, object]:
+    return {
+        "id": comment_id,
+        "body": body,
+        "issue_url": (
+            "https://api.github.com/repos/Nobodyworld/"
+            f"dev-agent-switchboard/issues/{pull_request_number}"
+        ),
+        "user": _actor_payload(actor_id=actor_id, node_id=actor_node_id),
     }
 
 
@@ -226,6 +267,227 @@ async def test_fixed_routes_ignore_untrusted_returned_urls_and_encode_identity()
     assert all(
         request.headers["authorization"] == f"Bearer {TOKEN}" for request in observed
     )
+
+
+@pytest.mark.asyncio
+async def test_actor_and_persisted_comment_reads_use_fixed_authoritative_routes() -> (
+    None
+):
+    observed: list[httpx.Request] = []
+    response_sentinel = "discarded-actor-response-body"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed.append(request)
+        if request.url.path == "/user":
+            return _json_response(_actor_payload(response_sentinel=response_sentinel))
+        if request.url.path.endswith(
+            "/repos/Nobodyworld/dev-agent-switchboard/issues/comments/55"
+        ):
+            return _json_response(_comment_payload(55, f"{MANAGED_MARKER}\nmanaged"))
+        raise AssertionError(f"unexpected fixed route: {request.url}")
+
+    transport = GitHubTransport(_settings(), transport=httpx.MockTransport(handler))
+    actor = await transport.resolve_authenticated_actor()
+    comment = await transport.get_comment(REPOSITORY, 55)
+
+    assert actor == CREDENTIAL_ACTOR
+    assert response_sentinel not in repr(actor)
+    assert comment.author == CREDENTIAL_ACTOR
+    assert comment.repository_full_name == REPOSITORY
+    assert comment.pull_request_number == 125
+    assert [request.url.path for request in observed] == [
+        "/user",
+        "/repos/Nobodyworld/dev-agent-switchboard/issues/comments/55",
+    ]
+    assert all(request.url.host == "api.github.com" for request in observed)
+
+
+@pytest.mark.asyncio
+async def test_actor_resolution_failure_is_bounded_and_redacted() -> None:
+    response_sentinel = "untrusted-actor-response-sentinel"
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return _json_response({"id": 700, "bio": response_sentinel})
+
+    transport = GitHubTransport(_settings(), transport=httpx.MockTransport(handler))
+    with pytest.raises(
+        GitHubTransportError,
+        match=r"^github_actor_resolution_failed$",
+    ) as captured:
+        await transport.resolve_authenticated_actor()
+
+    assert TOKEN not in str(captured.value)
+    assert response_sentinel not in str(captured.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda payload: payload.update({"id": 56}),
+        lambda payload: payload.update(
+            {
+                "issue_url": (
+                    "https://attacker.example/repos/Nobodyworld/"
+                    "dev-agent-switchboard/issues/125"
+                )
+            }
+        ),
+        lambda payload: payload.update(
+            {
+                "issue_url": (
+                    "https://api.github.com/repos/Nobodyworld/"
+                    "dev-agent-switchboard/issues/125?follow=1"
+                )
+            }
+        ),
+        lambda payload: payload.update({"user": {"id": 700}}),
+    ],
+)
+async def test_persisted_comment_identity_and_association_are_strict(
+    mutate: Callable[[dict[str, object]], object],
+) -> None:
+    payload = _comment_payload(55, f"{MANAGED_MARKER}\nmanaged")
+    mutate(payload)
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return _json_response(payload)
+
+    transport = GitHubTransport(_settings(), transport=httpx.MockTransport(handler))
+    with pytest.raises(GitHubTransportError):
+        await transport.get_comment(REPOSITORY, 55)
+
+
+@pytest.mark.asyncio
+async def test_owned_comment_after_first_100_is_found_on_last_page() -> None:
+    observed_pages: list[str] = []
+    oldest_page = [
+        _comment_payload(
+            index,
+            f"ordinary user comment {index}",
+            actor_id=701,
+            actor_node_id="U_user",
+        )
+        for index in range(1, 101)
+    ]
+    newest_page = [_comment_payload(101, f"{MANAGED_MARKER}\nmanaged")]
+    last_url = (
+        "https://api.github.com/repos/Nobodyworld/dev-agent-switchboard/"
+        "issues/125/comments?per_page=100&page=2"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed_pages.append(request.url.params["page"])
+        if request.url.params["page"] == "1":
+            return _json_response(
+                oldest_page,
+                headers={"link": f'<{last_url}>; rel="last"'},
+            )
+        if request.url.params["page"] == "2":
+            return _json_response(newest_page)
+        raise AssertionError(f"unexpected page: {request.url}")
+
+    transport = GitHubTransport(_settings(), transport=httpx.MockTransport(handler))
+    listing = await transport.list_comments(REPOSITORY, 125)
+
+    assert observed_pages == ["1", "2"]
+    assert listing.complete is True
+    assert len(listing.comments) == 101
+    assert listing.comments[0].comment_id == 101
+    assert listing.comments[0].author == CREDENTIAL_ACTOR
+    assert listing.comments[0].body.startswith(MANAGED_MARKER)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "last_url",
+    [
+        (
+            "https://attacker.example/repos/Nobodyworld/dev-agent-switchboard/"
+            "issues/125/comments?per_page=100&page=2"
+        ),
+        (
+            "https://api.github.com/repos/Nobodyworld/other/"
+            "issues/125/comments?per_page=100&page=2"
+        ),
+        (
+            "https://api.github.com/repos/Nobodyworld/dev-agent-switchboard/"
+            "issues/125/comments?per_page=100&page="
+            f"{MAX_GITHUB_LAST_PAGE + 1}"
+        ),
+    ],
+)
+async def test_comment_recovery_rejects_untrusted_or_unbounded_last_links(
+    last_url: str,
+) -> None:
+    observed: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed.append(str(request.url))
+        return _json_response(
+            [],
+            headers={"link": f'<{last_url}>; rel="last"'},
+        )
+
+    transport = GitHubTransport(_settings(), transport=httpx.MockTransport(handler))
+    with pytest.raises(GitHubTransportError, match=r"^github_pagination_invalid$"):
+        await transport.list_comments(REPOSITORY, 125)
+
+    assert len(observed) == 1
+    assert observed[0].startswith(
+        "https://api.github.com/repos/Nobodyworld/dev-agent-switchboard/"
+    )
+
+
+@pytest.mark.asyncio
+async def test_comment_recovery_inspects_only_last_and_preceding_pages() -> None:
+    observed_pages: list[str] = []
+    last_url = (
+        "https://api.github.com/repos/Nobodyworld/dev-agent-switchboard/"
+        "issues/125/comments?per_page=100&page=4"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        page = request.url.params["page"]
+        observed_pages.append(page)
+        headers = {"link": f'<{last_url}>; rel="last"'} if page == "1" else None
+        return _json_response(
+            [_comment_payload(int(page), f"page {page}")],
+            headers=headers,
+        )
+
+    transport = GitHubTransport(_settings(), transport=httpx.MockTransport(handler))
+    listing = await transport.list_comments(REPOSITORY, 125)
+
+    assert observed_pages == ["1", "4", "3"]
+    assert MAX_GITHUB_COMMENT_PAGES == 2
+    assert listing.complete is False
+    assert [comment.comment_id for comment in listing.comments] == [4, 3]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "link",
+    [
+        "not-a-link-header",
+        (
+            "<https://api.github.com/repos/Nobodyworld/dev-agent-switchboard/"
+            'issues/125/comments?per_page=100&page=2>; rel="unknown"'
+        ),
+        (
+            "<https://api.github.com/repos/Nobodyworld/dev-agent-switchboard/"
+            'issues/125/comments?per_page=100&page=2&extra=1>; rel="last"'
+        ),
+        "x" * (MAX_GITHUB_LINK_HEADER_LENGTH + 1),
+    ],
+)
+async def test_malformed_or_oversized_link_metadata_is_rejected(link: str) -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return _json_response([], headers={"link": link})
+
+    transport = GitHubTransport(_settings(), transport=httpx.MockTransport(handler))
+    with pytest.raises(GitHubTransportError, match=r"^github_pagination_invalid$"):
+        await transport.list_comments(REPOSITORY, 125)
 
 
 def test_unexpected_response_origin_is_rejected() -> None:

@@ -7,7 +7,7 @@ import json
 import re
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 import httpx
 
@@ -22,7 +22,10 @@ from .errors import (
 MAX_GITHUB_RESPONSE_BYTES = 512 * 1024
 MAX_GITHUB_STRING_LENGTH = 65_536
 MAX_GITHUB_COLLECTION_ITEMS = 100
+MAX_GITHUB_COMMENT_PAGES = 2
+MAX_GITHUB_LAST_PAGE = 1_000_000
 MAX_GITHUB_JSON_NODES = 20_000
+MAX_GITHUB_LINK_HEADER_LENGTH = 4096
 MAX_GITHUB_NODE_ID_LENGTH = 128
 MAX_MANAGED_COMMENT_BYTES = 12 * 1024
 MAX_SAFE_GITHUB_ID = (1 << 63) - 1
@@ -195,6 +198,54 @@ _COMMENT_FIELDS = frozenset(
         "performed_via_github_app",
     }
 )
+_USER_FIELDS = frozenset(
+    {
+        "login",
+        "id",
+        "node_id",
+        "avatar_url",
+        "gravatar_id",
+        "url",
+        "html_url",
+        "followers_url",
+        "following_url",
+        "gists_url",
+        "starred_url",
+        "subscriptions_url",
+        "organizations_url",
+        "repos_url",
+        "events_url",
+        "received_events_url",
+        "type",
+        "user_view_type",
+        "site_admin",
+        "name",
+        "company",
+        "blog",
+        "location",
+        "email",
+        "hireable",
+        "bio",
+        "twitter_username",
+        "notification_email",
+        "public_repos",
+        "public_gists",
+        "followers",
+        "following",
+        "created_at",
+        "updated_at",
+        "private_gists",
+        "total_private_repos",
+        "owned_private_repos",
+        "disk_usage",
+        "collaborators",
+        "two_factor_authentication",
+        "plan",
+        "ldap_dn",
+        "business_plus",
+        "enterprise_managed_user",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,15 +279,34 @@ class ResolvedPullRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubActorIdentity:
+    """Stable, non-secret identity resolved for the configured credential."""
+
+    actor_id: int
+    node_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class GitHubComment:
-    """The only remote comment fields retained by the adapter."""
+    """Bounded authoritative fields needed to prove managed-comment ownership."""
 
     comment_id: int
     body: str
+    author: GitHubActorIdentity
+    repository_full_name: str
+    pull_request_number: int
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubCommentListing:
+    """Newest bounded recovery window plus whether it covers the full history."""
+
+    comments: tuple[GitHubComment, ...]
+    complete: bool
 
 
 class GitHubTransport:
-    """Perform only the five fixed GitHub operations required by issue #122."""
+    """Perform only fixed, bounded GitHub operations required by issue #122."""
 
     def __init__(
         self,
@@ -294,9 +364,78 @@ class GitHubTransport:
 
     async def list_comments(
         self, repository_full_name: str, pull_request_number: int
-    ) -> list[GitHubComment]:
-        """List only the bounded first page of PR conversation comments."""
+    ) -> GitHubCommentListing:
+        """Inspect the newest page and at most one preceding recovery page."""
 
+        collection_route = _comment_collection_route(
+            repository_full_name, pull_request_number
+        )
+        first_payload, first_headers = await self._request_json_with_headers(
+            "GET",
+            (f"{collection_route}?per_page={MAX_GITHUB_COLLECTION_ITEMS}&page=1"),
+            safe_read=True,
+            not_found_reason="github_pr_not_found",
+        )
+        first_page = self._decode_comment_page(first_payload)
+        last_page = self._last_comment_page(
+            first_headers.get("link"), collection_route=collection_route
+        )
+        if last_page == 1:
+            return GitHubCommentListing(comments=tuple(first_page), complete=True)
+
+        newest_payload = await self._request_json(
+            "GET",
+            (
+                f"{collection_route}?per_page="
+                f"{MAX_GITHUB_COLLECTION_ITEMS}&page={last_page}"
+            ),
+            safe_read=True,
+            not_found_reason="github_pr_not_found",
+        )
+        newest_page = self._decode_comment_page(newest_payload)
+        if last_page == MAX_GITHUB_COMMENT_PAGES:
+            return GitHubCommentListing(
+                comments=(*newest_page, *first_page),
+                complete=True,
+            )
+
+        preceding_payload = await self._request_json(
+            "GET",
+            (
+                f"{collection_route}?per_page="
+                f"{MAX_GITHUB_COLLECTION_ITEMS}&page={last_page - 1}"
+            ),
+            safe_read=True,
+            not_found_reason="github_pr_not_found",
+        )
+        preceding_page = self._decode_comment_page(preceding_payload)
+        return GitHubCommentListing(
+            comments=(*newest_page, *preceding_page),
+            complete=False,
+        )
+
+    async def resolve_authenticated_actor(self) -> GitHubActorIdentity:
+        """Resolve the stable actor identity owned by the configured credential."""
+
+        try:
+            payload = await self._request_json(
+                "GET",
+                "user",
+                safe_read=True,
+            )
+            return _decode_actor(payload)
+        except GitHubRateLimitedError:
+            raise
+        except GitHubTransportError as error:
+            raise GitHubTransportError("github_actor_resolution_failed") from error
+
+    async def get_comment(
+        self, repository_full_name: str, comment_id: int
+    ) -> GitHubComment:
+        """Retrieve one exact persisted comment through a fixed repository route."""
+
+        if not 1 <= comment_id <= MAX_SAFE_GITHUB_ID:
+            raise GitHubTransportError("github_transport_failed")
         _repository_path, owner, repository_name = _repository_route(
             repository_full_name
         )
@@ -304,15 +443,15 @@ class GitHubTransport:
             "GET",
             (
                 f"repos/{quote(owner, safe='')}/{quote(repository_name, safe='')}/"
-                f"issues/{pull_request_number}/comments?per_page="
-                f"{MAX_GITHUB_COLLECTION_ITEMS}&page=1"
+                f"issues/comments/{comment_id}"
             ),
             safe_read=True,
-            not_found_reason="github_pr_not_found",
+            not_found_reason="github_comment_not_found",
         )
-        if not isinstance(payload, list) or len(payload) > MAX_GITHUB_COLLECTION_ITEMS:
+        comment = self._decode_comment(payload)
+        if comment.comment_id != comment_id:
             raise GitHubTransportError("github_transport_failed")
-        return [_decode_comment(item) for item in payload]
+        return comment
 
     async def create_comment(
         self,
@@ -323,19 +462,16 @@ class GitHubTransport:
         """Create one server-rendered managed PR comment without blind retry."""
 
         _validate_managed_body(body)
-        _repository_path, owner, repository_name = _repository_route(
-            repository_full_name
+        collection_route = _comment_collection_route(
+            repository_full_name, pull_request_number
         )
         payload = await self._request_json(
             "POST",
-            (
-                f"repos/{quote(owner, safe='')}/{quote(repository_name, safe='')}/"
-                f"issues/{pull_request_number}/comments"
-            ),
+            collection_route,
             json_body={"body": body},
             ambiguous_write=True,
         )
-        return _decode_comment(payload)
+        return self._decode_comment(payload)
 
     async def update_comment(
         self,
@@ -359,12 +495,34 @@ class GitHubTransport:
             ),
             json_body={"body": body},
         )
-        comment = _decode_comment(payload)
+        comment = self._decode_comment(payload)
         if comment.comment_id != comment_id:
             raise GitHubTransportError("github_transport_failed")
         return comment
 
-    async def _request_json(  # noqa: PLR0912, PLR0913
+    def _decode_comment_page(self, payload: object) -> list[GitHubComment]:
+        if not isinstance(payload, list) or len(payload) > MAX_GITHUB_COLLECTION_ITEMS:
+            raise GitHubTransportError("github_transport_failed")
+        return [self._decode_comment(item) for item in payload]
+
+    def _decode_comment(self, payload: object) -> GitHubComment:
+        return _decode_comment(
+            payload,
+            expected_origin=self._expected_origin,
+            expected_path_prefix=self._expected_path_prefix,
+        )
+
+    def _last_comment_page(self, link: str | None, *, collection_route: str) -> int:
+        if link is None:
+            return 1
+        expected_path = f"{self._expected_path_prefix.rstrip('/')}/{collection_route}"
+        return _validated_last_page(
+            _validated_last_link_url(link),
+            expected_origin=self._expected_origin,
+            expected_path=expected_path,
+        )
+
+    async def _request_json(  # noqa: PLR0913
         self,
         method: str,
         route: str,
@@ -374,6 +532,26 @@ class GitHubTransport:
         json_body: dict[str, str] | None = None,
         ambiguous_write: bool = False,
     ) -> object:
+        payload, _headers = await self._request_json_with_headers(
+            method,
+            route,
+            safe_read=safe_read,
+            not_found_reason=not_found_reason,
+            json_body=json_body,
+            ambiguous_write=ambiguous_write,
+        )
+        return payload
+
+    async def _request_json_with_headers(  # noqa: PLR0912, PLR0913
+        self,
+        method: str,
+        route: str,
+        *,
+        safe_read: bool = False,
+        not_found_reason: str = "github_transport_failed",
+        json_body: dict[str, str] | None = None,
+        ambiguous_write: bool = False,
+    ) -> tuple[object, httpx.Headers]:
         attempts = SAFE_READ_ATTEMPTS if safe_read else 1
         for attempt in range(attempts):
             try:
@@ -409,7 +587,7 @@ class GitHubTransport:
                 raise GitHubTransportError("github_transport_failed")
             if not _is_json_content_type(response_headers.get("content-type", "")):
                 raise GitHubTransportError("github_transport_failed")
-            return _decode_json(payload)
+            return _decode_json(payload), response_headers
         raise GitHubTransportError("github_transport_failed")  # pragma: no cover
 
     async def _send(
@@ -479,6 +657,87 @@ def _repository_route(repository_full_name: str) -> tuple[str, str, str]:
         f"repos/{quote(owner, safe='')}/{quote(repository_name, safe='')}",
         owner,
         repository_name,
+    )
+
+
+def _validated_last_link_url(link: str) -> str:
+    if len(link) > MAX_GITHUB_LINK_HEADER_LENGTH:
+        raise GitHubTransportError("github_pagination_invalid")
+    last_urls: list[str] = []
+    allowed_relations = {"first", "last", "next", "prev"}
+    for item in link.split(","):
+        match = re.fullmatch(
+            r'\s*<([^<>"\x00-\x1f\x7f]+)>\s*;\s*rel="([a-z ]+)"\s*',
+            item,
+        )
+        if match is None:
+            raise GitHubTransportError("github_pagination_invalid")
+        relations = set(match.group(2).split())
+        if not relations or not relations.issubset(allowed_relations):
+            raise GitHubTransportError("github_pagination_invalid")
+        if "last" in relations:
+            last_urls.append(match.group(1))
+    if len(last_urls) != 1:
+        raise GitHubTransportError("github_pagination_invalid")
+    return last_urls[0]
+
+
+def _validated_last_page(
+    last_url: str,
+    *,
+    expected_origin: tuple[str, str, int | None],
+    expected_path: str,
+) -> int:
+    try:
+        parsed = urlsplit(last_url)
+        origin = (
+            parsed.scheme.lower(),
+            parsed.hostname.lower() if parsed.hostname else "",
+            parsed.port,
+        )
+    except ValueError as error:
+        raise GitHubTransportError("github_pagination_invalid") from error
+    if (
+        origin != expected_origin
+        or parsed.path != expected_path
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+    ):
+        raise GitHubTransportError("github_pagination_invalid")
+    try:
+        query = parse_qs(
+            parsed.query,
+            keep_blank_values=True,
+            strict_parsing=True,
+            max_num_fields=2,
+        )
+        page_values = query["page"]
+        per_page_values = query["per_page"]
+        page = int(page_values[0])
+    except (KeyError, TypeError, ValueError) as error:
+        raise GitHubTransportError("github_pagination_invalid") from error
+    if (
+        set(query) != {"page", "per_page"}
+        or len(page_values) != 1
+        or len(per_page_values) != 1
+        or per_page_values[0] != str(MAX_GITHUB_COLLECTION_ITEMS)
+        or str(page) != page_values[0]
+        or not 1 <= page <= MAX_GITHUB_LAST_PAGE
+    ):
+        raise GitHubTransportError("github_pagination_invalid")
+    return page
+
+
+def _comment_collection_route(
+    repository_full_name: str, pull_request_number: int
+) -> str:
+    _repository_path, owner, repository_name = _repository_route(repository_full_name)
+    if not 1 <= pull_request_number <= MAX_SAFE_PULL_REQUEST_NUMBER:
+        raise GitHubTransportError("github_transport_failed")
+    return (
+        f"repos/{quote(owner, safe='')}/{quote(repository_name, safe='')}/"
+        f"issues/{pull_request_number}/comments"
     )
 
 
@@ -692,16 +951,92 @@ def _decode_pull_request(
     )
 
 
-def _decode_comment(value: object) -> GitHubComment:
+def _decode_actor(value: object) -> GitHubActorIdentity:
+    payload = _strict_object(
+        value,
+        allowed=_USER_FIELDS,
+        required=frozenset({"id", "node_id"}),
+    )
+    return GitHubActorIdentity(
+        actor_id=_safe_id(payload["id"]),
+        node_id=_safe_node_id(payload["node_id"]),
+    )
+
+
+def _decode_comment(
+    value: object,
+    *,
+    expected_origin: tuple[str, str, int | None],
+    expected_path_prefix: str,
+) -> GitHubComment:
     payload = _strict_object(
         value,
         allowed=_COMMENT_FIELDS,
-        required=frozenset({"id", "body"}),
+        required=frozenset({"id", "body", "issue_url", "user"}),
     )
     body = payload["body"]
     if not isinstance(body, str) or len(body) > MAX_GITHUB_STRING_LENGTH:
         raise GitHubTransportError("github_transport_failed")
-    return GitHubComment(comment_id=_safe_id(payload["id"]), body=body)
+    repository_full_name, pull_request_number = _decode_issue_association(
+        payload["issue_url"],
+        expected_origin=expected_origin,
+        expected_path_prefix=expected_path_prefix,
+    )
+    return GitHubComment(
+        comment_id=_safe_id(payload["id"]),
+        body=body,
+        author=_decode_actor(payload["user"]),
+        repository_full_name=repository_full_name,
+        pull_request_number=pull_request_number,
+    )
+
+
+def _decode_issue_association(
+    value: object,
+    *,
+    expected_origin: tuple[str, str, int | None],
+    expected_path_prefix: str,
+) -> tuple[str, int]:
+    if not isinstance(value, str) or len(value) > MAX_GITHUB_STRING_LENGTH:
+        raise GitHubTransportError("github_transport_failed")
+    parsed = urlsplit(value)
+    origin = (
+        parsed.scheme.lower(),
+        parsed.hostname.lower() if parsed.hostname else "",
+        parsed.port,
+    )
+    route_prefix = f"{expected_path_prefix.rstrip('/')}/repos/"
+    if (
+        origin != expected_origin
+        or not parsed.path.startswith(route_prefix)
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise GitHubTransportError("github_transport_failed")
+    route_parts = parsed.path[len(route_prefix) :].split("/")
+    match route_parts:
+        case [owner_part, repository_part, "issues", number_part]:
+            pass
+        case _:
+            raise GitHubTransportError("github_transport_failed")
+    owner = unquote(owner_part)
+    repository_name = unquote(repository_part)
+    repository_full_name = f"{owner}/{repository_name}"
+    try:
+        pull_request_number = int(number_part)
+    except ValueError as error:
+        raise GitHubTransportError("github_transport_failed") from error
+    if (
+        not _REPOSITORY.fullmatch(repository_full_name)
+        or quote(owner, safe="") != owner_part
+        or quote(repository_name, safe="") != repository_part
+        or str(pull_request_number) != number_part
+        or not 1 <= pull_request_number <= MAX_SAFE_PULL_REQUEST_NUMBER
+    ):
+        raise GitHubTransportError("github_transport_failed")
+    return repository_full_name, pull_request_number
 
 
 def _validate_managed_body(body: str) -> None:
@@ -731,8 +1066,12 @@ def _is_rate_limited(status: int, headers: httpx.Headers) -> bool:
 
 __all__ = [
     "MAX_GITHUB_COLLECTION_ITEMS",
+    "MAX_GITHUB_COMMENT_PAGES",
+    "MAX_GITHUB_LAST_PAGE",
     "MAX_GITHUB_RESPONSE_BYTES",
+    "GitHubActorIdentity",
     "GitHubComment",
+    "GitHubCommentListing",
     "GitHubRepositoryIdentity",
     "GitHubTransport",
     "ResolvedPullRequest",

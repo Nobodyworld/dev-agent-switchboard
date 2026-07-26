@@ -32,14 +32,19 @@ from server.application import build_execution_service
 from server.db import Base
 from server.execution.evidence import ExecutionEvidence, compute_evidence_fingerprint
 from server.execution.registry import get_trusted_manifest
-from server.github_adapter.errors import GitHubAmbiguousWriteError
+from server.github_adapter.errors import (
+    GitHubAmbiguousWriteError,
+    GitHubTransportError,
+)
 from server.github_adapter.repository import GitHubAdapterRepository
 from server.github_adapter.service import (
     GitHubAdapterDependencies,
     GitHubAdapterService,
 )
 from server.github_adapter.transport import (
+    GitHubActorIdentity,
     GitHubComment,
+    GitHubCommentListing,
     GitHubTransport,
     ResolvedPullRequest,
 )
@@ -51,6 +56,7 @@ _TOKEN = "worker-test-token"  # noqa: S105 - non-secret test fixture
 _HTTP_ERROR_STATUS = 400
 _EXPECTED_VALIDATION_RUNS = 2
 _GITHUB_TEST_TOKEN = "offline-acceptance-secret-placeholder"  # noqa: S105
+_GITHUB_ACTOR = GitHubActorIdentity(actor_id=700, node_id="U_acceptance")
 
 
 def _git(path: Path, *argv: str) -> str:
@@ -216,10 +222,24 @@ class _MockGitHubAcceptanceTransport(GitHubTransport):
 
     async def list_comments(
         self, repository_full_name: str, pull_request_number: int
-    ) -> list[GitHubComment]:
+    ) -> GitHubCommentListing:
         assert repository_full_name == "Nobodyworld/dev-agent-switchboard"
         assert pull_request_number == 125
-        return list(self.comments)
+        return GitHubCommentListing(comments=tuple(self.comments), complete=True)
+
+    async def resolve_authenticated_actor(self) -> GitHubActorIdentity:
+        return _GITHUB_ACTOR
+
+    async def get_comment(
+        self,
+        repository_full_name: str,
+        comment_id: int,
+    ) -> GitHubComment:
+        assert repository_full_name == "Nobodyworld/dev-agent-switchboard"
+        for comment in self.comments:
+            if comment.comment_id == comment_id:
+                return comment
+        raise GitHubTransportError("github_comment_not_found")
 
     async def create_comment(
         self,
@@ -230,7 +250,13 @@ class _MockGitHubAcceptanceTransport(GitHubTransport):
         assert repository_full_name == "Nobodyworld/dev-agent-switchboard"
         assert pull_request_number == 125
         self.create_calls += 1
-        comment = GitHubComment(comment_id=900, body=body)
+        comment = GitHubComment(
+            comment_id=900,
+            body=body,
+            author=_GITHUB_ACTOR,
+            repository_full_name=repository_full_name,
+            pull_request_number=pull_request_number,
+        )
         self.comments.append(comment)
         return comment
 
@@ -242,9 +268,15 @@ class _MockGitHubAcceptanceTransport(GitHubTransport):
     ) -> GitHubComment:
         assert repository_full_name == "Nobodyworld/dev-agent-switchboard"
         self.update_calls += 1
-        updated = GitHubComment(comment_id=comment_id, body=body)
         for index, comment in enumerate(self.comments):
             if comment.comment_id == comment_id:
+                updated = GitHubComment(
+                    comment_id=comment_id,
+                    body=body,
+                    author=comment.author,
+                    repository_full_name=comment.repository_full_name,
+                    pull_request_number=comment.pull_request_number,
+                )
                 self.comments[index] = updated
                 return updated
         raise GitHubAmbiguousWriteError("github_publication_failed")
