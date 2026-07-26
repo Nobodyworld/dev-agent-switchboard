@@ -56,8 +56,8 @@ The feature is successful when a mocked GitHub PR can be resolved into an exact-
 - [x] Complete the public-repository hygiene audit and remove generated
   validation artifacts.
 - [x] Commit the corrected head in focused Conventional Commits.
-- [ ] Push the corrected head only to the existing branch.
-- [ ] Record final hosted workflow IDs after the corrected pushed head is green.
+- [x] Push the corrected head only to the existing branch.
+- [x] Record final hosted workflow IDs after the corrected pushed head is green.
 
 ## Surprises & Discoveries
 
@@ -330,9 +330,11 @@ The final corrected local behavior now passes the focused actor/comment/lease
 suite, complete pytest, strict browser run, aggregate and per-module coverage,
 formatting, lint, typing, dependency, security, secret, and link gates. The
 public hygiene audit is clean, and generated validation artifacts have been
-removed. The remaining outcome is operational: push the corrected head and
-record the resulting hosted workflow IDs. Until then, draft PR #125 must remain
-open, draft, unmerged, and not merge-ready.
+removed. Corrected head
+`60830090e8cf3c3c6d9f9cedaba76f6db7256a9d` was pushed to the existing branch;
+Commitlint `30196797325` and CI `30196797324` both succeeded. Connector review
+`4782606331` found no remaining code or security blocker. Draft PR #125 remains
+open and unmerged pending final-head verification.
 
 ## Context and Orientation
 
@@ -501,8 +503,9 @@ Record here during implementation:
 - Lychee: 167 total links, 78 unique, 162 successful, five excluded, two
   redirects, zero timeouts, zero unknown links, and zero errors;
 - `git diff --check`: passed before final staging;
-- final corrected Commitlint workflow: pending after push;
-- final corrected CI workflow: pending after push;
+- final corrected Commitlint `30196797325`: success;
+- final corrected CI `30196797324`: success;
+- connector review `4782606331`: no remaining code or security blocker;
 - any transport, rate-limit, or installation limitations.
 
 ## Interfaces and Dependencies
