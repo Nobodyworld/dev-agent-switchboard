@@ -29,8 +29,8 @@ The candidate remains classified as `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION
 - [x] Attempt the server Docker build and record the precise unavailable-client blocker.
 - [x] Update `PUBLIC_RELEASE_AUDIT.md` with exact executed evidence.
 - [x] Complete public-repository hygiene and generated-artifact cleanup.
-- [ ] Push the evidence update to the existing release branch.
-- [ ] Record final hosted workflow IDs and connector review.
+- [x] Push the evidence update to the existing release branch.
+- [x] Record hosted workflow IDs and connector review.
 
 ## Surprises & Discoveries
 
@@ -246,6 +246,9 @@ Recorded evidence:
 - Gitleaks: 162 commits scanned, no leaks;
 - Docker: unavailable in WSL2 (`docker: command not found`), so no image ID exists;
 - final candidate state: detached at the selected SHA, `git diff --check` clean, no tracked or untracked files.
+- evidence commit: `a87c3029c074b4c703e72c80a33b89e18212a8d3`;
+- hosted evidence: Commitlint `30252655080` — success; CI `30252655221` — success;
+- connector planning review `4782954620` established the immutable-candidate, public-hygiene, Docker-blocker, and draft-release boundaries reflected in this evidence.
 
 ## Interfaces and Dependencies
 
