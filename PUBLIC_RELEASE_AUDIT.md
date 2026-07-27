@@ -1,181 +1,158 @@
 # Public Developer Preview Audit — Formal Release Still Blocked
 
 **Classification:** `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY`
-**Preview-status baseline before merge:** `1dbd939854ab287430d1d9c24865e7ad51cbc29c`
+**Validated candidate:** `b79aba1aaf72ffd20f0221bdf0fd77552541073f`
 **Public visibility disposition:** `ALLOWED FOR SOURCE PUBLICATION`
 **Formal release authorization:** `BLOCKED`
 **Production deployment authorization:** `NOT AUTHORIZED`
-**Audit updated:** 2026-07-13
+**Audit updated:** 2026-07-27
 **Repository:** `Nobodyworld/dev-agent-switchboard`
 
 ## Decision Boundaries
 
-This audit distinguishes four separate decisions:
+This audit separates public source visibility, developer-preview availability, formal release authorization, and production deployment safety. Public source visibility permits inspection and controlled local evaluation. It does not authorize a version tag, general-availability release, hosted public service, production deployment, untrusted multi-tenant use, or direct internet exposure.
 
-1. **Repository visibility** controls whether the source code can be inspected publicly.
-2. **Developer-preview availability** permits local evaluation and use on controlled trusted networks.
-3. **Release authorization** determines whether a version, tag, or general-availability release may be published.
-4. **Production deployment safety** determines whether the service is supported for untrusted, multi-tenant, or internet-facing operation.
-
-Public repository visibility is allowed for this developer preview. It is not authorization for a production release, version tag, hosted public service, or general-availability claim.
-
-Switchboard is intended for localhost or controlled trusted networks. Untrusted multi-tenant and direct internet-facing deployment are unsupported.
-
-## Public-Preview Baseline
-
-The baseline immediately before the public-preview status documentation merged was:
+The immutable source candidate validated here is:
 
 ```text
-1dbd939854ab287430d1d9c24865e7ad51cbc29c
+b79aba1aaf72ffd20f0221bdf0fd77552541073f
 ```
 
-That commit merged the Phase 1 local-execution-broker architecture in PR #115. PR #115 was documentation and planning only; it did not change runtime behavior. Its hosted validation passed Commitlint, lint/pre-commit, typecheck, tests, security, full-history Gitleaks, link validation, coverage, and strict browser UI checks.
+The release-evidence branch and draft PR #127 contain only the living validation plan and this audit. Their branch head is not the candidate under test. PR #125 and issues #121/#122 remain outside this candidate and were not merged, rebased, or incorporated during validation.
 
-This audit does not attempt to name its own future merge commit. Issues #95 and #104 are the system of record for the canonical merged `main` SHA used by the public preview and future release validation.
+## Linux Validation Environment
 
-Draft PR #116 remains separate from this publication-status change. It must not be merged as part of making the repository public. Its execution-plane implementation and known lint correction remain subject to their own review and CI evidence.
+Validation ran in a detached, clean Linux worktree using an isolated Python environment outside the repository.
 
-## Scope of This Preview Authorization
+| Component   | Version or disposition                       |
+| ----------- | -------------------------------------------- |
+| OS          | Ubuntu 24.04.3 LTS under WSL2                |
+| Kernel      | `6.18.33.2-microsoft-standard-WSL2`          |
+| Architecture | `x86_64`                                    |
+| Git         | 2.43.0                                       |
+| Python      | 3.11.14                                      |
+| pip         | 26.1.2                                       |
+| Chromium    | 140.0.7339.16, Playwright build 1187         |
+| Playwright  | 1.55.0                                       |
+| pre-commit  | 4.6.1                                        |
+| Ruff        | 0.14.2                                       |
+| Black       | 26.5.1                                       |
+| Mypy        | 1.18.2                                       |
+| pytest      | 9.1.1                                        |
+| Bandit      | 1.8.6                                        |
+| pip-audit   | 2.7.3                                        |
+| Gitleaks    | 8.30.1                                       |
+| Lychee      | 0.24.2                                       |
+| Docker      | Unavailable; no client or server version     |
 
-The repository may be made public so developers can:
+The base environment did not provide Python 3.11, so a standalone Python 3.11.14 runtime was used. Playwright's privileged dependency installer required unavailable administrative credentials; Chromium and its required runtime libraries were instead provisioned in an isolated user environment. No repository dependency or source change was made for either condition.
 
-- inspect the source and architecture;
-- clone and run the project locally;
-- evaluate the agent-coordination model;
-- review issues and draft pull requests;
-- contribute through the repository's normal review process.
+## Mandatory Linux Symlink Gate
 
-This authorization does not assert that:
-
-- a production release exists;
-- the current branch is a release candidate;
-- public internet exposure is safe;
-- untrusted users may share one deployment;
-- the Linux-specific release gate has passed;
-- Docker or every supported environment has been fully revalidated against a final release SHA.
-
-## Governance and Showcase Artifacts
-
-- `LICENSE` contains canonical Apache License 2.0 text.
-- `NOTICE` contains project attribution.
-- `SECURITY.md`, `CONTRIBUTING.md`, and support documentation describe the maintenance and reporting posture.
-- A dashboard screenshot is stored at `docs/assets/switchboard-dashboard.png`.
-- Architecture, API, configuration, integration, and workflow documentation are present.
-- `.github/dependabot.yml` covers server and Python-client dependencies, Docker, and GitHub Actions.
-- `docs/release/PRIVATE_REPOSITORY_SECURITY.md` records repository-security controls and post-publication actions.
-
-**Developer-preview status:** sufficient for public source visibility.
-
-## Historical Clean-Clone Evidence
-
-The latest recorded clean-clone implementation audit used Python 3.11.14 and applied to candidate `a143e1a6a4187f648fe9c58c340215af9d11c51d`. Later merged release-documentation, workflow-hardening, Dependabot, audit-correction, and Phase 1 architecture changes did not alter the previously audited runtime behavior.
-
-| Gate                                                          | Result | Recorded evidence                         |
-| ------------------------------------------------------------- | ------ | ----------------------------------------- |
-| `python -m pip check`                                         | PASS   | No broken requirements found              |
-| `python -m pre_commit run --all-files --show-diff-on-failure` | PASS   | All hooks passed; no mutations            |
-| Ruff                                                          | PASS   | All checks passed                         |
-| Black                                                         | PASS   | No formatting changes required            |
-| Mypy                                                          | PASS   | No issues in 119 configured source files  |
-| `pytest -q`                                                   | PASS   | 229 passed, 2 skipped, 5 warnings         |
-| Strict Playwright                                             | PASS   | 2 passed                                  |
-| Aggregate coverage                                            | PASS   | 87%; 229 passed, 2 skipped                |
-| Module coverage gate                                          | PASS   | Thresholds satisfied                      |
-| Bandit                                                        | PASS   | No findings                               |
-| `pip-audit`                                                   | PASS   | No known vulnerabilities                  |
-| Gitleaks                                                      | PASS   | No leaks found in the validated history   |
-| Lychee link validation                                        | PASS   | 162 links OK, 0 errors                    |
-
-These are historical release-quality signals, not a substitute for final validation against a future release candidate.
-
-## Hosted GitHub Actions Evidence
-
-The repository-wide workflow startup problem was resolved in PR #94. Retained GitHub-owned actions are pinned to full commit SHAs, workflow permissions are read-only, and checkout credential persistence is disabled.
-
-PRs #94, #96, #97, #105, and #115 produced successful hosted Commitlint and CI evidence. The proven matrix includes:
-
-- lint/pre-commit;
-- typecheck;
-- tests;
-- security scanning;
-- full-history Gitleaks;
-- documentation link validation;
-- coverage;
-- strict browser UI tests without skips.
-
-After the repository becomes public, manually dispatch `main` CI and rerun PR #116 CI. Confirm that Commitlint and every matrix job create normal public jobs before relying on those workflows as current evidence.
-
-## Security-Control Evidence
-
-Targeted validation has covered:
-
-1. health and readiness behavior;
-2. two-agent dependency unlocking and WebSocket updates;
-3. admin-token protection for live-file mutations;
-4. upload-size enforcement;
-5. rate limiting;
-6. path-containment behavior;
-7. symlink traversal prevention logic.
-
-The previously recorded targeted result was:
+The exact Linux symlink-containment regression executed first:
 
 ```text
-6 passed, 1 skipped
+server/tests/test_live_files.py::test_live_file_symlink_escape_blocked_for_read_and_write
 ```
 
-The skipped test is the Linux symlink-containment regression. The Windows validation environment could not create the required symlink without additional privileges. Code review is not a substitute for executing that test on Linux.
+Result: **PASS — 1 passed, 0 skipped**.
 
-## Formal Release Blockers
+The test proved that escaping symlink reads and writes are rejected. It was not weakened, skipped, xfailed, or bypassed.
 
-### 1. Linux symlink-containment and final local validation
+## Complete Validation Evidence
 
-Issue #104 remains the system of record. The required targeted command is:
+| Gate               | Result | Evidence                                                   |
+| ------------------ | ------ | ---------------------------------------------------------- |
+| Dependency install | PASS   | Exact development requirements installed in isolation      |
+| pip integrity      | PASS   | No broken requirements                                     |
+| pre-commit         | PASS   | All hooks passed; exact-SHA validation copy unchanged      |
+| TODO policy        | PASS   | Repository TODO policy satisfied                           |
+| Ruff               | PASS   | All checks passed                                          |
+| Black              | PASS   | No formatting changes required                             |
+| Mypy               | PASS   | No issues in 162 configured source files                   |
+| Full pytest        | PASS   | 386 passed, 2 skipped, 5 warnings                          |
+| Strict browser     | PASS   | 2 passed, 0 skipped                                        |
+| Aggregate coverage | PASS   | 91%; 1,449 of 1,586 statements covered                     |
+| Bandit             | PASS   | No findings                                                |
+| pip-audit          | PASS   | No known vulnerabilities                                   |
+| Gitleaks           | PASS   | 162 commits scanned; no leaks                              |
+| Lychee             | PASS   | 176 links inspected; 0 errors and 0 timeouts               |
+| Docker build       | BLOCKED | Docker command unavailable before build startup           |
 
-```bash
-pytest server/tests/test_live_files.py::test_live_file_symlink_escape_blocked_for_read_and_write -q -rA
+The two full-suite skips were the repository's intentional non-strict browser skips. The separate strict browser invocation executed both browser tests and proved zero skips.
+
+The all-files pre-commit command was run in a disposable detached copy at the identical candidate SHA to prevent mutating hooks from touching the formal candidate. Its source bytes matched the candidate, every hook passed, and it remained unchanged.
+
+## Coverage Thresholds
+
+Aggregate coverage was 91%. Every configured module threshold passed:
+
+| Module                                                | Required | Actual  |
+| ----------------------------------------------------- | -------: | ------: |
+| `server/extensions/contracts.py`                      |      85% |  95.40% |
+| `server/extensions/interfaces.py`                     |      85% |  94.17% |
+| `server/extensions/loader.py`                         |      85% | 100.00% |
+| `server/extensions/runtime.py`                        |      85% | 100.00% |
+| `server/extensions/builtin/task_metrics.py`           |      85% |  92.59% |
+| `server/extensions/builtin/plan_metrics.py`           |      85% |  95.00% |
+| `server/extensions/builtin/plan_latency.py`           |      80% |  87.76% |
+| `server/extensions/builtin/plan_snapshot.py`          |      80% | 100.00% |
+| `server/extensions/builtin/activity_feed.py`          |      85% | 100.00% |
+| `server/extensions/observability.py`                  |      80% |  97.73% |
+| `server/observability/diagnostics.py`                 |      80% |  90.16% |
+| `server/observability/health.py`                      |      85% |  95.78% |
+| `server/observability/activity.py`                    |      80% |  94.83% |
+| `server/observability/overview.py`                    |      85% | 100.00% |
+| `server/application/task_service.py`                 |      75% |  79.23% |
+| `server/application/configuration_service.py`        |      85% |  91.30% |
+
+## Docker Blocker
+
+The required build command was attempted against the detached candidate and failed before build startup because the WSL2 environment did not expose a Docker command:
+
+```text
+docker: command not found
 ```
 
-For formal release authorization:
+No image was built, so no image ID exists. The validation scope expressly prohibited automatically installing or reconfiguring a system-wide Docker daemon. This is an environment limitation, not a reproduced source defect, and the candidate was not modified to work around it.
 
-- the test must execute rather than skip;
-- read and write attempts through an escaping symlink must be rejected;
-- the complete validation command set must be recorded against the exact tested release-candidate SHA;
-- Docker must build successfully or have a precise documented blocker.
+Formal release authorization remains blocked until the same immutable candidate is built successfully in a Docker-capable environment or an owner deliberately selects and validates a successor candidate.
 
-Do not weaken, delete, skip, or xfail this test.
+## Candidate Immutability and Public Hygiene
 
-### 2. Final release identity and evidence
+After each major stage, the detached worktree still resolved to `b79aba1aaf72ffd20f0221bdf0fd77552541073f`. Generated caches, coverage data, reports, temporary databases, browser artifacts, and link-checker state were removed. Final verification showed:
 
-A future release decision must:
+- detached candidate HEAD exactly matched the selected SHA;
+- `git diff --check` passed;
+- no tracked or untracked candidate files remained;
+- no source correction was made;
+- no credentials, machine identity, private URLs, environment dumps, logs, generated databases, or generated reports were added to the evidence branch.
 
-1. identify an immutable release commit or tag;
-2. record Linux symlink and Docker results;
-3. record final clean-clone evidence;
-4. confirm no release-blocking pull requests remain;
-5. update this audit with explicit release authorization.
+## Governance and Remaining Owner Actions
 
-### 3. Repository protection and public-security settings
+The repository continues to provide its Apache License 2.0 license and notice, security and contribution policies, architecture and operator documentation, showcase assets, Dependabot configuration, and pinned read-only hosted workflow controls.
 
-Public visibility does not waive repository controls. The owner should verify:
+Issue #95 remains the system of record for owner-controlled release work. An owner comment reports that the `main` protection rule is configured for pull requests, conversation resolution, force-push blocking, branch-deletion blocking, and public checks. The formal checklist still requires owner verification of those controls and the intended required checks and merge/history policy.
 
-- pull-request-based changes to `main`;
-- conversation resolution;
-- force-push and branch-deletion protections;
-- the intended merge/history policy;
-- required checks after normal public jobs are observed;
-- Dependabot alerts and security updates;
-- repository description, topics, license detection, and social preview.
+The following owner-controlled items remain:
 
-After publication, enable or verify CodeQL Default Setup, Secret Protection, and Push Protection when available. Review initial alerts before treating those services as clean.
+- enable or verify CodeQL Default Setup;
+- review CodeQL, Dependabot, and secret-scanning alerts;
+- enable or verify Dependabot security updates;
+- verify Secret Protection and Push Protection when available;
+- verify repository description, topics, license detection, and social preview;
+- make any later formal tag, release, or deployment decision explicitly.
 
-Parent issue #95 tracks the formal release checklist. Issue #104 contains the Linux/local validation handoff and must remain open until the symlink test actually executes and passes.
+Hosted Commitlint and CI results for the final evidence commit will be recorded in the living ExecPlan after the branch is pushed.
 
 ## Final Verdict
 
-The owner may change repository visibility to public using the classification:
+Candidate `b79aba1aaf72ffd20f0221bdf0fd77552541073f` passed every executable Linux source, test, browser, coverage, dependency, security, secret, and link gate. The mandatory symlink regression passed without a skip. Docker validation remains blocked by the unavailable client, so formal release authorization remains blocked.
+
+The repository remains suitable for public source publication and controlled developer evaluation under:
 
 ```text
 PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY
 ```
 
-That visibility change is limited to public source publication and developer evaluation. Formal release authorization remains blocked by issue #104 and the final release/settings review. Production, untrusted multi-tenant, and direct internet-facing deployment remain unsupported.
+This validation does not authorize a tag, release, deployment, production-readiness claim, untrusted multi-tenant use, or direct internet-facing operation.

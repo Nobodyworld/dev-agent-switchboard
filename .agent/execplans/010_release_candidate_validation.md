@@ -22,20 +22,29 @@ The candidate remains classified as `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION
 - [x] Immutable candidate SHA selected: `b79aba1aaf72ffd20f0221bdf0fd77552541073f`.
 - [x] Release-evidence branch created from exactly that SHA.
 - [x] Living ExecPlan created.
-- [ ] Verify the isolated checkout and candidate identity.
-- [ ] Capture Linux, kernel, Python, pip, Git, Docker, browser, and validation-tool versions.
-- [ ] Run the Linux symlink-containment regression without a skip.
-- [ ] Run the complete clean-environment validation matrix.
-- [ ] Build the server Docker image.
-- [ ] Update `PUBLIC_RELEASE_AUDIT.md` with exact executed evidence.
-- [ ] Complete public-repository hygiene and generated-artifact cleanup.
+- [x] Verify the isolated checkout and candidate identity.
+- [x] Capture Linux, kernel, Python, pip, Git, Docker, browser, and validation-tool versions.
+- [x] Run the Linux symlink-containment regression without a skip.
+- [x] Run every executable clean-environment validation gate.
+- [x] Attempt the server Docker build and record the precise unavailable-client blocker.
+- [x] Update `PUBLIC_RELEASE_AUDIT.md` with exact executed evidence.
+- [x] Complete public-repository hygiene and generated-artifact cleanup.
 - [ ] Push the evidence update to the existing release branch.
 - [ ] Record final hosted workflow IDs and connector review.
 
 ## Surprises & Discoveries
 
-- Observation: none recorded yet.
-  Evidence: validation has not started.
+- Observation: Ubuntu did not provide Python 3.11 in the base environment.
+  Evidence: a standalone Python 3.11.14 runtime and isolated task-only virtual environment were provisioned outside the repository; dependency installation and `pip check` passed.
+
+- Observation: Playwright's privileged Linux dependency installer required unavailable administrative credentials.
+  Evidence: Chromium 140.0.7339.16 and the required runtime libraries were provisioned in an isolated user environment instead. The complete suite and the strict two-test browser suite then passed.
+
+- Observation: the WSL2 environment did not expose a Docker command.
+  Evidence: the required `docker build -f server/Dockerfile .` attempt failed before build startup with `docker: command not found`. No system-wide daemon was installed or reconfigured.
+
+- Observation: the all-files pre-commit command can mutate files by design.
+  Evidence: it was executed in a disposable detached validation copy at the exact candidate SHA. Every hook passed and that copy remained unchanged.
 
 ## Decision Log
 
@@ -55,9 +64,17 @@ The candidate remains classified as `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION
   Rationale: validation alone does not establish support for untrusted multi-tenant or direct internet-facing deployment, nor does it satisfy owner-controlled repository settings and alert review.
   Date/Author: 2026-07-26 / connector coordination
 
+- Decision: retain `b79aba1aaf72ffd20f0221bdf0fd77552541073f` as the immutable tested candidate despite the Docker environment blocker.
+  Rationale: all executable source, security, browser, coverage, and Linux symlink gates passed without a source correction. Installing or reconfiguring a system-wide Docker daemon was outside the authorized environment preparation.
+  Date/Author: 2026-07-27 / validation executor
+
 ## Outcomes & Retrospective
 
-Validation has not started. Record the exact tested SHA, commands, versions, results, limitations, and final release disposition here after execution.
+Candidate `b79aba1aaf72ffd20f0221bdf0fd77552541073f` was validated on Ubuntu 24.04.3 LTS under WSL2, kernel `6.18.33.2-microsoft-standard-WSL2`, architecture `x86_64`. The mandatory symlink-containment regression executed and passed with zero skips. The complete Python suite passed with 386 passes and 2 intentional skips; the strict browser suite passed 2 tests with zero skips. Aggregate coverage was 91%, and every configured module threshold passed.
+
+Dependency integrity, pre-commit, TODO policy, Ruff, Black, Mypy, Bandit, pip-audit, full-history Gitleaks, and Lychee all passed. The only unexecuted build was Docker: the WSL2 environment had no Docker command, and the authorized process prohibited installing or reconfiguring a system-wide daemon. The candidate was not changed to work around that limitation.
+
+Generated caches, reports, coverage data, and the temporary test database were removed. Final candidate verification showed the exact detached SHA, no diff-check errors, and a clean worktree. The public classification remains `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY`; validation does not authorize a tag, release, production deployment, untrusted multi-tenant use, or direct internet exposure. Formal release remains blocked on Docker-capable validation and the owner-controlled repository settings and alert review tracked in issue #95.
 
 ## Context and Orientation
 
@@ -215,6 +232,20 @@ Record during execution:
 - Docker image ID or precise blocker;
 - final `git diff --check` and clean-tree state;
 - exact remaining owner-controlled repository settings and alert review.
+
+Recorded evidence:
+
+- environment: Ubuntu 24.04.3 LTS; kernel `6.18.33.2-microsoft-standard-WSL2`; `x86_64`;
+- tools: Git 2.43.0; Python 3.11.14; pip 26.1.2; Chromium 140.0.7339.16; Playwright 1.55.0; pre-commit 4.6.1; Ruff 0.14.2; Black 26.5.1; Mypy 1.18.2; pytest 9.1.1; Bandit 1.8.6; pip-audit 2.7.3; Gitleaks 8.30.1; Lychee 0.24.2;
+- Linux symlink regression: 1 passed, zero skipped;
+- full pytest: 386 passed, 2 skipped, 5 warnings;
+- strict browser: 2 passed, zero skipped;
+- aggregate coverage: 91%;
+- configured module thresholds: all 16 satisfied, with exact percentages recorded in `PUBLIC_RELEASE_AUDIT.md`;
+- Lychee: 176 links inspected, 0 errors and 0 timeouts;
+- Gitleaks: 162 commits scanned, no leaks;
+- Docker: unavailable in WSL2 (`docker: command not found`), so no image ID exists;
+- final candidate state: detached at the selected SHA, `git diff --check` clean, no tracked or untracked files.
 
 ## Interfaces and Dependencies
 
