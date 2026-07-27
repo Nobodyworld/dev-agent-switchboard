@@ -53,13 +53,21 @@ jobs:
         run: |
           set -euo pipefail
           image_id="$(docker image inspect --format='{{.Id}}' "${IMAGE_TAG}")"
+          docker_client="$(docker version --format='{{.Client.Version}}')"
+          docker_server="$(docker version --format='{{.Server.Version}}')"
           test -n "${image_id}"
-          printf 'candidate=%s\nimage_id=%s\n' "${CANDIDATE_SHA}" "${image_id}" | tee "${EVIDENCE_FILE}"
+          test -n "${docker_client}"
+          test -n "${docker_server}"
+          printf 'candidate=%s\nimage_id=%s\ndocker_client=%s\ndocker_server=%s\n' \
+            "${CANDIDATE_SHA}" "${image_id}" "${docker_client}" "${docker_server}" \
+            | tee "${EVIDENCE_FILE}"
           {
             echo '### Exact release-candidate Docker build'
             echo
             echo "- Candidate: \`${CANDIDATE_SHA}\`"
             echo "- Image ID: \`${image_id}\`"
+            echo "- Docker client: \`${docker_client}\`"
+            echo "- Docker server: \`${docker_server}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload bounded Docker evidence
