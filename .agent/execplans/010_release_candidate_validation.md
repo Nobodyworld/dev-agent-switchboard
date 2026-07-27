@@ -26,7 +26,7 @@ The candidate remains classified as `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION
 - [x] Capture Linux, kernel, Python, pip, Git, Docker, browser, and validation-tool versions.
 - [x] Run the Linux symlink-containment regression without a skip.
 - [x] Run every executable clean-environment validation gate.
-- [x] Attempt the server Docker build and record the precise unavailable-client blocker.
+- [x] Build the exact candidate successfully on a GitHub-hosted Ubuntu runner and record bounded Docker evidence.
 - [x] Update `PUBLIC_RELEASE_AUDIT.md` with exact executed evidence.
 - [x] Complete public-repository hygiene and generated-artifact cleanup.
 - [x] Push the evidence update to the existing release branch.
@@ -41,7 +41,7 @@ The candidate remains classified as `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION
   Evidence: Chromium 140.0.7339.16 and the required runtime libraries were provisioned in an isolated user environment instead. The complete suite and the strict two-test browser suite then passed.
 
 - Observation: the WSL2 environment did not expose a Docker command.
-  Evidence: the required `docker build -f server/Dockerfile .` attempt failed before build startup with `docker: command not found`. No system-wide daemon was installed or reconfigured.
+  Evidence: the required local `docker build -f server/Dockerfile .` attempt failed before build startup with `docker: command not found`. No system-wide daemon was installed or reconfigured. The connector subsequently completed the exact-candidate build on a GitHub-hosted Ubuntu 24.04 runner using Docker client and server 28.0.4.
 
 - Observation: the all-files pre-commit command can mutate files by design.
   Evidence: it was executed in a disposable detached validation copy at the exact candidate SHA. Every hook passed and that copy remained unchanged.
@@ -64,17 +64,17 @@ The candidate remains classified as `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION
   Rationale: validation alone does not establish support for untrusted multi-tenant or direct internet-facing deployment, nor does it satisfy owner-controlled repository settings and alert review.
   Date/Author: 2026-07-26 / connector coordination
 
-- Decision: retain `b79aba1aaf72ffd20f0221bdf0fd77552541073f` as the immutable tested candidate despite the Docker environment blocker.
-  Rationale: all executable source, security, browser, coverage, and Linux symlink gates passed without a source correction. Installing or reconfiguring a system-wide Docker daemon was outside the authorized environment preparation.
-  Date/Author: 2026-07-27 / validation executor
+- Decision: complete Docker validation with a temporary exact-candidate hosted workflow.
+  Rationale: the workflow used read-only `contents` permission and full-length SHA-pinned actions, checked out exactly `b79aba1aaf72ffd20f0221bdf0fd77552541073f` rather than a PR merge ref, verified source identity and cleanliness before and after the build, and uploaded only bounded evidence. The workflow was removed after evidence retrieval and is absent from the final PR diff.
+  Date/Author: 2026-07-27 / connector coordination
 
 ## Outcomes & Retrospective
 
 Candidate `b79aba1aaf72ffd20f0221bdf0fd77552541073f` was validated on Ubuntu 24.04.3 LTS under WSL2, kernel `6.18.33.2-microsoft-standard-WSL2`, architecture `x86_64`. The mandatory symlink-containment regression executed and passed with zero skips. The complete Python suite passed with 386 passes and 2 intentional skips; the strict browser suite passed 2 tests with zero skips. Aggregate coverage was 91%, and every configured module threshold passed.
 
-Dependency integrity, pre-commit, TODO policy, Ruff, Black, Mypy, Bandit, pip-audit, full-history Gitleaks, and Lychee all passed. The only unexecuted build was Docker: the WSL2 environment had no Docker command, and the authorized process prohibited installing or reconfiguring a system-wide daemon. The candidate was not changed to work around that limitation.
+Dependency integrity, pre-commit, TODO policy, Ruff, Black, Mypy, Bandit, pip-audit, full-history Gitleaks, and Lychee all passed. The initial WSL2 environment had no Docker command, so the connector ran an exact-candidate build on GitHub-hosted Ubuntu 24.04. Workflow `30300834437`, job `90093063000`, built the unchanged candidate successfully with Docker client and server 28.0.4. The resulting image ID was `sha256:b7cf3898a97d16989c8684c1a8a26d7d637cfc84262dcb7d6cdc1aa9efba7bc7`.
 
-Generated caches, reports, coverage data, and the temporary test database were removed. Final candidate verification showed the exact detached SHA, no diff-check errors, and a clean worktree. The public classification remains `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY`; validation does not authorize a tag, release, production deployment, untrusted multi-tenant use, or direct internet exposure. Formal release remains blocked on Docker-capable validation and the owner-controlled repository settings and alert review tracked in issue #95.
+Every technical candidate gate passed. Generated caches, reports, coverage data, and the temporary test database were removed. Final candidate verification showed the exact detached SHA, no diff-check errors, and a clean worktree. The public classification remains `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY`; validation does not authorize a tag, release, production deployment, untrusted multi-tenant use, or direct internet exposure. Formal release authorization remains a separate owner decision and still requires review of this evidence PR and the owner-controlled repository and security settings tracked in issue #95.
 
 ## Context and Orientation
 
@@ -96,7 +96,7 @@ Generated caches, reports, coverage data, and the temporary test database were r
 3. Record the operating-system, kernel, architecture, Git, Python, pip, Docker, browser, and validation-tool versions.
 4. Run the targeted symlink-containment test first. It must execute and pass without skipping.
 5. Run dependency integrity, pinned pre-commit, TODO policy, Ruff, Black, Mypy, full pytest, strict browser, configured coverage, Bandit, pip-audit, full-history Gitleaks, and Lychee.
-6. Build the Docker image from `server/Dockerfile` and record the resulting image identity, or record a precise external blocker without weakening the gate.
+6. Build the Docker image from `server/Dockerfile` against the exact immutable candidate and record the resulting bounded image identity.
 7. Review all generated output and delete reports, caches, databases, images exported to files, logs, and temporary artifacts from the worktree.
 8. Update only this ExecPlan and `PUBLIC_RELEASE_AUDIT.md`, unless a reproduced release-gate defect requires a minimum correction. Any correction must include focused regression coverage and the entire matrix must be rerun.
 9. Commit intentionally, push only the existing release branch, keep its PR draft, and record hosted workflow results.
@@ -205,7 +205,7 @@ Acceptance requires all of the following:
 - full pytest and strict browser pass, with browser tests not skipped;
 - aggregate coverage and all configured module thresholds pass;
 - Bandit, pip-audit, Gitleaks, and Lychee pass;
-- Docker builds successfully or a precise external blocker is documented;
+- Docker builds successfully against the exact immutable candidate;
 - the candidate checkout remains unchanged;
 - `PUBLIC_RELEASE_AUDIT.md` truthfully records exact commands, versions, counts, coverage, security, Docker, limitations, and remaining owner-only gates;
 - no release, tag, deployment, or production-readiness claim is created automatically.
@@ -244,11 +244,16 @@ Recorded evidence:
 - configured module thresholds: all 16 satisfied, with exact percentages recorded in `PUBLIC_RELEASE_AUDIT.md`;
 - Lychee: 176 links inspected, 0 errors and 0 timeouts;
 - Gitleaks: 162 commits scanned, no leaks;
-- Docker: unavailable in WSL2 (`docker: command not found`), so no image ID exists;
+- Docker: the initial WSL2 environment lacked a Docker command; hosted workflow `30300834437`, job `90093063000`, subsequently built the exact candidate on GitHub-hosted Ubuntu 24.04 with Docker client and server 28.0.4;
+- Docker command: `docker build --pull=false --tag switchboard-release-candidate:b79aba1aaf72 -f server/Dockerfile .`;
+- Docker image ID: `sha256:b7cf3898a97d16989c8684c1a8a26d7d637cfc84262dcb7d6cdc1aa9efba7bc7`;
+- Docker evidence artifact: `8666477133`; digest `sha256:c2c497c00430beeed52a8688abc37b06fdf65d6fd09371c47bf0295a749fcfc2`;
+- Docker workflow controls: read-only `contents` permission, full-length SHA-pinned actions, exact candidate checkout rather than the PR merge ref, and source identity and cleanliness verification before and after the build;
+- the temporary Docker workflow uploaded only the bounded candidate SHA, Docker versions, and image ID, then was removed after evidence retrieval and is absent from the final PR diff;
 - final candidate state: detached at the selected SHA, `git diff --check` clean, no tracked or untracked files.
 - evidence commit: `a87c3029c074b4c703e72c80a33b89e18212a8d3`;
 - hosted evidence: Commitlint `30252655080` — success; CI `30252655221` — success;
-- connector planning review `4782954620` established the immutable-candidate, public-hygiene, Docker-blocker, and draft-release boundaries reflected in this evidence.
+- connector planning review `4782954620` established the immutable-candidate, public-hygiene, exact Docker evidence, and draft-release boundaries reflected in this evidence.
 
 ## Interfaces and Dependencies
 

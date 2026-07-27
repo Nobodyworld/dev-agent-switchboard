@@ -43,7 +43,7 @@ Validation ran in a detached, clean Linux worktree using an isolated Python envi
 | pip-audit   | 2.7.3                                        |
 | Gitleaks    | 8.30.1                                       |
 | Lychee      | 0.24.2                                       |
-| Docker      | Unavailable; no client or server version     |
+| Docker (initial WSL2) | Unavailable; no local client or server     |
 
 The base environment did not provide Python 3.11, so a standalone Python 3.11.14 runtime was used. Playwright's privileged dependency installer required unavailable administrative credentials; Chromium and its required runtime libraries were instead provisioned in an isolated user environment. No repository dependency or source change was made for either condition.
 
@@ -77,7 +77,7 @@ The test proved that escaping symlink reads and writes are rejected. It was not 
 | pip-audit          | PASS   | No known vulnerabilities                                   |
 | Gitleaks           | PASS   | 162 commits scanned; no leaks                              |
 | Lychee             | PASS   | 176 links inspected; 0 errors and 0 timeouts               |
-| Docker build       | BLOCKED | Docker command unavailable before build startup           |
+| Docker build       | PASS   | Exact candidate built on GitHub-hosted Ubuntu 24.04        |
 
 The two full-suite skips were the repository's intentional non-strict browser skips. The separate strict browser invocation executed both browser tests and proved zero skips.
 
@@ -106,17 +106,38 @@ Aggregate coverage was 91%. Every configured module threshold passed:
 | `server/application/task_service.py`                 |      75% |  79.23% |
 | `server/application/configuration_service.py`        |      85% |  91.30% |
 
-## Docker Blocker
+## Exact-Candidate Hosted Docker Evidence
 
-The required build command was attempted against the detached candidate and failed before build startup because the WSL2 environment did not expose a Docker command:
+The initial WSL2 environment did not expose a Docker command. That was an environment limitation, not the final candidate disposition. No system-wide daemon was installed or reconfigured, and the candidate was not modified to work around the local limitation.
+
+The connector subsequently used a temporary workflow to build exactly:
 
 ```text
-docker: command not found
+b79aba1aaf72ffd20f0221bdf0fd77552541073f
 ```
 
-No image was built, so no image ID exists. The validation scope expressly prohibited automatically installing or reconfiguring a system-wide Docker daemon. This is an environment limitation, not a reproduced source defect, and the candidate was not modified to work around it.
+The workflow used read-only `contents` permission and full-length SHA-pinned actions. It checked out the immutable candidate rather than the PR merge ref, verified candidate identity and a clean source tree before the build, ran:
 
-Formal release authorization remains blocked until the same immutable candidate is built successfully in a Docker-capable environment or an owner deliberately selects and validates a successor candidate.
+```text
+docker build --pull=false --tag switchboard-release-candidate:b79aba1aaf72 -f server/Dockerfile .
+```
+
+and verified the candidate remained unchanged afterward. The bounded hosted evidence is:
+
+| Evidence            | Value                                                                      |
+| ------------------- | -------------------------------------------------------------------------- |
+| Workflow            | `30300834437`                                                              |
+| Job                 | `90093063000`                                                              |
+| Hosted environment  | GitHub-hosted Ubuntu 24.04                                                  |
+| Docker client       | 28.0.4                                                                     |
+| Docker server       | 28.0.4                                                                     |
+| Image ID            | `sha256:b7cf3898a97d16989c8684c1a8a26d7d637cfc84262dcb7d6cdc1aa9efba7bc7` |
+| Artifact            | `8666477133`                                                               |
+| Artifact digest     | `sha256:c2c497c00430beeed52a8688abc37b06fdf65d6fd09371c47bf0295a749fcfc2` |
+
+The workflow uploaded only the bounded candidate SHA, Docker versions, and image ID. It was deleted after evidence retrieval and is absent from the final PR diff.
+
+Docker validation now passes. Formal release authorization remains separate from technical validation and still requires review of this evidence PR and the owner-controlled repository and security settings tracked in issue #95.
 
 ## Candidate Immutability and Public Hygiene
 
@@ -147,7 +168,9 @@ Hosted Commitlint and CI results for the final evidence commit will be recorded 
 
 ## Final Verdict
 
-Candidate `b79aba1aaf72ffd20f0221bdf0fd77552541073f` passed every executable Linux source, test, browser, coverage, dependency, security, secret, and link gate. The mandatory symlink regression passed without a skip. Docker validation remains blocked by the unavailable client, so formal release authorization remains blocked.
+Candidate `b79aba1aaf72ffd20f0221bdf0fd77552541073f` passed every technical Linux, Docker, test, browser, coverage, quality, dependency, security, secret, and link gate. The mandatory symlink regression passed without a skip, and the exact-candidate hosted Docker build passed without changing the source.
+
+Formal release authorization is not automatic. It remains a separate owner decision requiring review of this evidence PR and the owner-controlled repository and security settings tracked in issue #95.
 
 The repository remains suitable for public source publication and controlled developer evaluation under:
 
