@@ -30,7 +30,7 @@ The candidate remains classified as `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION
 - [x] Update `PUBLIC_RELEASE_AUDIT.md` with exact executed evidence.
 - [x] Complete public-repository hygiene and generated-artifact cleanup.
 - [x] Push the evidence update to the existing release branch.
-- [x] Record hosted workflow IDs and connector review.
+- [x] Record reviewed-head workflow IDs, connector review, and the durable final-head evidence location.
 
 ## Surprises & Discoveries
 
@@ -75,6 +75,8 @@ Candidate `b79aba1aaf72ffd20f0221bdf0fd77552541073f` was validated on Ubuntu 24.
 Dependency integrity, pre-commit, TODO policy, Ruff, Black, Mypy, Bandit, pip-audit, full-history Gitleaks, and Lychee all passed. The initial WSL2 environment had no Docker command, so the connector ran an exact-candidate build on GitHub-hosted Ubuntu 24.04. Workflow `30300834437`, job `90093063000`, built the unchanged candidate successfully with Docker client and server 28.0.4. The resulting image ID was `sha256:b7cf3898a97d16989c8684c1a8a26d7d637cfc84262dcb7d6cdc1aa9efba7bc7`.
 
 Every technical candidate gate passed. Generated caches, reports, coverage data, and the temporary test database were removed. Final candidate verification showed the exact detached SHA, no diff-check errors, and a clean worktree. The public classification remains `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY`; validation does not authorize a tag, release, production deployment, untrusted multi-tenant use, or direct internet exposure. Formal release authorization remains a separate owner decision and still requires review of this evidence PR and the owner-controlled repository and security settings tracked in issue #95.
+
+Reviewed evidence head `aad795691c183a29b3615e6c59ecf551dc6826de` passed Commitlint `30309805824` and CI `30309805770`. Workflow identifiers for the ultimate post-correction head belong in PR #127's review and merge record rather than this commit: embedding those identifiers would necessarily create a newer head and repeat the same self-reference.
 
 ## Context and Orientation
 
@@ -253,7 +255,11 @@ Recorded evidence:
 - final candidate state: detached at the selected SHA, `git diff --check` clean, no tracked or untracked files.
 - evidence commit: `a87c3029c074b4c703e72c80a33b89e18212a8d3`;
 - hosted evidence: Commitlint `30252655080` — success; CI `30252655221` — success;
+- reviewed evidence head: `aad795691c183a29b3615e6c59ecf551dc6826de`;
+- reviewed evidence workflows: Commitlint `30309805824` — success; CI `30309805770` — success;
+- ultimate post-correction final-head workflow identifiers are recorded in PR #127's review and merge record, not embedded as a claim about the same commit, because committing those identifiers would create a newer head;
 - connector planning review `4782954620` established the immutable-candidate, public-hygiene, exact Docker evidence, and draft-release boundaries reflected in this evidence.
+- connector review `4793111697` verified the technical and public evidence on the reviewed evidence head and requested only this workflow-record consistency correction.
 
 ## Interfaces and Dependencies
 

@@ -164,7 +164,9 @@ The following owner-controlled items remain:
 - verify repository description, topics, license detection, and social preview;
 - make any later formal tag, release, or deployment decision explicitly.
 
-Hosted Commitlint and CI results for the final evidence commit will be recorded in the living ExecPlan after the branch is pushed.
+The validated evidence head preceding this final wording-only correction was `aad795691c183a29b3615e6c59ecf551dc6826de`. Commitlint `30309805824` and CI `30309805770` both succeeded on that head.
+
+Hosted workflow identifiers for reviewed branch heads are recorded in the pull-request review and merge record. They are not embedded as a claim about the same commit, because committing those identifiers would necessarily create a newer head.
 
 ## Final Verdict
 
