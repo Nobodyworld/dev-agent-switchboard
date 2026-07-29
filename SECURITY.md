@@ -46,7 +46,7 @@ The repository includes controls and tests for:
 - rate limiting;
 - security and dependency scanning in the release workflow.
 
-Implementation alone is not a deployment guarantee. Review [PUBLIC_RELEASE_AUDIT.md](PUBLIC_RELEASE_AUDIT.md) for the current candidate's executed validation and unresolved environment blockers.
+Implementation alone is not a deployment guarantee. Review [PUBLIC_RELEASE_AUDIT.md](PUBLIC_RELEASE_AUDIT.md) for the current executed validation, supported deployment boundary, and remaining owner-controlled release decisions.
 
 ## Coordinated Disclosure
 
