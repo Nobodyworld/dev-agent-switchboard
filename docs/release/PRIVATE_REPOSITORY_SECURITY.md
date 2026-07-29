@@ -1,7 +1,7 @@
 # Repository Security and Publication Controls
 
-**Status:** Public developer-preview controls documented and technically validated  
-**Repository:** `Nobodyworld/dev-agent-switchboard`  
+**Status:** Public developer-preview controls documented and technically validated
+**Repository:** `Nobodyworld/dev-agent-switchboard`
 **Last reconciled:** 2026-07-29
 
 This document records repository-security automation and owner-controlled checks after public source publication. It is separate from `PUBLIC_RELEASE_AUDIT.md`, which remains the authoritative distinction between public preview, formal release authorization, and production deployment safety.
