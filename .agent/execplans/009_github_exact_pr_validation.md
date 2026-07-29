@@ -58,6 +58,14 @@ The feature is successful when a mocked GitHub PR can be resolved into an exact-
 - [x] Commit the corrected head in focused Conventional Commits.
 - [x] Push the corrected head only to the existing branch.
 - [x] Record final hosted workflow IDs after the corrected pushed head is green.
+- [x] Refresh the existing branch from developer-preview baseline
+  `dcac19fb211e105474cf74831a9cc53ef2138ea3` with a non-rebase merge.
+- [x] Re-run focused mocked/offline adapter, execution, and worker validation
+  against the refreshed branch.
+- [x] Re-run the complete local quality, test, browser, coverage, security,
+  dependency, secret, link, and public-hygiene matrix.
+- [x] Remove generated validation artifacts and leave only this living
+  ExecPlan update for the final evidence commit.
 
 ## Surprises & Discoveries
 
@@ -205,6 +213,23 @@ The feature is successful when a mocked GitHub PR can be resolved into an exact-
   holders from clearing or overwriting a newer holder, and two independent
   sessions/services produce one remote create.
 
+- Observation: the developer-preview baseline changed only release, audit,
+  README, security, task-list, and status documentation, so the required
+  non-rebase refresh preserved both histories without conflicts or product
+  behavior changes.
+  Evidence: old feature head
+  `61f1ae651047042f13e5743eab6f597a63413645` and preview baseline
+  `dcac19fb211e105474cf74831a9cc53ef2138ea3` are the two parents of merge
+  `63a40581d6c2927a6440370d8eabd32744adff46`.
+
+- Observation: on Windows, the worker acceptance tests must use the standalone
+  task-only Python 3.11 runtime as the parent process, not merely place a
+  virtual-environment launcher on `PATH`. The worker's intentionally bounded
+  child environment then resolves the same isolated interpreter and installed
+  tools.
+  Evidence: the refreshed focused worker group passed all 92 tests without a
+  source or trusted-manifest change.
+
 ## Decision Log
 
 - Decision: implement a managed PR comment rather than the Checks API in the first slice.
@@ -335,6 +360,20 @@ removed. Corrected head
 Commitlint `30196797325` and CI `30196797324` both succeeded. Connector review
 `4782606331` found no remaining code or security blocker. Draft PR #125 remains
 open and unmerged pending final-head verification.
+
+The existing feature branch was subsequently refreshed from public
+developer-preview baseline
+`dcac19fb211e105474cf74831a9cc53ef2138ea3`. Non-rebase merge
+`63a40581d6c2927a6440370d8eabd32744adff46` preserved the preview
+documentation and the complete GitHub adapter implementation without
+conflicts or behavior changes. The refreshed local head passed 92 focused
+adapter/transport/startup/concurrency/worker tests, 45 focused
+execution-contract/evidence tests, the complete 466-test suite, strict browser
+validation with zero skips, 91% aggregate coverage and every module threshold,
+and all configured quality, dependency, security, secret, and link gates.
+Generated evidence files and caches were removed. Hosted workflow identifiers
+for the final evidence commit belong in PR #125's review record after that
+commit exists; they are not claimed by this same commit.
 
 ## Context and Orientation
 
@@ -506,6 +545,55 @@ Record here during implementation:
 - final corrected Commitlint `30196797325`: success;
 - final corrected CI `30196797324`: success;
 - connector review `4782606331`: no remaining code or security blocker;
+- refresh starting feature head:
+  `61f1ae651047042f13e5743eab6f597a63413645`;
+- developer-preview baseline:
+  `dcac19fb211e105474cf74831a9cc53ef2138ea3`;
+- non-rebase refresh merge:
+  `63a40581d6c2927a6440370d8eabd32744adff46`, with the feature head and
+  preview baseline as its two parents and no conflicts;
+- refreshed focused adapter/transport/startup/concurrency/worker suite:
+  `92 passed` in `110.48s`, fully mocked/offline;
+- refreshed focused execution-contract/evidence suite:
+  `45 passed` in `63.40s`;
+- refreshed complete pytest:
+  `466 passed, 4 skipped, 5 warnings` in `330.50s`;
+- refreshed strict Playwright browser suite:
+  `2 passed` in `13.43s`, with zero skips;
+- refreshed configured coverage:
+  `466 passed, 4 skipped, 5 warnings` in `353.78s`, 91% aggregate;
+- refreshed coverage thresholds:
+  `contracts.py` 95.40% >= 85%,
+  `interfaces.py` 94.17% >= 85%,
+  `loader.py` 100% >= 85%,
+  `runtime.py` 100% >= 85%,
+  `task_metrics.py` 92.59% >= 85%,
+  `plan_metrics.py` 95% >= 85%,
+  `plan_latency.py` 87.76% >= 80%,
+  `plan_snapshot.py` 100% >= 80%,
+  `activity_feed.py` 100% >= 85%,
+  `extensions/observability.py` 97.73% >= 80%,
+  `diagnostics.py` 90.16% >= 80%,
+  `health.py` 95.78% >= 85%,
+  `activity.py` 94.83% >= 80%,
+  `overview.py` 100% >= 85%,
+  `task_service.py` 79.23% >= 75%, and
+  `configuration_service.py` 91.30% >= 85%;
+- refreshed dependency and quality gates: `pip check`, every pinned pre-commit
+  hook, TODO policy, Ruff, Black, and Mypy across 172 source files passed;
+- refreshed security and public-content gates: Bandit passed, `pip-audit`
+  found no known vulnerabilities, Gitleaks scanned 228 commits / approximately
+  4.15 MB with no leaks, and Lychee passed while following two redirects;
+- refreshed public-hygiene audit: no credential, authorization value, response
+  body, machine identity, local path, private URL, environment dump, log,
+  database, report, cache, or other generated artifact is present in the
+  evidence change;
+- refreshed clean-tree proof: generated JUnit, coverage, link-check, test
+  cache, type-check cache, lint cache, and bytecode artifacts were removed
+  before this single-file evidence update;
+- final hosted workflow identifiers for the post-refresh evidence commit are
+  intentionally recorded in PR #125's review record after the final head
+  exists, not embedded as a claim by that same commit;
 - any transport, rate-limit, or installation limitations.
 
 ## Interfaces and Dependencies
