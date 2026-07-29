@@ -1,38 +1,51 @@
 # Security Notes
 
-## 2026-06-27 — Public-Release Hardening
+These notes preserve dated security-review findings. They are historical records, not a substitute for the current security policy, active release audit, or protected GitHub Actions results.
 
-### Verified
+For current guidance and status, use:
+
+- [`SECURITY.md`](SECURITY.md) for supported reporting and deployment boundaries;
+- [`PUBLIC_RELEASE_AUDIT.md`](PUBLIC_RELEASE_AUDIT.md) for the current developer-preview and formal-release disposition;
+- [`docs/operations/local-worker.md`](docs/operations/local-worker.md) for trusted repository mapping, worker configuration, retained evidence, and local execution limitations;
+- issue [#95](https://github.com/Nobodyworld/dev-agent-switchboard/issues/95) for release gates;
+- issue [#104](https://github.com/Nobodyworld/dev-agent-switchboard/issues/104) for Linux, Docker, and clean-environment validation;
+- the active pull request and living ExecPlan for exact run identifiers, test counts, coverage measurements, and environment limitations.
+
+## 2026-06-27 — Public-Release Hardening Snapshot
+
+### Verified at that time
 
 - `pip-audit` initially identified 14 advisories in four pinned packages.
   FastAPI, Starlette, the metrics instrumentator, python-multipart, pytest,
   pytest-asyncio, Black, and Pydantic were upgraded as a compatible set.
 - The final Python 3.11 audit reported no known vulnerabilities.
-- Bandit passed against production server code; test assertions are excluded.
-- Live-file writes now honor configured admin authentication and a streaming
+- Bandit passed against production server code; test assertions were excluded.
+- Live-file writes honored configured admin authentication and a streaming
   upload-size limit.
-- Atomic task claiming, lease ownership, and expired-heartbeat behavior have
+- Atomic task claiming, lease ownership, and expired-heartbeat behavior had
   regression coverage.
 
-### Remaining
+### Then-open items
 
-- Execute the symlink-escape test on Linux; local Windows policy prevented
-  symlink creation.
-- Strict mypy remains red and is tracked as a quality gap rather than a
-  confirmed vulnerability.
+- The Linux symlink-escape regression still required execution on a Linux-capable environment. That formal-release gate remains tracked in #104.
+- Strict Mypy was red in this June 2026 snapshot. That statement is historical: the current protected CI matrix includes a passing strict Mypy job. Consult the active workflow and release records rather than treating this dated result as current.
 
-## 2025-11-06 — Websocket Backoff Follow-up Audit
+## 2025-11-06 — WebSocket Backoff Follow-up Snapshot
 
-### Findings
+### Findings at that time
 
-- Unable to provision the Python tooling stack offline: `make setup` failed when pip could not reach the package index for `fastapi==0.120.0`. Bandit, pip-audit, and coverage extras were therefore unavailable locally.
-- `ruff check .` surfaced existing style issues in legacy client/server modules; none are exploitable but they keep the lint pipeline from running cleanly without targeted ignores.
-- No secrets were committed; gitleaks continues to protect the main branch via CI.
+- The Python tooling stack could not be provisioned offline because `make setup`
+  could not reach the package index for `fastapi==0.120.0`. Bandit, pip-audit,
+  and coverage extras were therefore unavailable in that environment.
+- `ruff check .` surfaced style issues in legacy client/server modules. These were
+  quality findings, not evidence of an exploitable vulnerability.
+- No committed secrets were identified in that review; the repository now uses
+  protected full-history Gitleaks validation in CI.
 
-### Mitigations & Next Steps
+### Historical follow-up recommendations
 
-1. Re-run `make setup && make security` in a connected environment to restore Bandit and pip-audit coverage (P1).
-2. Capture Ruff clean-up work in `TECH_DEBT.md` so that linting becomes actionable in CI and during local security reviews (P2).
-3. Continue to rely on the existing CI `gitleaks` and `pip-audit` stages once dependency installation succeeds; no additional runtime secrets were introduced in this follow-up (P3).
+1. Re-run security tooling in a connected environment.
+2. Track lint cleanup as technical debt rather than weakening the gate.
+3. Continue using CI-backed Gitleaks and dependency-audit evidence.
 
-Document owner: gpt-5-codex
+These recommendations are retained for history. Current status belongs in the active audit, issues, pull requests, and workflow results linked above.
