@@ -14,7 +14,18 @@ from server.application import (
 )
 from server.db import get_session
 from server.execution.service import ExecutionService
-from server.settings import get_admin_token
+from server.github_adapter.repository import GitHubAdapterRepository
+from server.github_adapter.service import (
+    GitHubAdapterDependencies,
+    GitHubAdapterService,
+)
+from server.github_adapter.transport import GitHubTransport
+from server.settings import (
+    GitHubConfigurationError,
+    get_admin_token,
+    get_github_settings,
+)
+from server.time_utils import utcnow_naive
 
 SessionDependency = Annotated[AsyncSession, Depends(get_session)]
 
@@ -29,6 +40,26 @@ def get_execution_service(session: SessionDependency) -> ExecutionService:
     """Return an isolated execution-plane service for the request session."""
 
     return build_execution_service(session)
+
+
+def get_github_adapter_service(
+    session: SessionDependency,
+) -> GitHubAdapterService:
+    """Return the server-only outbound GitHub adapter for the request session."""
+
+    try:
+        settings = get_github_settings()
+    except GitHubConfigurationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return GitHubAdapterService(
+        dependencies=GitHubAdapterDependencies(
+            repository=GitHubAdapterRepository(session),
+            execution=build_execution_service(session),
+            transport=GitHubTransport(settings),
+        ),
+        settings=settings,
+        clock=utcnow_naive,
+    )
 
 
 def resolve_task_service(
@@ -62,5 +93,8 @@ def require_admin_token(request: Request) -> None:
 
 TaskServiceDependency = Annotated[TaskService, Depends(get_task_service)]
 ExecutionServiceDependency = Annotated[ExecutionService, Depends(get_execution_service)]
+GitHubAdapterServiceDependency = Annotated[
+    GitHubAdapterService, Depends(get_github_adapter_service)
+]
 OptionalSessionDependency = Annotated[AsyncSession | None, Depends(get_session)]
 OptionalTaskServiceDependency = Annotated[TaskService | None, Depends(get_task_service)]

@@ -1,4 +1,4 @@
-# ruff: noqa: S603, S607
+# ruff: noqa: PLR2004, S603, S607
 """Server-backed, harmless ``worker-smoke@1`` acceptance coverage."""
 
 from __future__ import annotations
@@ -23,15 +23,40 @@ from client.python.execution_worker.config import WorkerConfig
 from client.python.execution_worker.evidence import EvidenceStore
 from client.python.execution_worker.worker import LocalWorker
 from server.api import AppConfig, create_app
-from server.api.dependencies import get_session
+from server.api.dependencies import (
+    SessionDependency,
+    get_github_adapter_service,
+    get_session,
+)
+from server.application import build_execution_service
 from server.db import Base
 from server.execution.evidence import ExecutionEvidence, compute_evidence_fingerprint
 from server.execution.registry import get_trusted_manifest
+from server.github_adapter.errors import (
+    GitHubAmbiguousWriteError,
+    GitHubTransportError,
+)
+from server.github_adapter.repository import GitHubAdapterRepository
+from server.github_adapter.service import (
+    GitHubAdapterDependencies,
+    GitHubAdapterService,
+)
+from server.github_adapter.transport import (
+    GitHubActorIdentity,
+    GitHubComment,
+    GitHubCommentListing,
+    GitHubTransport,
+    ResolvedPullRequest,
+)
 from server.models import ExecutionLease, ExecutionRun, ExecutionWorker
+from server.settings import GitHubSettings
+from server.time_utils import utcnow_naive
 
 _TOKEN = "worker-test-token"  # noqa: S105 - non-secret test fixture
 _HTTP_ERROR_STATUS = 400
 _EXPECTED_VALIDATION_RUNS = 2
+_GITHUB_TEST_TOKEN = "offline-acceptance-secret-placeholder"  # noqa: S105
+_GITHUB_ACTOR = GitHubActorIdentity(actor_id=700, node_id="U_acceptance")
 
 
 def _git(path: Path, *argv: str) -> str:
@@ -172,6 +197,114 @@ class _CountingAsgiSession(_AsgiSession):
         if method.lower() == "post" and url.endswith("/complete"):
             self.completion_calls += 1
         return super().request(method, url, **kwargs)
+
+
+class _MockGitHubAcceptanceTransport(GitHubTransport):
+    """Offline GitHub state and one managed-comment surface."""
+
+    def __init__(self, resolved: ResolvedPullRequest) -> None:
+        self.resolved = resolved
+        self.comments: list[GitHubComment] = []
+        self.create_calls = 0
+        self.update_calls = 0
+
+    async def resolve_pull_request(
+        self,
+        repository_full_name: str,
+        pull_request_number: int,
+        *,
+        require_head: bool = True,
+    ) -> ResolvedPullRequest:
+        assert repository_full_name == "Nobodyworld/dev-agent-switchboard"
+        assert pull_request_number == 125
+        assert not require_head or self.resolved.head_sha is not None
+        return self.resolved
+
+    async def list_comments(
+        self, repository_full_name: str, pull_request_number: int
+    ) -> GitHubCommentListing:
+        assert repository_full_name == "Nobodyworld/dev-agent-switchboard"
+        assert pull_request_number == 125
+        return GitHubCommentListing(comments=tuple(self.comments), complete=True)
+
+    async def resolve_authenticated_actor(self) -> GitHubActorIdentity:
+        return _GITHUB_ACTOR
+
+    async def get_comment(
+        self,
+        repository_full_name: str,
+        comment_id: int,
+    ) -> GitHubComment:
+        assert repository_full_name == "Nobodyworld/dev-agent-switchboard"
+        for comment in self.comments:
+            if comment.comment_id == comment_id:
+                return comment
+        raise GitHubTransportError("github_comment_not_found")
+
+    async def create_comment(
+        self,
+        repository_full_name: str,
+        pull_request_number: int,
+        body: str,
+    ) -> GitHubComment:
+        assert repository_full_name == "Nobodyworld/dev-agent-switchboard"
+        assert pull_request_number == 125
+        self.create_calls += 1
+        comment = GitHubComment(
+            comment_id=900,
+            body=body,
+            author=_GITHUB_ACTOR,
+            repository_full_name=repository_full_name,
+            pull_request_number=pull_request_number,
+        )
+        self.comments.append(comment)
+        return comment
+
+    async def update_comment(
+        self,
+        repository_full_name: str,
+        comment_id: int,
+        body: str,
+    ) -> GitHubComment:
+        assert repository_full_name == "Nobodyworld/dev-agent-switchboard"
+        self.update_calls += 1
+        for index, comment in enumerate(self.comments):
+            if comment.comment_id == comment_id:
+                updated = GitHubComment(
+                    comment_id=comment_id,
+                    body=body,
+                    author=comment.author,
+                    repository_full_name=comment.repository_full_name,
+                    pull_request_number=comment.pull_request_number,
+                )
+                self.comments[index] = updated
+                return updated
+        raise GitHubAmbiguousWriteError("github_publication_failed")
+
+
+def _resolved_pull_request(
+    head_sha: str,
+    *,
+    head_repository_full_name: str = "Nobodyworld/dev-agent-switchboard",
+    head_repository_id: int = 100,
+) -> ResolvedPullRequest:
+    return ResolvedPullRequest(
+        repository_full_name="Nobodyworld/dev-agent-switchboard",
+        repository_id=100,
+        repository_node_id="R_acceptance",
+        pull_request_number=125,
+        pull_request_id=200,
+        pull_request_node_id="PR_acceptance",
+        state="open",
+        draft=False,
+        merged=False,
+        base_ref="main",
+        base_sha="b" * 40,
+        head_ref="feature/exact-validation",
+        head_sha=head_sha,
+        head_repository_full_name=head_repository_full_name,
+        head_repository_id=head_repository_id,
+    )
 
 
 def _request(
@@ -559,6 +692,210 @@ def test_validate_switchboard_twice_retains_retrievable_exact_sha_evidence(  # n
         )
         assert malformed.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
         assert malformed.json()["detail"] == "malformed_execution_evidence"
+    finally:
+        app.dependency_overrides.clear()
+        asyncio.run(engine.dispose())
+
+
+def test_mocked_github_request_executes_exact_local_head_and_publishes_once(  # noqa: PLR0915 - complete issue #122 acceptance proof
+    tmp_path: Path,
+) -> None:
+    canonical, tested_shas, status_before = _validation_repository(tmp_path)
+    tested_sha, moved_sha = tested_shas
+    absent_fork_sha = "f" * 40
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{tmp_path / 'github-acceptance.db'}"
+    )
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    app = create_app(AppConfig(include_ui=False))
+    github = _MockGitHubAcceptanceTransport(_resolved_pull_request(tested_sha))
+
+    async def isolated_session() -> AsyncGenerator[AsyncSession, None]:
+        async with sessions() as session:
+            yield session
+
+    def github_service(session: SessionDependency) -> GitHubAdapterService:
+        settings = GitHubSettings(
+            api_url="https://api.github.com",
+            operator_id="acceptance-operator",
+            token=_GITHUB_TEST_TOKEN,
+        )
+        return GitHubAdapterService(
+            dependencies=GitHubAdapterDependencies(
+                repository=GitHubAdapterRepository(session),
+                execution=build_execution_service(session),
+                transport=github,
+            ),
+            settings=settings,
+            clock=utcnow_naive,
+        )
+
+    app.dependency_overrides[get_session] = isolated_session
+    app.dependency_overrides[get_github_adapter_service] = github_service
+
+    async def prepare() -> None:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+    asyncio.run(prepare())
+    try:
+        request_payload = {
+            "repository_full_name": "Nobodyworld/dev-agent-switchboard",
+            "pull_request_number": 125,
+            "manifest": {"name": "validate-switchboard", "version": "1"},
+        }
+        created = _request(
+            app,
+            "POST",
+            "/api/execution/github/pull-requests/validate",
+            request_payload,
+        )
+        duplicate = _request(
+            app,
+            "POST",
+            "/api/execution/github/pull-requests/validate",
+            request_payload,
+        )
+        assert duplicate["request_id"] == created["request_id"]
+        assert duplicate["work_order_id"] == created["work_order_id"]
+        assert created["tested_head_sha"] == tested_sha
+        assert created["work_order_status"] == "pending_approval"
+
+        approved = _request(
+            app,
+            "POST",
+            f"/api/execution/work-orders/{created['work_order_id']}/approve",
+            {},
+        )
+        assert approved["status"] == "queued"
+
+        config = WorkerConfig(
+            base_url="http://switchboard.test",
+            worker_id="github-acceptance-worker",
+            display_name="GitHub acceptance worker",
+            admin_token=_TOKEN,
+            worker_root=tmp_path / "github-worker-root",
+            evidence_root=tmp_path / "github-evidence-root",
+            repositories={"Nobodyworld/dev-agent-switchboard": canonical},
+            execution_timeout_seconds=3600,
+            heartbeat_interval_seconds=5,
+        )
+        with ExecutionClient(
+            config.base_url,
+            config.worker_id,
+            config.admin_token,
+            session=_AsgiSession(app),  # type: ignore[arg-type]
+        ) as client:
+            worker = LocalWorker(config, client)
+            worker.start()
+            assert worker.poll_once() is True
+
+            runs = _request(
+                app,
+                "GET",
+                f"/api/execution/runs?work_order_id={created['work_order_id']}",
+            )
+            assert len(runs) == 1
+            assert runs[0]["status"] == "succeeded", json.dumps(runs[0], indent=2)
+            assert runs[0]["evidence_metadata"]["tested_sha"] == tested_sha
+
+            published = _request(
+                app,
+                "POST",
+                ("/api/execution/github/requests/" f"{created['request_id']}/publish"),
+                {},
+            )
+            assert published["publication_state"] == "published_current"
+            assert published["publication_decision"] == "current"
+            assert published["tested_head_sha"] == tested_sha
+            assert github.create_calls == 1
+            assert github.update_calls == 0
+            assert len(github.comments) == 1
+
+            github.resolved = _resolved_pull_request(moved_sha)
+            stale = _request(
+                app,
+                "POST",
+                ("/api/execution/github/requests/" f"{created['request_id']}/publish"),
+                {},
+            )
+            assert stale["publication_state"] == "published_stale"
+            assert stale["publication_decision"] == "stale"
+            assert stale["tested_head_sha"] == tested_sha
+            assert stale["publication_head_sha"] == moved_sha
+            assert github.create_calls == 1
+            assert github.update_calls == 1
+            assert len(github.comments) == 1
+
+            github.resolved = _resolved_pull_request(
+                absent_fork_sha,
+                head_repository_full_name=("fork-owner/dev-agent-switchboard"),
+                head_repository_id=101,
+            )
+            fork_request = _request(
+                app,
+                "POST",
+                "/api/execution/github/pull-requests/validate",
+                request_payload,
+            )
+            assert fork_request["tested_head_sha"] == absent_fork_sha
+            assert fork_request["request_id"] != created["request_id"]
+            _request(
+                app,
+                "POST",
+                (
+                    "/api/execution/work-orders/"
+                    f"{fork_request['work_order_id']}/approve"
+                ),
+                {},
+            )
+            assert worker.poll_once() is True
+
+        fork_runs = _request(
+            app,
+            "GET",
+            ("/api/execution/runs?work_order_id=" f"{fork_request['work_order_id']}"),
+        )
+        assert len(fork_runs) == 1
+        assert fork_runs[0]["status"] == "failed"
+        assert fork_runs[0]["terminal_reason"] == "requested_sha_not_available_locally"
+        assert fork_runs[0]["evidence_metadata"] is None
+        assert absent_fork_sha in fork_runs[0]["result_summary"]
+        absent_publication = _AsgiSession(app).request(
+            "POST",
+            (
+                "http://switchboard.test/api/execution/github/requests/"
+                f"{fork_request['request_id']}/publish"
+            ),
+            json={},
+            headers={"Authorization": f"Bearer {_TOKEN}"},
+        )
+        assert absent_publication.status_code == HTTPStatus.CONFLICT
+        assert (
+            absent_publication.json()["detail"] == "github_terminal_evidence_required"
+        )
+
+        comment_body = github.comments[0].body
+        serialized_status = json.dumps(stale, sort_keys=True)
+        for prohibited in (
+            _GITHUB_TEST_TOKEN,
+            str(canonical),
+            str(config.worker_root),
+            str(config.evidence_root),
+            '"argv"',
+            '"stdout"',
+            '"stderr"',
+            '"environment"',
+            "response_body",
+            "artifact_locations",
+        ):
+            assert prohibited not in comment_body
+            assert prohibited not in serialized_status
+        assert tested_sha in comment_body
+        assert moved_sha not in comment_body
+        assert "Head decision: `stale` (`github_head_changed`)" in comment_body
+        assert _git(canonical, "status", "--porcelain=v1") == status_before
+        assert list(config.worker_root.glob("run-*")) == []
     finally:
         app.dependency_overrides.clear()
         asyncio.run(engine.dispose())

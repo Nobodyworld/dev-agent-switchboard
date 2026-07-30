@@ -35,6 +35,34 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
         await conn.run_sync(ensure_completed_notes_column)
 
+        def ensure_github_publication_columns(sync_conn) -> None:
+            inspector = sa_inspect(sync_conn)
+            if "github_validation_requests" not in inspector.get_table_names():
+                return
+            columns = {
+                column["name"]
+                for column in inspector.get_columns("github_validation_requests")
+            }
+            additions = {
+                "github_actor_id": "BIGINT",
+                "github_actor_node_id": "VARCHAR(128)",
+                "publication_claim_token": "VARCHAR(64)",
+                "publication_claimed_at": "DATETIME",
+                "publication_claim_expires_at": "DATETIME",
+            }
+            for name, sql_type in additions.items():
+                if name not in columns:
+                    # TODO(P2, 2d) - Move compatibility DDL into a formal
+                    # migration once startup applies Alembic revisions.
+                    sync_conn.execute(
+                        text(
+                            "ALTER TABLE github_validation_requests "
+                            f"ADD COLUMN {name} {sql_type}"
+                        )
+                    )
+
+        await conn.run_sync(ensure_github_publication_columns)
+
     async with AsyncSessionLocal() as session:
         repository = ExecutionRepository(session)
         await repository.ensure_manifests(iter_trusted_manifests())

@@ -36,6 +36,9 @@ Use this page as the concise endpoint index; use [ai-interface.md](ai-interface.
 | `/api/execution/runs/{id}/heartbeat` | `POST` | Refresh a lease owned by the named worker and mark first execution start. |
 | `/api/execution/runs/{id}/complete` | `POST` | Record `succeeded`, `failed`, `timed_out`, or `cancelled` after ownership validation. |
 | `/api/execution/leases/expire` | `POST` | Timeout stale runs, release worker capacity, and safely requeue their work orders. |
+| `/api/execution/github/pull-requests/validate` | `POST` | Resolve an allowlisted GitHub PR to one exact head and create or return one normal pending work order. |
+| `/api/execution/github/requests/{request_id}` | `GET` | Return bounded adapter identity and execution/publication lifecycle. |
+| `/api/execution/github/requests/{request_id}/publish` | `POST` | Recheck the PR head and synchronously create or update one bounded managed comment as current or stale. |
 | `/api/plan` | `GET` | Return current plan snapshot used by agents and dashboard. |
 | `/api/execplans/index` | `GET` | Return ExecPlan registry index in JSON (default) or YAML based on query/header negotiation. |
 | `/health/live` | `GET` | Liveness probe returning process and probe observations. |
@@ -93,6 +96,40 @@ SHA-256 hashes, retention timestamps, cleanup outcomes, and a deterministic
 fingerprint. It returns `404` when the run or evidence is absent and `500` when
 persisted evidence is malformed. Full logs, absolute paths, tokens, arbitrary
 environment values, and artifact bytes are never returned.
+
+## GitHub exact-PR adapter
+
+The manual outbound adapter reuses `SWITCHBOARD_ADMIN_TOKEN` authentication.
+Its create request accepts only `repository_full_name`, `pull_request_number`,
+and a trusted manifest `name`/`version`. Stable GitHub identities, exact head
+SHA, base provenance, manifest digest, work-order identity, terminal evidence,
+comment identity, and publication state are server-owned. Unknown fields,
+including commands, URLs, paths, status, hashes, worker IDs, and comment IDs,
+return `422`.
+
+An identical authenticated actor + stable PR + exact head + trusted manifest
+request returns the same adapter and work-order identities. A new head or
+credential actor creates a distinct request. Stable actor ownership identifiers
+remain server-owned and are not returned. The work order remains
+`pending_approval` until the normal explicit approval route is called.
+
+Publication requires terminal compact evidence and re-resolves the PR
+immediately before its managed comment is written. A moved or unavailable head
+is published as stale without changing the historical tested SHA. Responses
+and comments exclude credentials, remote response bodies, commands, full logs,
+environment values, local paths, and artifact locations.
+
+Every comment update is preceded by an authoritative fixed-route read that
+verifies ID, configured actor, exact repository/PR association, API origin, and
+first-line marker. Ambiguous create recovery uses a validated bounded
+newest-page window. A database-backed publication lease permits one remote
+writer per adapter request; concurrent callers receive bounded
+`github_publication_in_progress` status without writing remotely.
+
+See
+[GitHub exact pull-request validation](operations/github-exact-pr-validation.md)
+for credential permissions, marker recovery, local commit availability, and
+transport limits.
 
 ## Related Docs
 

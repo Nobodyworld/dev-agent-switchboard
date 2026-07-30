@@ -13,12 +13,12 @@ leases, heartbeats, and agent APIs. The next product stage adds a distinct
 execution plane so deterministic validation can run on approved local workers
 before a paid coding agent is used.
 
-This document describes the staged target across #112--#114. The #112 release
-is deliberately narrower: it persists and validates control-plane contracts
-only. It does not validate a checkout, execute a command, collect artifacts,
-or return execution evidence. Those worker and evidence behaviors are deferred
-to #113 and #114. The resulting system is not a general remote shell,
-autonomous coding system, provider router, or desktop RPA platform.
+This document describes the staged target across #112--#114 and the first
+outbound GitHub adapter in #122. The #112 release was deliberately narrower:
+it persisted and validated control-plane contracts only. Worker execution and
+evidence were added by #113 and #114. The resulting system is not a general
+remote shell, autonomous coding system, provider router, or desktop RPA
+platform.
 
 ## Accepted Product Decisions
 
@@ -133,6 +133,32 @@ The evidence API returns bounded summaries and safe relative references rather
 than full logs. It applies the explicit environment allowlist, configured
 secret/pattern redaction, and absolute-path redaction before data leaves the
 worker. A canonical JSON SHA-256 fingerprint binds the complete compact record.
+
+### Resolve exact pull-request heads and publish compact evidence (#122)
+
+The first GitHub adapter is a server-side, synchronous translation layer. An
+authenticated operator supplies only an allowlisted repository, pull-request
+number, and trusted manifest identity. The adapter first resolves the configured
+credential's stable actor identity, then resolves stable GitHub repository/PR
+identity and one exact current head SHA. The actor, target, head, and manifest
+bind one deterministic adapter request and normal pending work order. The
+existing explicit approval, lease, worker, evidence, and repository-read-only
+boundaries remain authoritative.
+
+Immediately before publication, the server resolves the PR again. An unchanged
+head can receive one bounded managed comment for the exact tested SHA; a moved
+or unavailable head is marked stale and never receives a current-success
+claim. The adapter persists comment ownership and recovers an ambiguous create
+only after verifying configured-actor authorship, exact repository/PR
+association, configured origin, and the deterministic marker. Bounded
+newest-page recovery never follows supplied pagination URLs. A database-backed
+expiring publication lease serializes remote writes across server processes;
+stale attempts cannot finalize over a newer holder.
+
+GitHub credentials remain server-only. The adapter does not fetch source or
+give credentials/network access to the worker. The exact resolved commit object
+must already exist in the operator-configured canonical repository. Missing
+objects fail locally without SHA substitution or success evidence.
 
 ### Defer provider routing
 
@@ -284,7 +310,7 @@ The implementation must protect these boundaries:
 - **Evidence:** bounded summaries, artifact hashes, redaction, retention, and
   truthful cleanup status.
 
-## Future First End-to-End Target (#113/#114)
+## Phase 1 End-to-End Flow (#113/#114)
 
 ```text
 Connector or operator identifies a pull-request head SHA
@@ -296,9 +322,9 @@ Connector or operator identifies a pull-request head SHA
     -> connector reviews the evidence
 ```
 
-The first target does not automatically post GitHub comments or check runs. It
-exposes evidence in a form that the existing connector can review. GitHub event
-ingestion and posting are Phase 2.
+Phase 1 exposes evidence for operator or connector review. Issue #122 adds one
+manual outbound managed-comment publisher. It does not add GitHub event
+ingestion, webhooks, polling, or check runs.
 
 ## Implementation Phases
 
@@ -367,10 +393,21 @@ Tracked by #114:
 - retention and redaction;
 - exact-SHA end-to-end validation.
 
+### Phase 2A — GitHub exact-PR adapter
+
+Tracked by #122:
+
+- manual authenticated resolve/status/publish API;
+- stable repository/PR identity and exact-head idempotency;
+- one additive adapter lifecycle table linked to normal work orders/runs;
+- immediate pre-publication head recheck;
+- one bounded managed PR comment with current/stale truth;
+- no source synchronization, webhooks, checks, or automatic approval.
+
 ### Later phases
 
 - evidence reuse and known-baseline failures;
-- GitHub event and result adapters;
+- GitHub webhook ingestion and status/check integrations;
 - GitHub Actions versus local-worker routing;
 - MCP tools and secure outbound tunnel integration;
 - provider budget and rate-limit routing;

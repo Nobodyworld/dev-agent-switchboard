@@ -20,6 +20,10 @@ _SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 _MARKER_NAME = "ownership.json"
 
 
+class LocalCommitUnavailableError(ValueError):
+    """Raised when the requested exact commit object is absent locally."""
+
+
 def _absolute(path: Path) -> Path:
     return Path(os.path.abspath(path.expanduser()))
 
@@ -206,7 +210,7 @@ def create_worktree(
         raise ValueError("worker root and canonical repository must not overlap")
     check = _git(canonical, "cat-file", "-e", f"{sha}^{{commit}}", check=False)
     if check.returncode != 0:
-        raise ValueError("requested SHA is not a local commit")
+        raise LocalCommitUnavailableError("requested SHA is not a local commit")
     root.mkdir(parents=True, exist_ok=True)
     _assert_no_reparse_points(root)
     run_identity = uuid.uuid4().hex
@@ -249,4 +253,9 @@ def create_worktree(
     return worktree
 
 
-__all__ = ["CanonicalSnapshot", "DisposableWorktree", "create_worktree"]
+__all__ = [
+    "CanonicalSnapshot",
+    "DisposableWorktree",
+    "LocalCommitUnavailableError",
+    "create_worktree",
+]
