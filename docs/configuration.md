@@ -36,6 +36,21 @@ configuration surface. See
 [GitHub exact pull-request validation](operations/github-exact-pr-validation.md)
 for the complete operator and security contract.
 
+## Exact evidence reuse
+
+Evidence reuse has no global environment-variable switch and no
+caller-selected cache location. It is chosen per work order with
+`reuse_policy`: `never` (default), `allow_exact`, or `require_exact`. The server
+derives and persists the execution-policy hash; the assigned worker derives the
+environment and dependency-lock portions of the strict identity from its
+current exact-SHA checkout.
+
+Local proof uses the existing worker-owned `evidence_root`, retention days, and
+artifact count/byte limits. Candidate metadata never contains the configured
+root or a local directory. Reuse does not extend the source run's retention;
+operators must provision retention long enough for their intended validation
+window and accept that pruning or changed bytes make a candidate unavailable.
+
 ## CLI: `switchboard-cli config`
 
 The Python CLI gains a `config` subcommand:

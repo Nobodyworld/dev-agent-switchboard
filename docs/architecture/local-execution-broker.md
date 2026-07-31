@@ -13,8 +13,9 @@ leases, heartbeats, and agent APIs. The next product stage adds a distinct
 execution plane so deterministic validation can run on approved local workers
 before a paid coding agent is used.
 
-This document describes the staged target across #112--#114 and the first
-outbound GitHub adapter in #122. The #112 release was deliberately narrower:
+This document describes the staged target across #112--#114, exact evidence
+reuse in #121, and the first outbound GitHub adapter in #122. The #112 release
+was deliberately narrower:
 it persisted and validated control-plane contracts only. Worker execution and
 evidence were added by #113 and #114. The resulting system is not a general
 remote shell, autonomous coding system, provider router, or desktop RPA
@@ -134,6 +135,31 @@ than full logs. It applies the explicit environment allowlist, configured
 secret/pattern redaction, and absolute-path redaction before data leaves the
 worker. A canonical JSON SHA-256 fingerprint binds the complete compact record.
 
+### Reuse exact evidence only after worker-local proof (#121)
+
+Reuse is explicit and read-only. `never` remains the default and always runs
+the trusted manifest. `allow_exact` may skip validation only when every
+deterministic result input matches and the source worker proves its retained
+evidence locally; otherwise it executes once under the same live lease.
+`require_exact` never executes validation and returns a bounded non-success
+when exact proof is unavailable.
+
+The versioned reuse identity is separate from the complete evidence
+fingerprint. It binds repository and exact SHA, manifest identity and digest,
+worker environment fingerprint, canonically sorted dependency-lock hashes,
+result-affecting execution policy, and parser/artifact result contract. It
+excludes run/work-order IDs, timestamps, durations, outcomes, cleanup text,
+source provenance, and the complete evidence fingerprint.
+
+The server uses that identity only to select a bounded, deterministic,
+successful candidate on the same worker. The worker derives
+`run-<source-run-id>` beneath its configured evidence root and rechecks the
+exact ownership marker, local result identity, retention, regular-file and
+non-reparse containment, declared size and SHA-256, and file stability. No
+caller or server response supplies an absolute path. A reused execution is a
+new run linked to the immutable source run and evidence fingerprint; it does
+not copy bytes, extend retention, or mutate the source.
+
 ### Resolve exact pull-request heads and publish compact evidence (#122)
 
 The first GitHub adapter is a server-side, synchronous translation layer. An
@@ -186,6 +212,7 @@ A work order includes at least:
 - timeout and resource ceilings;
 - requested network and repository-write policies;
 - preferred executor and cost-ceiling metadata;
+- explicit evidence-reuse policy and server-derived execution-policy hash;
 - lifecycle timestamps and terminal reason.
 
 Suggested lifecycle:
@@ -326,6 +353,12 @@ Phase 1 exposes evidence for operator or connector review. Issue #122 adds one
 manual outbound managed-comment publisher. It does not add GitHub event
 ingestion, webhooks, polling, or check runs.
 
+With #121, an opted-in assignment first derives its exact identity in the
+detached checkout. Switchboard may return a same-worker candidate; local proof
+then either creates a distinct reused run outcome without executing steps or
+continues once through the normal fresh path. Lease heartbeat, cancellation,
+expiry, ownership loss, and stale-completion rules remain unchanged.
+
 ## Implementation Phases
 
 ### Phase 1A — Contracts and lifecycle
@@ -404,9 +437,20 @@ Tracked by #122:
 - one bounded managed PR comment with current/stale truth;
 - no source synchronization, webhooks, checks, or automatic approval.
 
+### Phase 2B — Exact evidence reuse
+
+Tracked by #121:
+
+- explicit `never`, `allow_exact`, and `require_exact` policies;
+- strict canonical reuse identity and exact indexed candidate selection;
+- same-worker marker, result, artifact, hash, retention, and stability proof;
+- distinct run provenance without artifact-byte transfer or source mutation;
+- one lease-owned fresh fallback for `allow_exact` and no validation for
+  `require_exact`.
+
 ### Later phases
 
-- evidence reuse and known-baseline failures;
+- known-baseline failures;
 - GitHub webhook ingestion and status/check integrations;
 - GitHub Actions versus local-worker routing;
 - MCP tools and secure outbound tunnel integration;

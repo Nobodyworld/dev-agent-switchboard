@@ -24,17 +24,23 @@ A successful reuse creates a distinct auditable run linked to the immutable sour
 - [x] Exact implementation base selected: `709b84dfe0dc101bdc79de562a95d1db713315f3`.
 - [x] Canonical branch `feat/exact-evidence-reuse` created from the exact base.
 - [x] Initial living ExecPlan created.
-- [ ] Audit current work-order, run, evidence, worker, retention, startup-schema, and API contracts.
-- [ ] Lock the versioned reuse-policy and reuse-identity contracts.
-- [ ] Implement additive persistence and restart-safe schema compatibility.
-- [ ] Implement exact successful-candidate lookup with deterministic ordering.
-- [ ] Implement worker-local retained-evidence verification without caller-controlled paths.
-- [ ] Integrate reuse selection, verification, fallback, and terminalization into the lease-owned execution flow.
-- [ ] Expose bounded provenance through normal work-order, run, and evidence APIs.
-- [ ] Add focused identity, persistence, retention, concurrency, worker-verification, fallback, and API tests.
-- [ ] Add a server-backed first-run/fresh, second-run/reuse, changed-input/fallback-or-failure proof.
-- [ ] Update API, architecture, configuration, and local-worker documentation.
-- [ ] Run complete local and hosted validation and record exact evidence.
+- [x] Audit current work-order, run, evidence, worker, retention, startup-schema, and API contracts.
+- [x] Run the untouched baseline dependency, server execution, and worker
+  evidence suites.
+- [x] Lock the versioned reuse-policy and reuse-identity contracts.
+- [x] Implement additive persistence and restart-safe schema compatibility.
+- [x] Implement exact successful-candidate lookup with deterministic ordering.
+- [x] Implement worker-local retained-evidence verification without caller-controlled paths.
+- [x] Integrate reuse selection, verification, fallback, and terminalization into the lease-owned execution flow.
+- [x] Expose bounded provenance through normal work-order, run, and evidence APIs.
+- [x] Complete focused identity, persistence, retention, concurrency,
+  worker-verification, fallback, and API tests, including two independent
+  database sessions and bounded API response assertions.
+- [x] Add a fresh-first, locally verified second-run reuse proof plus changed
+  local-result fallback and `require_exact` failure proofs.
+- [x] Update API, architecture, configuration, and local-worker documentation.
+- [x] Run complete local validation and record exact evidence.
+- [ ] Push the reviewed commits and require the complete hosted PR matrix.
 
 ## Surprises & Discoveries
 
@@ -49,6 +55,32 @@ A successful reuse creates a distinct auditable run linked to the immutable sour
 
 - Observation: `ExecutionWorkOrder` and `ExecutionRun` currently have no reuse policy or provenance fields; `ExecutionRun.worker_id`, assignment times, and lease metadata are non-null.
   Evidence: `server/models.py`. Do not invent a sentinel worker to represent a server-only miss. Prefer a lease-owned verification attempt when a source worker exists, and make any no-candidate `require_exact` terminal model explicit and truthful if schema changes are necessary.
+
+- Observation: the planning reference to
+  `client/python/execution_worker/server_client.py` is stale; the bounded
+  outbound protocol implementation is
+  `client/python/execution_worker/client.py`.
+  Evidence: the worker package contains `client.py`, and `worker.py` imports
+  `ExecutionClient` from that module. No protocol layer is missing.
+
+- Observation: the untouched baseline is green in the standalone task-only
+  Python 3.11 environment required for Windows worker-child resolution.
+  Evidence: dependency integrity passed; the server execution baseline
+  produced `49 passed` in `27.92s`; the worker evidence/finalization/runtime
+  baseline produced `25 passed, 1 skipped` in `42.91s`.
+
+- Observation: strict worker response parsing exposed stale direct-test fixtures
+  that omitted the newly server-derived reuse policy and execution-policy hash.
+  Evidence: the first expanded regression run produced five fixture failures;
+  updating the shared complete `WorkOrderOut` fixture restored the legacy matrix
+  to `78 passed, 1 skipped` without making unknown response fields acceptable.
+
+- Observation: the existing worker-smoke manifest retains no declared artifacts,
+  so the lifecycle proof tampers with marker-bound `result.json`, while artifact
+  byte, type, hash, and pruning-race cases are covered directly against the local
+  verifier with a synthetic declared artifact.
+  Evidence: the fresh-to-reused worker proof skips every validation step on a
+  verified source; the tampered-result proof executes the trusted manifest once.
 
 ## Decision Log
 
@@ -80,9 +112,47 @@ A successful reuse creates a distinct auditable run linked to the immutable sour
   Rationale: PR #125 consumes normal run evidence. It may display fresh/reused provenance after the execution API gains it, but #121 must not broaden GitHub permissions, webhooks, workflow dispatch, or publication scope.
   Date/Author: 2026-07-30 / connector planning
 
+- Decision: resolve reuse candidates only after the assigned worker checks out
+  the exact SHA and derives its current environment and dependency-lock identity.
+  The server then matches the complete identity and same source worker, and the
+  worker performs local proof before any reused completion.
+  Rationale: database metadata cannot predict or prove the current worker-local
+  environment or retained bytes, and caller-selected source provenance is
+  forbidden.
+  Date/Author: 2026-07-31 / implementation
+
+- Decision: order exact candidates by descending source run ID and scan at most
+  32 exact database matches, accepting the newest structurally valid, unexpired,
+  fresh source. Malformed matches are skipped closed rather than made reusable.
+  Rationale: ordering is deterministic and bounded while permitting recovery
+  from a newer corrupt metadata row without approximate matching.
+  Date/Author: 2026-07-31 / implementation
+
+- Decision: preserve rolling compatibility for `never` completions from
+  pre-reuse workers. Such legacy evidence remains valid historical evidence but
+  lacks a reuse identity and retention proof, so it cannot become a reuse source.
+  Rationale: default fresh execution must remain compatible, while only new
+  complete cryptographic identities may enter exact-candidate lookup.
+  Date/Author: 2026-07-31 / implementation
+
 ## Outcomes & Retrospective
 
-Pending implementation.
+The implementation is complete locally. Exact reuse is opt-in and maintains the
+existing lease-owned outbound worker model: the worker derives current identity,
+the server selects an exact same-worker candidate, and only marker-bound local
+proof can produce a reused run. Source evidence remains immutable and retains
+its original expiry. Legacy `never` callers and workers remain compatible but
+cannot accidentally create reusable database-only evidence.
+
+The complete local matrix is green: focused reuse coverage produced `118
+passed, 2 skipped`; full pytest produced `506 passed, 5 skipped`; strict browser
+coverage produced `2 passed, 0 skipped`; aggregate configured coverage is 91%;
+all 16 module thresholds passed. Dependency integrity, pre-commit, TODO policy,
+Ruff, Black, Mypy, Bandit, pip-audit, Gitleaks, Lychee, and `git diff --check`
+passed. The added-line public-hygiene audit found no workstation identity,
+absolute local path, credential, private key, environment assignment, or
+private-network URL. Hosted validation and the final branch identity remain
+pending until the reviewed commits are pushed.
 
 ## Context and Orientation
 
@@ -93,7 +163,8 @@ Pending implementation.
 - `server/execution/service.py` owns approval, queueing, checkout, lease heartbeat, completion, evidence binding, and stale-lease recovery.
 - `server/execution/repository.py` owns atomic persistence and conditional lifecycle transitions.
 - `server/api/routers/execution.py` and the execution schemas expose operator and worker surfaces.
-- `client/python/execution_worker/worker.py`, `runner.py`, `models.py`, and `server_client.py` implement the outbound worker loop and server protocol.
+- `client/python/execution_worker/worker.py`, `runner.py`, `models.py`, and
+  `client.py` implement the outbound worker loop and server protocol.
 - `server/api/lifecycle.py` contains restart-safe additive startup compatibility used when `create_all()` cannot add columns to existing SQLite tables.
 - `server/tests/test_execution_contracts.py`, `test_execution_evidence.py`, `test_execution_concurrency.py`, and worker evidence/runtime/finalization tests are the primary regression foundations.
 
@@ -139,10 +210,14 @@ git merge-base origin/main origin/feat/exact-evidence-reuse
 git status --short --branch
 ```
 
-All three commit identities must initially equal:
+The exact initial identities are:
 
 ```text
+origin/main and merge base:
 709b84dfe0dc101bdc79de562a95d1db713315f3
+
+origin/feat/exact-evidence-reuse:
+7838fbff7875ee455085626ba02f625e964c61c2
 ```
 
 Use a clean isolated worktree for the existing branch. Stop rather than resetting, rebasing, force-pushing, cleaning uncertain files, or disturbing another worktree.
@@ -250,7 +325,41 @@ Acceptance requires all of the following:
 
 Record during implementation:
 
-- exact starting and final SHAs;
+- exact starting SHAs: main and merge base
+  `709b84dfe0dc101bdc79de562a95d1db713315f3`; branch
+  `7838fbff7875ee455085626ba02f625e964c61c2`;
+- untouched baseline: `python -m pip check` passed; server execution suites
+  produced `49 passed` in `27.92s`; worker evidence/finalization/runtime suites
+  produced `25 passed, 1 skipped` in `42.91s`;
+- expanded legacy regression after the response-fixture compatibility correction:
+  `78 passed, 1 skipped` in `75.95s`;
+- direct identity and server selection/lifecycle checkpoint: `50 passed` in
+  `27.47s`;
+- worker-local proof and lifecycle checkpoint: `19 passed, 2 skipped` in
+  `10.51s`; the skips are intentional opposite-platform symlink/junction
+  counterparts;
+- persistence additions: work orders retain `reuse_policy` and
+  `execution_policy_hash`; runs retain strict identity/hash, decision/reason,
+  source run/fingerprint, bounded active candidate metadata, and evidence
+  retention expiry. Exact lookup is indexed by identity hash, worker, and status;
+  source-run and retention indexes support provenance and expiry inspection;
+- complete focused actor-independent reuse matrix after concurrency, startup,
+  API, and verifier-bound coverage: `118 passed, 2 skipped` in `74.72s`;
+- final full pytest: `506 passed, 5 skipped` in `293.89s`; strict browser: `2
+  passed, 0 skipped` in `8.28s`;
+- aggregate configured coverage: 91%. Module results: contracts 95.40%,
+  interfaces 94.17%, loader 100.00%, runtime 100.00%, task metrics 92.59%,
+  plan metrics 95.00%, plan latency 87.76%, plan snapshot 100.00%, activity
+  feed 100.00%, extension observability 97.73%, diagnostics 90.16%, health
+  95.78%, activity 94.83%, overview 100.00%, task service 79.23%, and
+  configuration service 91.30%;
+- final local gates: pip check, pre-commit, TODO policy, Ruff, Black, Mypy,
+  Bandit, pip-audit, Gitleaks, Lychee, and diff check passed. Gitleaks scanned
+  232 commits with no leaks; pip-audit found no known vulnerabilities;
+- public hygiene: added lines and new files contain no workstation identity,
+  absolute local path, credential-shaped value, private key, environment
+  assignment, or private-network URL. Generated reports, databases, link state,
+  coverage data, caches, and bytecode were removed before staging;
 - schema fields/indexes and startup compatibility behavior;
 - canonical reuse-identity example with sensitive values absent;
 - focused identity and malformed-input counts;

@@ -147,6 +147,34 @@ and restart. Never bulk-delete the root. If artifact finalization or local
 result writing fails while ownership remains, the worker reports a truthful
 failed terminal result and preserves safe diagnostic files.
 
+### Exact evidence reuse
+
+Work orders default to `reuse_policy: never`. For `allow_exact` or
+`require_exact`, the assigned worker first creates the normal live run and
+exact-SHA disposable checkout, then derives a versioned identity from the
+trusted manifest, current safe environment fingerprint, declared dependency
+locks, and server-derived execution policy. The worker cannot accept a
+caller-selected source run, worker, fingerprint, filename, command, or path.
+
+When Switchboard returns a bounded same-worker candidate, the worker derives
+the source directory internally as `run-<source-run-id>` beneath
+`evidence_root`. It verifies the exact ownership marker, immutable local result
+identity and complete evidence fingerprint, original non-expired retention,
+and every declared artifact. Each file must remain contained, regular,
+non-symlink/non-reparse, within configured count and byte limits, and stable
+across size and SHA-256 verification. Missing, pruned, changed, malformed,
+foreign-worker, traversal-shaped, device-shaped, or ambiguous evidence fails
+closed; no artifact bytes or local paths are returned to the server.
+
+A verified reuse executes no validation step. The new run records the decision,
+identity/hash, source run ID, and source evidence fingerprint while leaving the
+source directory and expiry unchanged. `allow_exact` performs at most one
+fresh execution after failed proof while the same lease remains live.
+`require_exact` performs no validation and completes with a bounded non-success
+reason when proof cannot be obtained. Cancellation, heartbeat, lease expiry,
+ownership loss, and stale-completion suppression apply during lookup,
+verification, and fallback exactly as they do during fresh execution.
+
 ## Source cleanup, cancellation, and restart
 
 The disposable `checkout` is removed through its exact registered
@@ -190,4 +218,4 @@ arguments.
 
 Artifact upload/download and server-side artifact-byte retention remain out of
 scope. The server persists only compact evidence and verified artifact metadata;
-later evidence-reuse work may build on the deterministic fingerprint.
+reuse never transfers the retained bytes.
