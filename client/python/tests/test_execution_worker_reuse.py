@@ -66,13 +66,12 @@ class _ReuseClient:
         order: dict[str, Any],
         manifest: TrustedManifest,
         candidate: ReuseCandidate | None = None,
-        lose_lookup_ownership: bool = False,
     ) -> None:
         self.run_id = run_id
         self.order = order
         self.manifest = manifest
         self.candidate = candidate
-        self.lose_lookup_ownership = lose_lookup_ownership
+        self.lose_lookup_ownership = False
         self.completed: list[dict[str, Any]] = []
         self.lookup_calls = 0
 
@@ -249,8 +248,8 @@ def test_ownership_loss_during_reuse_lookup_suppresses_execution_and_completion(
         run_id=7,
         order=order,
         manifest=manifest,
-        lose_lookup_ownership=True,
     )
+    client.lose_lookup_ownership = True
     worker = LocalWorker(_config(tmp_path, repository), client)  # type: ignore[arg-type]
 
     with patch("client.python.execution_worker.worker.run_step") as run_step:

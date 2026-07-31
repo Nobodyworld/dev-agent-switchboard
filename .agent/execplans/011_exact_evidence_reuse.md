@@ -82,6 +82,14 @@ A successful reuse creates a distinct auditable run linked to the immutable sour
   Evidence: the fresh-to-reused worker proof skips every validation step on a
   verified source; the tampered-result proof executes the trusted manifest once.
 
+- Observation: hosted pre-commit sees only tracked files, while the final local
+  pre-commit pass before the initial commits could not include the two then-new
+  untracked test modules.
+  Evidence: CI run `30629456819` passed Commitlint, secrets, links, security,
+  typecheck, and tests but its lint job rejected the newly tracked fake-client
+  constructor for six parameters. Removing the constructor-only test flag made
+  pinned pre-commit pass without changing production code or coverage.
+
 ## Decision Log
 
 - Decision: preserve `never` as the default and require explicit opt-in for every other policy.
@@ -360,6 +368,9 @@ Record during implementation:
   absolute local path, credential-shaped value, private key, environment
   assignment, or private-network URL. Generated reports, databases, link state,
   coverage data, caches, and bytecode were removed before staging;
+- initial pushed evidence head `b1cca75e5052de3f795b9b8530d3662ad0512dd3`
+  reached CI run `30629456819`; a test-only Ruff arity failure required one
+  correction commit, so that run is historical rather than final evidence;
 - schema fields/indexes and startup compatibility behavior;
 - canonical reuse-identity example with sensitive values absent;
 - focused identity and malformed-input counts;
