@@ -22,6 +22,7 @@ from server.execution.enums import (
     ReuseDecision,
     ReusePolicy,
     WorkerStatus,
+    WorkOrderStatus,
 )
 from server.execution.evidence import (
     EnvironmentIdentity,
@@ -418,6 +419,105 @@ async def test_candidate_selection_is_newest_valid_and_skips_malformed_newer() -
         )
         assert fallback.candidate is not None
         assert fallback.candidate.source_run_id == older.id
+
+
+@pytest.mark.parametrize(
+    "inconsistency",
+    [
+        "source_order_failed",
+        "source_order_cancelled",
+        "source_order_timed_out",
+        "source_order_finished_at_missing",
+        "source_run_reused_from_present",
+        "source_run_fingerprint_present",
+        "source_run_candidate_metadata_present",
+    ],
+)
+@pytest.mark.asyncio
+async def test_inconsistent_newer_source_is_skipped_without_mutation(
+    inconsistency: str,
+) -> None:
+    async with AsyncSessionLocal() as session:
+        service = build_execution_service(session)
+        await service.register_worker(_worker())
+        older_order, older, _, _ = await _fresh_source(service)
+        newer_order, newer, _, _ = await _fresh_source(service)
+        await session.refresh(older_order)
+        await session.refresh(older)
+        await session.refresh(newer_order)
+        await session.refresh(newer)
+
+        if inconsistency == "source_order_failed":
+            newer_order.status = WorkOrderStatus.FAILED
+        elif inconsistency == "source_order_cancelled":
+            newer_order.status = WorkOrderStatus.CANCELLED
+        elif inconsistency == "source_order_timed_out":
+            newer_order.status = WorkOrderStatus.TIMED_OUT
+        elif inconsistency == "source_order_finished_at_missing":
+            newer_order.finished_at = None
+        elif inconsistency == "source_run_reused_from_present":
+            newer.reused_from_run_id = older.id
+        elif inconsistency == "source_run_fingerprint_present":
+            newer.source_evidence_fingerprint = "f" * 64
+        else:
+            newer.reuse_candidate_metadata = {"source_run_id": older.id}
+        await session.flush()
+        malformed_snapshot = (
+            newer_order.status,
+            newer_order.finished_at,
+            newer.reused_from_run_id,
+            newer.source_evidence_fingerprint,
+            newer.reuse_candidate_metadata,
+        )
+
+        order = await _approved(service, ReusePolicy.ALLOW_EXACT)
+        assignment = await service.checkout(_WORKER)
+        assert assignment.run_id is not None
+        identity = _identity(order)
+        fallback = await service.resolve_reuse_candidate(
+            assignment.run_id,
+            worker_id=_WORKER,
+            reuse_identity=identity,
+            reuse_identity_hash=compute_reuse_identity_hash(identity),
+        )
+        assert fallback.candidate is not None
+        assert fallback.candidate.source_run_id == older.id
+
+        await session.refresh(newer_order)
+        await session.refresh(newer)
+        assert (
+            newer_order.status,
+            newer_order.finished_at,
+            newer.reused_from_run_id,
+            newer.source_evidence_fingerprint,
+            newer.reuse_candidate_metadata,
+        ) == malformed_snapshot
+
+        await service.cancel_work_order(order.id, reason="test_next_lookup")
+        older_order.status = WorkOrderStatus.FAILED
+        await session.flush()
+        unavailable_order = await _approved(service, ReusePolicy.ALLOW_EXACT)
+        unavailable_assignment = await service.checkout(_WORKER)
+        assert unavailable_assignment.run_id is not None
+        unavailable_identity = _identity(unavailable_order)
+        unavailable = await service.resolve_reuse_candidate(
+            unavailable_assignment.run_id,
+            worker_id=_WORKER,
+            reuse_identity=unavailable_identity,
+            reuse_identity_hash=compute_reuse_identity_hash(unavailable_identity),
+        )
+        assert unavailable.candidate is None
+        assert unavailable.decision == ReuseDecision.UNAVAILABLE
+
+        await session.refresh(newer_order)
+        await session.refresh(newer)
+        assert (
+            newer_order.status,
+            newer_order.finished_at,
+            newer.reused_from_run_id,
+            newer.source_evidence_fingerprint,
+            newer.reuse_candidate_metadata,
+        ) == malformed_snapshot
 
 
 @pytest.mark.asyncio

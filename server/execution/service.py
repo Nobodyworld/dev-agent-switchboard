@@ -682,6 +682,13 @@ class ExecutionService:
             provenance = evidence.reuse_provenance
             if (
                 worker is None
+                or source_order.status != WorkOrderStatus.SUCCEEDED
+                or source_order.finished_at is None
+                or source_run.status != ExecutionRunStatus.SUCCEEDED
+                or source_run.reuse_decision != ReuseDecision.FRESH
+                or source_run.reused_from_run_id is not None
+                or source_run.source_evidence_fingerprint is not None
+                or source_run.reuse_candidate_metadata is not None
                 or retention <= now.replace(tzinfo=dt.UTC)
                 or stored_identity != expected_identity
                 or source_run.reuse_identity_hash
@@ -695,6 +702,8 @@ class ExecutionService:
                 or any(item.retention_expires_at != retention for item in artifacts)
                 or provenance is None
                 or provenance.decision != "fresh"
+                or provenance.source_run_id is not None
+                or provenance.source_evidence_fingerprint is not None
                 or provenance.reuse_identity_hash != source_run.reuse_identity_hash
                 or stored_identity.repository_full_name != evidence.repository_full_name
                 or stored_identity.tested_sha != evidence.tested_sha

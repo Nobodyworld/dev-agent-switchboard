@@ -385,6 +385,7 @@ class ExecutionRepository:
             )
             .order_by(ExecutionRun.id.desc())
             .limit(_MAX_EXACT_REUSE_CANDIDATES)
+            .execution_options(populate_existing=True)
         )
         return list(result.tuples())
 
