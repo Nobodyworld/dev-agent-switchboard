@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from server.execution.evidence import compute_execution_policy_hash
 from server.execution.registry import TrustedManifest
 
 _TIMESTAMP = "2026-07-16T00:00:00+00:00"
@@ -16,6 +17,15 @@ def work_order_payload(
 ) -> dict[str, Any]:
     """Return the complete current ``WorkOrderOut`` JSON contract."""
 
+    execution_policy_hash = compute_execution_policy_hash(
+        expected_artifact_kinds=(),
+        manifest_parameters={},
+        permitted_paths=(),
+        required_capabilities={"repository_write": False},
+        timeout_seconds=manifest.timeout_seconds,
+        network_policy=manifest.network_policy.value,
+        repository_write_allowed=False,
+    )
     payload: dict[str, Any] = {
         "id": 3,
         "schema_version": 1,
@@ -46,6 +56,8 @@ def work_order_payload(
         "started_at": None,
         "finished_at": None,
         "terminal_reason": None,
+        "reuse_policy": "never",
+        "execution_policy_hash": execution_policy_hash,
     }
     payload.update(overrides)
     return payload
