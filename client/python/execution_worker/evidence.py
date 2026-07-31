@@ -11,7 +11,14 @@ import stat
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from server.execution.evidence import ArtifactRecord, validate_relative_path
+from server.execution.evidence import (
+    ArtifactRecord,
+    EvidenceReuseIdentity,
+    ExecutionEvidence,
+    ReuseCandidate,
+    compute_reuse_identity_hash,
+    validate_relative_path,
+)
 from server.execution.registry import TrustedArtifact
 
 _MARKER_NAME = "ownership.json"
@@ -104,6 +111,14 @@ class EvidenceLimits:
 class PruneResult:
     removed_run_ids: tuple[int, ...]
     failures: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ReuseVerificationResult:
+    """Bounded local verification disposition without paths or artifact bytes."""
+
+    verified: bool
+    reason: str
 
 
 @dataclass(slots=True)
@@ -271,6 +286,137 @@ def create_evidence_store(  # noqa: PLR0913 - policy inputs remain explicit
     return store
 
 
+def _read_stable_json(path: Path, root: Path, *, maximum_bytes: int) -> object:
+    before = _assert_regular_contained(path, root)
+    if before.st_size > maximum_bytes:
+        raise ValueError("local JSON record exceeds configured bound")
+    data = path.read_bytes()
+    after = _assert_regular_contained(path, root)
+    if (
+        before.st_size,
+        before.st_mtime_ns,
+        before.st_ctime_ns,
+    ) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+        raise RuntimeError("local JSON record changed while being read")
+    return json.loads(data.decode("utf-8"))
+
+
+def verify_reuse_candidate(  # noqa: PLR0911, PLR0912 - fail-closed reasons are explicit
+    *,
+    evidence_root: Path,
+    worker_id: str,
+    candidate: ReuseCandidate,
+    now: dt.datetime,
+    limits: EvidenceLimits,
+) -> ReuseVerificationResult:
+    """Reopen and verify one server-selected source beneath the local root."""
+
+    if now.tzinfo is None or now.utcoffset() is None:
+        return ReuseVerificationResult(False, "reuse_verification_time_invalid")
+    if candidate.expected_source_worker_id != worker_id:
+        return ReuseVerificationResult(False, "source_worker_mismatch")
+    if candidate.retention_expires_at <= now.astimezone(dt.UTC):
+        return ReuseVerificationResult(False, "source_evidence_expired")
+    if len(candidate.artifacts) > limits.maximum_artifact_count:
+        return ReuseVerificationResult(False, "source_artifact_count_oversized")
+    root = _absolute(evidence_root)
+    run_directory = root / f"run-{candidate.source_run_id}"
+    try:
+        _assert_no_reparse_ancestry(root)
+        store = EvidenceStore(
+            root=root,
+            run_directory=run_directory,
+            worker_id=worker_id,
+            run_id=candidate.source_run_id,
+            created_at=candidate.source_created_at,
+            retention_expires_at=candidate.retention_expires_at,
+            limits=limits,
+        )
+        store.verify_ownership()
+    except FileNotFoundError:
+        return ReuseVerificationResult(False, "source_evidence_missing")
+    except (OSError, ValueError, RuntimeError):
+        return ReuseVerificationResult(False, "source_marker_invalid")
+
+    try:
+        payload = _read_stable_json(
+            store.result,
+            store.run_directory,
+            maximum_bytes=limits.maximum_artifact_bytes,
+        )
+        if not isinstance(payload, dict) or set(payload) != {
+            "evidence",
+            "result_summary",
+            "reuse_identity",
+            "reuse_identity_hash",
+        }:
+            return ReuseVerificationResult(False, "source_result_invalid")
+        evidence = ExecutionEvidence.model_validate(payload["evidence"])
+        identity = EvidenceReuseIdentity.model_validate(payload["reuse_identity"])
+        identity_hash = payload["reuse_identity_hash"]
+        provenance = evidence.reuse_provenance
+        if (
+            not isinstance(identity_hash, str)
+            or identity != candidate.reuse_identity
+            or identity_hash != candidate.reuse_identity_hash
+            or identity_hash != compute_reuse_identity_hash(identity)
+            or evidence.run_id != candidate.source_run_id
+            or evidence.worker_id != worker_id
+            or evidence.terminal_status != "succeeded"
+            or evidence.fingerprint != candidate.expected_source_evidence_fingerprint
+            or evidence.repository_full_name != identity.repository_full_name
+            or evidence.tested_sha != identity.tested_sha
+            or evidence.manifest_name != identity.manifest_name
+            or evidence.manifest_version != identity.manifest_version
+            or evidence.manifest_digest != identity.manifest_digest
+            or evidence.environment.fingerprint
+            != identity.worker_environment_fingerprint
+            or evidence.dependency_lock_hashes != identity.dependency_lock_hashes
+            or evidence.artifacts != candidate.artifacts
+            or provenance is None
+            or provenance.decision != "fresh"
+            or provenance.reuse_identity_hash != identity_hash
+        ):
+            return ReuseVerificationResult(False, "source_result_identity_mismatch")
+    except FileNotFoundError:
+        return ReuseVerificationResult(False, "source_evidence_missing")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+        return ReuseVerificationResult(False, "source_result_invalid")
+    except RuntimeError:
+        return ReuseVerificationResult(False, "source_result_unstable")
+
+    total = 0
+    try:
+        for record in candidate.artifacts:
+            if record.retention_expires_at != candidate.retention_expires_at:
+                return ReuseVerificationResult(False, "source_retention_mismatch")
+            path = _safe_path(store.run_directory, record.relative_path)
+            before = _assert_regular_contained(path, store.run_directory)
+            if before.st_size != record.size_bytes:
+                return ReuseVerificationResult(False, "source_artifact_size_mismatch")
+            if before.st_size > limits.maximum_artifact_bytes:
+                return ReuseVerificationResult(False, "source_artifact_oversized")
+            total += before.st_size
+            if total > limits.maximum_total_bytes:
+                return ReuseVerificationResult(False, "source_artifacts_oversized")
+            digest = _sha256(path)
+            after = _assert_regular_contained(path, store.run_directory)
+            if (
+                before.st_size,
+                before.st_mtime_ns,
+                before.st_ctime_ns,
+            ) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                return ReuseVerificationResult(False, "source_artifact_unstable")
+            if digest != record.sha256:
+                return ReuseVerificationResult(False, "source_artifact_hash_mismatch")
+        store.verify_ownership()
+    except FileNotFoundError:
+        return ReuseVerificationResult(False, "source_evidence_pruned")
+    except (OSError, ValueError, RuntimeError):
+        return ReuseVerificationResult(False, "source_artifact_unsafe")
+    return ReuseVerificationResult(True, "exact_evidence_verified")
+
+
 def _assert_tree_has_no_reparse(path: Path) -> None:
     for item in (path, *path.rglob("*")):
         if _is_reparse(os.lstat(item)):
@@ -349,7 +495,9 @@ __all__ = [
     "EvidenceLimits",
     "EvidenceStore",
     "PruneResult",
+    "ReuseVerificationResult",
     "create_evidence_store",
     "hash_declared_file",
     "prune_expired_evidence",
+    "verify_reuse_candidate",
 ]

@@ -44,6 +44,8 @@ from server.execution.schemas import (
     ExecutionRunOut,
     ExpireLeasesOut,
     ReasonIn,
+    ReuseCandidateOut,
+    ReuseCandidateRequestIn,
     RunHeartbeatIn,
     WorkerHeartbeatIn,
     WorkerOut,
@@ -163,6 +165,7 @@ async def create_work_order(
         repository_write_allowed=body.repository_write,
         preferred_executor=body.preferred_executor,
         cost_ceiling=body.cost_ceiling,
+        reuse_policy=body.reuse_policy,
     )
     try:
         work_order = await service.create_work_order(draft)
@@ -426,6 +429,35 @@ async def get_run_evidence(
         await _rollback_and_raise(session, error)
 
 
+@router.post(
+    "/api/execution/runs/{run_id}/reuse-candidate",
+    response_model=ReuseCandidateOut,
+)
+async def resolve_reuse_candidate(
+    run_id: int,
+    body: ReuseCandidateRequestIn,
+    service: ExecutionServiceDependency,
+    session: SessionDependency,
+) -> ReuseCandidateOut:
+    """Resolve one exact server-owned source for the current lease owner."""
+
+    try:
+        result = await service.resolve_reuse_candidate(
+            run_id,
+            worker_id=body.worker_id,
+            reuse_identity=body.reuse_identity,
+            reuse_identity_hash=body.reuse_identity_hash,
+        )
+    except ExecutionDomainError as error:
+        await _rollback_and_raise(session, error)
+    await _commit(session)
+    return ReuseCandidateOut(
+        decision=result.decision,
+        reason=result.reason,
+        candidate=result.candidate,
+    )
+
+
 @router.post("/api/execution/runs/{run_id}/heartbeat", response_model=ExecutionRunOut)
 async def heartbeat_run(
     run_id: int,
@@ -459,6 +491,11 @@ async def complete_run(
         cleanup_status=body.cleanup_status,
         artifact_metadata=tuple(body.artifact_metadata),
         evidence_metadata=body.evidence_metadata,
+        reuse_decision=body.reuse_decision,
+        reuse_reason=body.reuse_reason,
+        reuse_identity=body.reuse_identity,
+        reuse_identity_hash=body.reuse_identity_hash,
+        evidence_retention_expires_at=body.evidence_retention_expires_at,
     )
     try:
         run = await service.complete_run(

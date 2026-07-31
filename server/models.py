@@ -13,6 +13,7 @@ from sqlalchemy import (
     Enum as SAEnum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -26,6 +27,8 @@ from .execution.enums import (
     ExecutionRunStatus,
     NetworkPolicy,
     RepositoryWritePolicy,
+    ReuseDecision,
+    ReusePolicy,
     WorkerStatus,
     WorkOrderStatus,
 )
@@ -292,6 +295,10 @@ class ExecutionWorkOrder(Base):
             name="ck_execution_work_order_read_only",
         ),
         CheckConstraint("attempt_count >= 0", name="ck_execution_attempt_count"),
+        CheckConstraint(
+            "reuse_policy IN ('never', 'allow_exact', 'require_exact')",
+            name="ck_execution_work_order_reuse_policy",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -363,6 +370,20 @@ class ExecutionWorkOrder(Base):
     )
     preferred_executor: Mapped[str | None] = mapped_column(String(128), nullable=True)
     cost_ceiling: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reuse_policy: Mapped[ReusePolicy] = mapped_column(
+        SAEnum(
+            ReusePolicy,
+            native_enum=False,
+            validate_strings=True,
+            values_callable=_enum_values,
+            name="execution_reuse_policy",
+        ),
+        nullable=False,
+        default=ReusePolicy.NEVER,
+    )
+    execution_policy_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, index=True
+    )
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime, default=utcnow_naive, nullable=False
@@ -467,6 +488,17 @@ class ExecutionRun(Base):
         UniqueConstraint(
             "work_order_id", "attempt_number", name="uq_execution_run_attempt"
         ),
+        Index(
+            "ix_execution_run_exact_reuse_candidate",
+            "reuse_identity_hash",
+            "worker_id",
+            "status",
+        ),
+        CheckConstraint(
+            "reuse_decision IN ('not_requested', 'pending', "
+            "'candidate_available', 'fresh', 'reused', 'unavailable')",
+            name="ck_execution_run_reuse_decision",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -509,6 +541,35 @@ class ExecutionRun(Base):
     )
     evidence_metadata: Mapped[dict[str, Any]] = mapped_column(
         JSON, nullable=False, default=dict
+    )
+    reuse_identity: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    reuse_identity_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reused_from_run_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("execution_runs.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    source_evidence_fingerprint: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    reuse_decision: Mapped[ReuseDecision] = mapped_column(
+        SAEnum(
+            ReuseDecision,
+            native_enum=False,
+            validate_strings=True,
+            values_callable=_enum_values,
+            name="execution_reuse_decision",
+        ),
+        nullable=False,
+        default=ReuseDecision.NOT_REQUESTED,
+    )
+    reuse_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reuse_candidate_metadata: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON, nullable=True
+    )
+    evidence_retention_expires_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime, nullable=True, index=True
     )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime, default=utcnow_naive, nullable=False

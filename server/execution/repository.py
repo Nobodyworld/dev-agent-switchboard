@@ -19,9 +19,17 @@ from server.models import (
     ExecutionWorkOrder,
 )
 
-from .enums import ExecutionRunStatus, WorkerStatus, WorkOrderStatus
+from .enums import (
+    ExecutionRunStatus,
+    ReuseDecision,
+    ReusePolicy,
+    WorkerStatus,
+    WorkOrderStatus,
+)
 from .exceptions import ManifestIntegrityError
 from .registry import TrustedManifest
+
+_MAX_EXACT_REUSE_CANDIDATES = 32
 
 
 @dataclass(frozen=True, slots=True)
@@ -319,6 +327,16 @@ class ExecutionRepository:
             lease_expires_at=expires_at,
             last_heartbeat_at=now,
             evidence_metadata={},
+            reuse_decision=(
+                ReuseDecision.NOT_REQUESTED
+                if work_order.reuse_policy == ReusePolicy.NEVER
+                else ReuseDecision.PENDING
+            ),
+            reuse_reason=(
+                "reuse_policy_never"
+                if work_order.reuse_policy == ReusePolicy.NEVER
+                else "exact_candidate_pending"
+            ),
         )
         self.session.add(run)
         await self.session.flush()
@@ -333,6 +351,63 @@ class ExecutionRepository:
         )
         await self.session.flush()
         return run
+
+    async def list_exact_reuse_candidates(
+        self,
+        *,
+        work_order: ExecutionWorkOrder,
+        worker_id: str,
+        reuse_identity_hash: str,
+        exclude_run_id: int,
+    ) -> list[tuple[ExecutionRun, ExecutionWorkOrder]]:
+        """Return exact successful fresh candidates in deterministic newest order."""
+
+        result = await self.session.execute(
+            select(ExecutionRun, ExecutionWorkOrder)
+            .join(
+                ExecutionWorkOrder,
+                ExecutionRun.work_order_id == ExecutionWorkOrder.id,
+            )
+            .where(
+                ExecutionRun.id != exclude_run_id,
+                ExecutionRun.worker_id == worker_id,
+                ExecutionRun.status == ExecutionRunStatus.SUCCEEDED,
+                ExecutionRun.reuse_decision == ReuseDecision.FRESH,
+                ExecutionRun.reuse_identity_hash == reuse_identity_hash,
+                ExecutionWorkOrder.repository_full_name
+                == work_order.repository_full_name,
+                ExecutionWorkOrder.commit_sha == work_order.commit_sha,
+                ExecutionWorkOrder.manifest_name == work_order.manifest_name,
+                ExecutionWorkOrder.manifest_version == work_order.manifest_version,
+                ExecutionWorkOrder.manifest_digest == work_order.manifest_digest,
+                ExecutionWorkOrder.execution_policy_hash
+                == work_order.execution_policy_hash,
+            )
+            .order_by(ExecutionRun.id.desc())
+            .limit(_MAX_EXACT_REUSE_CANDIDATES)
+        )
+        return list(result.tuples())
+
+    async def update_active_run_reuse(
+        self,
+        run_id: int,
+        *,
+        values: dict[str, Any],
+    ) -> bool:
+        """Persist reuse context only while one run remains active."""
+
+        result = await self.session.execute(
+            update(ExecutionRun)
+            .where(
+                ExecutionRun.id == run_id,
+                ExecutionRun.status.in_(
+                    [ExecutionRunStatus.ASSIGNED, ExecutionRunStatus.RUNNING]
+                ),
+            )
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
+        return _affected_one(result)
 
     async def get_run(
         self, run_id: int, *, refresh: bool = False

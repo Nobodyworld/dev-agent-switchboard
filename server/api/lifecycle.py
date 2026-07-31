@@ -63,6 +63,76 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
         await conn.run_sync(ensure_github_publication_columns)
 
+        def ensure_execution_reuse_columns(sync_conn) -> None:
+            inspector = sa_inspect(sync_conn)
+            table_names = set(inspector.get_table_names())
+            if "execution_work_orders" in table_names:
+                work_order_columns = {
+                    column["name"]
+                    for column in inspector.get_columns("execution_work_orders")
+                }
+                work_order_additions = {
+                    "reuse_policy": ("VARCHAR(32) NOT NULL DEFAULT 'never'"),
+                    "execution_policy_hash": (
+                        "VARCHAR(64) NOT NULL DEFAULT "
+                        "'0000000000000000000000000000000000000000000000000000000000000000'"
+                    ),
+                }
+                for name, sql_type in work_order_additions.items():
+                    if name not in work_order_columns:
+                        sync_conn.execute(
+                            text(
+                                "ALTER TABLE execution_work_orders "
+                                f"ADD COLUMN {name} {sql_type}"
+                            )
+                        )
+            if "execution_runs" in table_names:
+                run_columns = {
+                    column["name"] for column in inspector.get_columns("execution_runs")
+                }
+                run_additions = {
+                    "reuse_identity": "JSON",
+                    "reuse_identity_hash": "VARCHAR(64)",
+                    "reused_from_run_id": "INTEGER",
+                    "source_evidence_fingerprint": "VARCHAR(64)",
+                    "reuse_decision": ("VARCHAR(32) NOT NULL DEFAULT 'not_requested'"),
+                    "reuse_reason": "VARCHAR(64)",
+                    "reuse_candidate_metadata": "JSON",
+                    "evidence_retention_expires_at": "DATETIME",
+                }
+                for name, sql_type in run_additions.items():
+                    if name not in run_columns:
+                        sync_conn.execute(
+                            text(
+                                "ALTER TABLE execution_runs "
+                                f"ADD COLUMN {name} {sql_type}"
+                            )
+                        )
+                sync_conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS "
+                        "ix_execution_run_exact_reuse_candidate "
+                        "ON execution_runs "
+                        "(reuse_identity_hash, worker_id, status)"
+                    )
+                )
+                sync_conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS "
+                        "ix_execution_runs_reused_from_run_id "
+                        "ON execution_runs (reused_from_run_id)"
+                    )
+                )
+                sync_conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS "
+                        "ix_execution_runs_evidence_retention_expires_at "
+                        "ON execution_runs (evidence_retention_expires_at)"
+                    )
+                )
+
+        await conn.run_sync(ensure_execution_reuse_columns)
+
     async with AsyncSessionLocal() as session:
         repository = ExecutionRepository(session)
         await repository.ensure_manifests(iter_trusted_manifests())

@@ -20,18 +20,29 @@ from .entities import (
     CheckoutResult,
     ExecutionCompletion,
     ExpiryResult,
+    ReuseCandidateResult,
     WorkerRegistration,
     WorkOrderDraft,
 )
 from .enums import (
     ApprovalPolicy,
     ExecutionRunStatus,
+    ReuseDecision,
+    ReusePolicy,
     WorkerStatus,
     WorkOrderStatus,
     is_terminal_run,
     is_terminal_work_order,
 )
-from .evidence import ExecutionEvidence
+from .evidence import (
+    ArtifactRecord,
+    EvidenceReuseIdentity,
+    ExecutionEvidence,
+    ReuseCandidate,
+    compute_execution_policy_hash,
+    compute_result_contract_hash,
+    compute_reuse_identity_hash,
+)
 from .exceptions import (
     ApprovalDeniedError,
     ExecutionNotFoundError,
@@ -100,6 +111,15 @@ class ExecutionService:
             raise ManifestParameterError(f"unsupported_manifest_parameters:{names}")
 
         manifest = await self._repository.ensure_manifest(definition)
+        execution_policy_hash = compute_execution_policy_hash(
+            manifest_parameters=draft.manifest_parameters,
+            required_capabilities=draft.required_capabilities,
+            permitted_paths=draft.permitted_paths,
+            expected_artifact_kinds=draft.expected_artifact_kinds,
+            timeout_seconds=draft.timeout_seconds,
+            network_policy=draft.network_policy.value,
+            repository_write_allowed=False,
+        )
         return await self._repository.create_work_order(
             {
                 "schema_version": draft.schema_version,
@@ -122,6 +142,8 @@ class ExecutionService:
                 "repository_write_allowed": False,
                 "preferred_executor": draft.preferred_executor,
                 "cost_ceiling": draft.cost_ceiling,
+                "reuse_policy": draft.reuse_policy,
+                "execution_policy_hash": execution_policy_hash,
             }
         )
 
@@ -422,6 +444,77 @@ class ExecutionService:
         except (TypeError, ValueError) as error:
             raise MalformedEvidenceError("malformed_execution_evidence") from error
 
+    async def resolve_reuse_candidate(
+        self,
+        run_id: int,
+        *,
+        worker_id: str,
+        reuse_identity: EvidenceReuseIdentity,
+        reuse_identity_hash: str,
+    ) -> ReuseCandidateResult:
+        """Resolve one exact source for the current live lease owner."""
+
+        if compute_reuse_identity_hash(reuse_identity) != reuse_identity_hash:
+            raise LifecycleConflictError("reuse_identity_hash_mismatch")
+        snapshot = await self._repository.get_lease_snapshot_for_run(run_id)
+        lease = await self._repository.get_lease_for_run(run_id)
+        now = self._clock()
+        if (
+            snapshot is None
+            or lease is None
+            or snapshot.worker_id != worker_id
+            or lease.worker_id != worker_id
+            or lease.expires_at < now
+        ):
+            raise OwnershipConflictError("execution_lease_not_owned")
+        order = await self.get_work_order(snapshot.work_order_id, refresh=True)
+        if order.reuse_policy == ReusePolicy.NEVER:
+            raise LifecycleConflictError("reuse_policy_never")
+        self._validate_reuse_identity(order, reuse_identity)
+
+        selected: ReuseCandidate | None = None
+        sources = await self._repository.list_exact_reuse_candidates(
+            work_order=order,
+            worker_id=worker_id,
+            reuse_identity_hash=reuse_identity_hash,
+            exclude_run_id=run_id,
+        )
+        for source_run, source_order in sources:
+            selected = await self._validated_reuse_candidate(
+                source_run=source_run,
+                source_order=source_order,
+                expected_identity=reuse_identity,
+                now=now,
+            )
+            if selected is not None:
+                break
+
+        decision = (
+            ReuseDecision.CANDIDATE_AVAILABLE
+            if selected is not None
+            else ReuseDecision.UNAVAILABLE
+        )
+        reason = (
+            "exact_candidate_available"
+            if selected is not None
+            else "exact_candidate_not_found"
+        )
+        updated = await self._repository.update_active_run_reuse(
+            run_id,
+            values={
+                "reuse_identity": reuse_identity.model_dump(mode="json"),
+                "reuse_identity_hash": reuse_identity_hash,
+                "reuse_decision": decision,
+                "reuse_reason": reason,
+                "reuse_candidate_metadata": (
+                    selected.model_dump(mode="json") if selected is not None else None
+                ),
+            },
+        )
+        if not updated:
+            raise OwnershipConflictError("execution_lease_not_owned")
+        return ReuseCandidateResult(decision, reason, selected)
+
     async def list_runs(self, work_order_id: int | None = None) -> list[ExecutionRun]:
         """Return historical attempts, optionally for one work order."""
 
@@ -532,6 +625,101 @@ class ExecutionService:
                 "repository_write_capability_not_permitted"
             )
 
+    def _validate_reuse_identity(
+        self, order: ExecutionWorkOrder, identity: EvidenceReuseIdentity
+    ) -> None:
+        definition = get_trusted_manifest(order.manifest_name, order.manifest_version)
+        if definition is None:
+            raise ManifestIntegrityError("trusted_manifest_not_found")
+        result_contract_hash = compute_result_contract_hash(
+            fixed_step_metadata=definition.fixed_step_metadata,
+            artifact_declarations=definition.artifact_declarations,
+            dependency_lock_paths=definition.dependency_lock_paths,
+        )
+        if (
+            identity.repository_full_name != order.repository_full_name
+            or identity.tested_sha != order.commit_sha
+            or identity.manifest_name != order.manifest_name
+            or identity.manifest_version != order.manifest_version
+            or identity.manifest_digest != order.manifest_digest
+            or identity.execution_policy_hash != order.execution_policy_hash
+            or identity.result_contract_hash != result_contract_hash
+            or [item.relative_path for item in identity.dependency_lock_hashes]
+            != sorted(definition.dependency_lock_paths)
+        ):
+            raise LifecycleConflictError("reuse_identity_work_order_mismatch")
+
+    async def _validated_reuse_candidate(
+        self,
+        *,
+        source_run: ExecutionRun,
+        source_order: ExecutionWorkOrder,
+        expected_identity: EvidenceReuseIdentity,
+        now: dt.datetime,
+    ) -> ReuseCandidate | None:
+        """Return a strict eligible source or fail the candidate closed."""
+
+        try:
+            if (
+                not source_run.evidence_metadata
+                or not source_run.reuse_identity
+                or source_run.evidence_retention_expires_at is None
+                or source_run.finished_at is None
+            ):
+                return None
+            evidence = ExecutionEvidence.model_validate(source_run.evidence_metadata)
+            stored_identity = EvidenceReuseIdentity.model_validate(
+                source_run.reuse_identity
+            )
+            retention = source_run.evidence_retention_expires_at
+            if retention.tzinfo is None:
+                retention = retention.replace(tzinfo=dt.UTC)
+            worker = await self._repository.get_worker(source_run.worker_id)
+            artifacts = tuple(
+                ArtifactRecord.model_validate(item)
+                for item in source_run.artifact_metadata
+            )
+            provenance = evidence.reuse_provenance
+            if (
+                worker is None
+                or retention <= now.replace(tzinfo=dt.UTC)
+                or stored_identity != expected_identity
+                or source_run.reuse_identity_hash
+                != compute_reuse_identity_hash(stored_identity)
+                or evidence.fingerprint == ""
+                or evidence.run_id != source_run.id
+                or evidence.work_order_id != source_order.id
+                or evidence.worker_id != source_run.worker_id
+                or evidence.terminal_status != "succeeded"
+                or tuple(evidence.artifacts) != artifacts
+                or any(item.retention_expires_at != retention for item in artifacts)
+                or provenance is None
+                or provenance.decision != "fresh"
+                or provenance.reuse_identity_hash != source_run.reuse_identity_hash
+                or stored_identity.repository_full_name != evidence.repository_full_name
+                or stored_identity.tested_sha != evidence.tested_sha
+                or stored_identity.manifest_name != evidence.manifest_name
+                or stored_identity.manifest_version != evidence.manifest_version
+                or stored_identity.manifest_digest != evidence.manifest_digest
+                or stored_identity.worker_environment_fingerprint
+                != evidence.environment.fingerprint
+                or stored_identity.dependency_lock_hashes
+                != evidence.dependency_lock_hashes
+            ):
+                return None
+            return ReuseCandidate(
+                source_run_id=source_run.id,
+                expected_source_worker_id=source_run.worker_id,
+                expected_source_evidence_fingerprint=evidence.fingerprint,
+                reuse_identity=stored_identity,
+                reuse_identity_hash=source_run.reuse_identity_hash,
+                source_created_at=evidence.started_at,
+                retention_expires_at=retention,
+                artifacts=list(artifacts),
+            )
+        except (TypeError, ValueError):
+            return None
+
     def _ensure_approvable(self, work_order: ExecutionWorkOrder) -> None:
         if work_order.approval_policy != ApprovalPolicy.EXPLICIT:
             raise ApprovalDeniedError("unsupported_approval_policy")
@@ -558,6 +746,7 @@ class ExecutionService:
         """Consume one lease, terminalize its records, and release capacity once."""
 
         await self._validate_completion_evidence(snapshot, completion)
+        reuse_values = await self._reuse_completion_values(snapshot, completion)
         now = self._clock()
         status = completion.status
         target_work_order_status = WorkOrderStatus(status.value)
@@ -590,6 +779,7 @@ class ExecutionService:
                         if completion.evidence_metadata is not None
                         else {}
                     ),
+                    **reuse_values,
                 },
             )
             work_order_updated = await self._repository.finish_active_work_order(
@@ -607,6 +797,122 @@ class ExecutionService:
         if run is None:  # pragma: no cover - direct update cannot remove a run
             raise ExecutionNotFoundError("execution_run_not_found")
         return run
+
+    async def _reuse_completion_values(  # noqa: PLR0912, PLR0915
+        self, snapshot: LeaseSnapshot, completion: ExecutionCompletion
+    ) -> dict[str, object]:
+        """Validate final reuse provenance and derive server-owned run fields."""
+
+        run = await self._repository.get_run(snapshot.execution_run_id, refresh=True)
+        if run is None:
+            raise ExecutionNotFoundError("execution_run_not_found")
+        order = await self.get_work_order(snapshot.work_order_id, refresh=True)
+        decision = completion.reuse_decision
+        if decision is None and order.reuse_policy == ReusePolicy.NEVER:
+            decision = ReuseDecision.FRESH
+        if (
+            decision is None
+            and order.reuse_policy != ReusePolicy.NEVER
+            and completion.status != ExecutionRunStatus.SUCCEEDED
+            and completion.evidence_metadata is None
+        ):
+            decision = ReuseDecision.UNAVAILABLE
+        if decision not in {
+            ReuseDecision.FRESH,
+            ReuseDecision.REUSED,
+            ReuseDecision.UNAVAILABLE,
+        }:
+            raise LifecycleConflictError("invalid_reuse_completion_decision")
+        if (
+            order.reuse_policy == ReusePolicy.REQUIRE_EXACT
+            and decision == ReuseDecision.FRESH
+        ):
+            raise LifecycleConflictError("require_exact_forbids_fresh_execution")
+        if (
+            decision == ReuseDecision.UNAVAILABLE
+            and order.reuse_policy == ReusePolicy.NEVER
+        ):
+            raise LifecycleConflictError("reuse_unavailable_requires_opt_in_policy")
+        if (
+            decision == ReuseDecision.UNAVAILABLE
+            and completion.status == ExecutionRunStatus.SUCCEEDED
+        ):
+            raise LifecycleConflictError("unavailable_reuse_must_not_succeed")
+
+        identity = completion.reuse_identity
+        if identity is None and run.reuse_identity:
+            identity = EvidenceReuseIdentity.model_validate(run.reuse_identity)
+        identity_hash = completion.reuse_identity_hash or run.reuse_identity_hash
+        if identity is not None:
+            self._validate_reuse_identity(order, identity)
+            if identity_hash != compute_reuse_identity_hash(identity):
+                raise LifecycleConflictError("reuse_identity_hash_mismatch")
+        legacy_never_evidence = (
+            order.reuse_policy == ReusePolicy.NEVER
+            and completion.evidence_metadata is not None
+            and completion.evidence_metadata.reuse_provenance is None
+            and identity is None
+            and identity_hash is None
+        )
+        if (
+            completion.evidence_metadata is not None
+            and identity is None
+            and not legacy_never_evidence
+        ):
+            raise LifecycleConflictError("execution_evidence_requires_reuse_identity")
+
+        source_run_id: int | None = None
+        source_fingerprint: str | None = None
+        if decision == ReuseDecision.REUSED:
+            if not run.reuse_candidate_metadata or identity is None:
+                raise LifecycleConflictError("verified_reuse_candidate_missing")
+            candidate = ReuseCandidate.model_validate(run.reuse_candidate_metadata)
+            if (
+                candidate.reuse_identity != identity
+                or candidate.reuse_identity_hash != identity_hash
+            ):
+                raise LifecycleConflictError("verified_reuse_candidate_mismatch")
+            source_run_id = candidate.source_run_id
+            source_fingerprint = candidate.expected_source_evidence_fingerprint
+
+        evidence = completion.evidence_metadata
+        if evidence is not None and not legacy_never_evidence:
+            provenance = evidence.reuse_provenance
+            if provenance is None or provenance.decision != decision.value:
+                raise LifecycleConflictError("execution_reuse_provenance_mismatch")
+            if provenance.reuse_identity_hash != identity_hash:
+                raise LifecycleConflictError("execution_reuse_identity_mismatch")
+            if (
+                provenance.source_run_id != source_run_id
+                or provenance.source_evidence_fingerprint != source_fingerprint
+            ):
+                raise LifecycleConflictError("execution_reuse_source_mismatch")
+            retention = completion.evidence_retention_expires_at
+            if retention is None or retention.tzinfo is None:
+                raise LifecycleConflictError("execution_evidence_retention_missing")
+            if any(
+                item.retention_expires_at != retention.astimezone(dt.UTC)
+                for item in evidence.artifacts
+            ):
+                raise LifecycleConflictError("execution_evidence_retention_mismatch")
+        elif legacy_never_evidence:
+            if completion.evidence_retention_expires_at is not None:
+                raise LifecycleConflictError("legacy_evidence_retention_is_unsupported")
+        elif completion.evidence_retention_expires_at is not None:
+            raise LifecycleConflictError("retention_requires_execution_evidence")
+
+        return {
+            "reuse_identity": (
+                identity.model_dump(mode="json") if identity is not None else None
+            ),
+            "reuse_identity_hash": identity_hash,
+            "reused_from_run_id": source_run_id,
+            "source_evidence_fingerprint": source_fingerprint,
+            "reuse_decision": decision,
+            "reuse_reason": completion.reuse_reason or decision.value,
+            "reuse_candidate_metadata": None,
+            "evidence_retention_expires_at": completion.evidence_retention_expires_at,
+        }
 
     async def _validate_completion_evidence(
         self, snapshot: LeaseSnapshot, completion: ExecutionCompletion

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -9,10 +10,17 @@ from .enums import (
     ApprovalPolicy,
     ExecutionRunStatus,
     NetworkPolicy,
+    ReuseDecision,
+    ReusePolicy,
     WorkerStatus,
     WorkOrderStatus,
 )
-from .evidence import ArtifactRecord, ExecutionEvidence
+from .evidence import (
+    ArtifactRecord,
+    EvidenceReuseIdentity,
+    ExecutionEvidence,
+    ReuseCandidate,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +44,7 @@ class WorkOrderDraft:
     repository_write_allowed: bool
     preferred_executor: str | None
     cost_ceiling: float | None
+    reuse_policy: ReusePolicy = ReusePolicy.NEVER
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +79,11 @@ class ExecutionCompletion:
     cleanup_status: str | None = None
     artifact_metadata: tuple[ArtifactRecord, ...] = field(default_factory=tuple)
     evidence_metadata: ExecutionEvidence | None = None
+    reuse_decision: ReuseDecision | None = None
+    reuse_reason: str | None = None
+    reuse_identity: EvidenceReuseIdentity | None = None
+    reuse_identity_hash: str | None = None
+    evidence_retention_expires_at: dt.datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,3 +116,12 @@ class WorkOrderTransition:
 
     previous: WorkOrderStatus
     current: WorkOrderStatus
+
+
+@dataclass(frozen=True, slots=True)
+class ReuseCandidateResult:
+    """Exact server lookup disposition for one lease-owning worker."""
+
+    decision: ReuseDecision
+    reason: str
+    candidate: ReuseCandidate | None = None

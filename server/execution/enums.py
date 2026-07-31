@@ -61,6 +61,25 @@ class RepositoryWritePolicy(str, Enum):
     READ_ONLY = "read_only"
 
 
+class ReusePolicy(str, Enum):
+    """Operator-selected exact-evidence reuse posture."""
+
+    NEVER = "never"
+    ALLOW_EXACT = "allow_exact"
+    REQUIRE_EXACT = "require_exact"
+
+
+class ReuseDecision(str, Enum):
+    """Server-owned reuse decision recorded for one execution run."""
+
+    NOT_REQUESTED = "not_requested"
+    PENDING = "pending"
+    CANDIDATE_AVAILABLE = "candidate_available"
+    FRESH = "fresh"
+    REUSED = "reused"
+    UNAVAILABLE = "unavailable"
+
+
 WORK_ORDER_TERMINAL_STATUSES = frozenset(
     {
         WorkOrderStatus.SUCCEEDED,
