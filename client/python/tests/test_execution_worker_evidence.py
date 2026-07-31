@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
+from client.python.execution_worker import evidence as evidence_module
 from client.python.execution_worker.evidence import (
     EvidenceLimits,
     create_evidence_store,
@@ -21,9 +22,11 @@ from client.python.execution_worker.evidence import (
 )
 from client.python.execution_worker.parsers import parse_result
 from server.execution.evidence import (
+    ArtifactRecord,
     EnvironmentIdentity,
     EvidenceReuseIdentity,
     EvidenceReuseProvenance,
+    ExecutionEvidence,
     ExecutionEvidenceDraft,
     ReuseCandidate,
     compute_reuse_identity_hash,
@@ -454,11 +457,51 @@ def test_reuse_rejects_junctioned_source_artifact(tmp_path: Path) -> None:
         text=True,
     )
     try:
-        linked_record = candidate.artifacts[0].model_copy(
-            update={"relative_path": "logs/linked/step.stdout.log"}
+        result_path = root / "run-7" / "result.json"
+        result_payload = json.loads(result_path.read_text(encoding="utf-8"))
+        source_evidence = ExecutionEvidence.model_validate(result_payload["evidence"])
+        linked_record = ArtifactRecord.model_validate(
+            {
+                **candidate.artifacts[0].model_dump(mode="json"),
+                "relative_path": "logs/linked/step.stdout.log",
+            }
         )
-        linked = candidate.model_copy(update={"artifacts": [linked_record]})
-        assert _verify(root, linked).reason == "source_result_identity_mismatch"
+        evidence_payload = source_evidence.model_dump(
+            mode="json", exclude={"fingerprint"}
+        )
+        evidence_payload["artifacts"] = [linked_record.model_dump(mode="json")]
+        linked_evidence = finalize_evidence(
+            ExecutionEvidenceDraft.model_validate(evidence_payload)
+        )
+        result_payload["evidence"] = linked_evidence.model_dump(mode="json")
+        result_payload["reuse_identity"] = candidate.reuse_identity.model_dump(
+            mode="json"
+        )
+        result_payload["reuse_identity_hash"] = candidate.reuse_identity_hash
+        result_path.write_text(
+            json.dumps(result_payload, sort_keys=True, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        linked_payload = candidate.model_dump(mode="json")
+        linked_payload["expected_source_evidence_fingerprint"] = (
+            linked_evidence.fingerprint
+        )
+        linked_payload["artifacts"] = [linked_record.model_dump(mode="json")]
+        linked = ReuseCandidate.model_validate(linked_payload)
+
+        original_safe_path = evidence_module._safe_path
+        with patch.object(
+            evidence_module,
+            "_safe_path",
+            wraps=original_safe_path,
+        ) as safe_path_check:
+            verification = _verify(root, linked)
+        assert verification.reason == "source_artifact_unsafe"
+        assert any(
+            call.args[0] == root / "run-7"
+            and call.args[1] == "logs/linked/step.stdout.log"
+            for call in safe_path_check.call_args_list
+        )
     finally:
         subprocess.run(
             ["cmd", "/c", "rmdir", str(junction)],

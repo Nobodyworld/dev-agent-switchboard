@@ -40,7 +40,18 @@ A successful reuse creates a distinct auditable run linked to the immutable sour
   local-result fallback and `require_exact` failure proofs.
 - [x] Update API, architecture, configuration, and local-worker documentation.
 - [x] Run complete local validation and record exact evidence.
-- [ ] Push the reviewed commits and require the complete hosted PR matrix.
+- [x] Push the initial reviewed implementation and require the complete hosted
+  PR matrix; head `2766d428b6917872fd5be0465baa2b2cd011e3f3` passed Commitlint
+  run `30629772205` and CI run `30629772200`.
+- [x] Correct connector review `4831588385`: reject mutually inconsistent
+  source rows and make the Windows junction regression reach the filesystem
+  reparse boundary.
+- [x] Rerun the complete local correction matrix and preserve normal branch
+  delivery through the existing draft PR.
+- [x] Use the non-self-referential workflow-evidence convention: ultimate
+  corrected-head workflow identifiers belong in PR #129's external review and
+  merge record after that head exists, not in a commit that would create a new
+  head.
 
 ## Surprises & Discoveries
 
@@ -89,6 +100,28 @@ A successful reuse creates a distinct auditable run linked to the immutable sour
   typecheck, and tests but its lint job rejected the newly tracked fake-client
   constructor for six parameters. Removing the constructor-only test flag made
   pinned pre-commit pass without changing production code or coverage.
+
+- Observation: exact candidate rows returned through a joined select can reuse
+  stale identity-map objects after conditional lifecycle updates in the same
+  database session.
+  Evidence: adding final work-order status checks initially rejected legitimate
+  same-session sources until the bounded candidate select used
+  `populate_existing`. Candidate validation now evaluates authoritative joined
+  state while retaining descending run-ID order and the 32-row bound.
+
+- Observation: the previous Windows junction regression changed only candidate
+  metadata, so marker-bound evidence validation rejected it before any
+  filesystem lookup. A fully rebuilt evidence document, fingerprint, local
+  result, and candidate reaches the junction-aware safe-path containment check
+  and returns `source_artifact_unsafe`. The Windows test executes rather than
+  skips; the POSIX symlink test remains unchanged.
+
+- Observation: an initial correction-matrix attempt used a virtual environment
+  whose Windows child interpreter resolved to a dependency-incomplete managed
+  base installation. The already established standalone task-only Python 3.11
+  environment resolved child commands correctly and passed the same
+  server-backed smoke test and complete matrix. No repository dependency,
+  manifest argv, or source change was justified.
 
 ## Decision Log
 
@@ -143,24 +176,57 @@ A successful reuse creates a distinct auditable run linked to the immutable sour
   complete cryptographic identities may enter exact-candidate lookup.
   Date/Author: 2026-07-31 / implementation
 
+- Decision: validate source work-order, run, evidence, identity, and fresh
+  provenance consistency again after the bounded database lookup, and refresh
+  joined ORM state from the database during that lookup.
+  Rationale: indexed filters narrow candidates but cannot authenticate malformed
+  or stale in-memory rows. Every inconsistent candidate must be skipped closed
+  so an older valid exact source may still be selected.
+  Date/Author: 2026-07-31 / connector review correction
+
+- Decision: keep ultimate-head hosted workflow identifiers in PR #129's
+  external review or merge record rather than embedding them in the same head.
+  Rationale: committing identifiers for a completed workflow necessarily
+  creates a newer, unvalidated head and an infinite documentation loop. The
+  previous reviewed-head workflows remain useful historical evidence.
+  Date/Author: 2026-07-31 / connector review correction
+
 ## Outcomes & Retrospective
 
-The implementation is complete locally. Exact reuse is opt-in and maintains the
+The implementation and connector-review corrections are complete locally and
+have been delivered through the existing branch workflow. Exact reuse is opt-in and maintains the
 existing lease-owned outbound worker model: the worker derives current identity,
 the server selects an exact same-worker candidate, and only marker-bound local
 proof can produce a reused run. Source evidence remains immutable and retains
 its original expiry. Legacy `never` callers and workers remain compatible but
 cannot accidentally create reusable database-only evidence.
 
-The complete local matrix is green: focused reuse coverage produced `118
-passed, 2 skipped`; full pytest produced `506 passed, 5 skipped`; strict browser
+Connector review `4831588385` found two blockers on reviewed head
+`2766d428b6917872fd5be0465baa2b2cd011e3f3`: incomplete final source-row
+consistency and a Windows junction test that stopped at evidence identity. The
+correction requires succeeded work-order/run state, terminal work-order timing,
+fresh run and evidence provenance with no source linkage or retained candidate,
+and authoritative joined-row refresh. Seven malformed-source variants now skip
+to an older valid exact source, return unavailable when no valid source remains,
+and remain unmodified. The rebuilt Windows junction fixture reaches safe-path
+containment and returns the bounded unsafe-artifact disposition.
+
+The complete corrected local matrix is green: required focused server coverage
+produced `86 passed`; focused worker coverage produced `31 passed, 2 skipped`,
+where the Windows junction test executed and the skips are its POSIX-only
+counterparts. Full pytest produced `513 passed, 5 skipped`; strict browser
 coverage produced `2 passed, 0 skipped`; aggregate configured coverage is 91%;
 all 16 module thresholds passed. Dependency integrity, pre-commit, TODO policy,
 Ruff, Black, Mypy, Bandit, pip-audit, Gitleaks, Lychee, and `git diff --check`
 passed. The added-line public-hygiene audit found no workstation identity,
 absolute local path, credential, private key, environment assignment, or
-private-network URL. Hosted validation and the final branch identity remain
-pending until the reviewed commits are pushed.
+private-network URL.
+
+Commitlint run `30629772205` and CI run `30629772200` are historical evidence
+for reviewed head `2766d428b6917872fd5be0465baa2b2cd011e3f3`. Workflow
+identifiers for the ultimate connector-corrected head are intentionally not
+embedded here: they belong in PR #129's external review and merge record after
+the corrected head exists.
 
 ## Context and Orientation
 
@@ -371,6 +437,21 @@ Record during implementation:
 - initial pushed evidence head `b1cca75e5052de3f795b9b8530d3662ad0512dd3`
   reached CI run `30629456819`; a test-only Ruff arity failure required one
   correction commit, so that run is historical rather than final evidence;
+- reviewed implementation head `2766d428b6917872fd5be0465baa2b2cd011e3f3`
+  passed Commitlint run `30629772205` and CI run `30629772200`; these are
+  historical reviewed-head results, while ultimate correction-head workflow
+  identifiers remain in PR #129's external record;
+- connector review `4831588385` correction checkpoint: direct blocker
+  regressions produced `8 passed`; required focused server suites produced `86
+  passed` in `49.59s`; required focused worker suites produced `31 passed, 2
+  skipped` in `21.25s`, with the Windows junction proof executed;
+- corrected full pytest: `513 passed, 5 skipped` in `434.06s`; strict browser:
+  `2 passed, 0 skipped` in `9.78s`;
+- corrected configured coverage: `513 passed, 5 skipped` with 91% aggregate;
+  all 16 module percentages remained unchanged and above threshold;
+- corrected security and public gates: Bandit passed; pip-audit found no known
+  vulnerabilities; Gitleaks scanned 236 commits and approximately 4.54 MB with
+  no leaks; Lychee passed with two informational redirects;
 - schema fields/indexes and startup compatibility behavior;
 - canonical reuse-identity example with sensitive values absent;
 - focused identity and malformed-input counts;
