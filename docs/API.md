@@ -34,6 +34,7 @@ Use this page as the concise endpoint index; use [ai-interface.md](ai-interface.
 | `/api/execution/runs/{id}` | `GET` | Read a bounded execution-run record. |
 | `/api/execution/runs/{id}/evidence` | `GET` | Read strict, versioned compact evidence for a completed run; full logs remain worker-local. |
 | `/api/execution/runs/{id}/heartbeat` | `POST` | Refresh a lease owned by the named worker and mark first execution start. |
+| `/api/execution/runs/{id}/reuse-candidate` | `POST` | Resolve one server-selected exact candidate for the live lease owner after validating the worker-derived reuse identity. |
 | `/api/execution/runs/{id}/complete` | `POST` | Record `succeeded`, `failed`, `timed_out`, or `cancelled` after ownership validation. |
 | `/api/execution/leases/expire` | `POST` | Timeout stale runs, release worker capacity, and safely requeue their work orders. |
 | `/api/execution/github/pull-requests/validate` | `POST` | Resolve an allowlisted GitHub PR to one exact head and create or return one normal pending work order. |
@@ -96,6 +97,26 @@ SHA-256 hashes, retention timestamps, cleanup outcomes, and a deterministic
 fingerprint. It returns `404` when the run or evidence is absent and `500` when
 persisted evidence is malformed. Full logs, absolute paths, tokens, arbitrary
 environment values, and artifact bytes are never returned.
+
+Work-order creation accepts an optional `reuse_policy`: `never` (the default),
+`allow_exact`, or `require_exact`. Callers cannot select a source run, worker,
+fingerprint, artifact, or local path. For an opted-in assigned run, the worker
+derives a versioned identity from the exact repository SHA, manifest
+name/version/digest, current environment fingerprint, sorted dependency-lock
+hashes, execution policy, and result contract. The live lease owner submits
+that identity to `/api/execution/runs/{id}/reuse-candidate`; the server returns
+only a bounded exact candidate or an unavailable reason.
+
+Database metadata is never sufficient for reuse. The selected source worker
+must locally reverify its marker-bound result and every declared artifact's
+containment, ownership, retention, regular-file type, size, SHA-256, and
+before/after stability. `allow_exact` falls back to one fresh execution under
+the same live lease when proof fails. `require_exact` never runs validation and
+finishes non-successfully when verified evidence is unavailable. A successful
+reuse produces a distinct run with `reuse_decision`, bounded `reuse_reason`,
+`reuse_identity`/hash, `reused_from_run_id`, and
+`source_evidence_fingerprint`. Source bytes remain worker-local and their
+retention is not changed.
 
 ## GitHub exact-PR adapter
 

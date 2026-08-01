@@ -6,8 +6,9 @@ import datetime as dt
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from pathlib import PurePosixPath
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -25,6 +26,8 @@ RedactionState = Literal["none", "redacted"]
 
 EVIDENCE_SCHEMA_VERSION = 1
 ARTIFACT_SCHEMA_VERSION = 1
+REUSE_IDENTITY_SCHEMA_VERSION = 1
+REUSE_POLICY_VERSION = 1
 MAX_EVIDENCE_STEPS = 64
 MAX_EVIDENCE_ARTIFACTS = 128
 MAX_EVIDENCE_PATH_LENGTH = 512
@@ -228,6 +231,98 @@ class DependencyLockHash(EvidenceModel):
     _path = field_validator("relative_path")(validate_relative_path)
 
 
+class EvidenceReuseIdentity(EvidenceModel):
+    """Deterministic result-equivalence identity, excluding run provenance."""
+
+    schema_version: Literal[1] = 1
+    policy_version: Literal[1] = 1
+    repository_full_name: str = Field(
+        min_length=3,
+        max_length=255,
+        pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+    )
+    tested_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    manifest_name: str = Field(
+        min_length=1, max_length=128, pattern=r"^[a-z0-9][a-z0-9-]*$"
+    )
+    manifest_version: str = Field(min_length=1, max_length=64)
+    manifest_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    worker_environment_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    dependency_lock_hashes: list[DependencyLockHash] = Field(
+        default_factory=list, max_length=32
+    )
+    execution_policy_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    result_contract_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_canonical_identity(self) -> Self:
+        paths = [item.relative_path for item in self.dependency_lock_hashes]
+        if paths != sorted(paths) or len(paths) != len(set(paths)):
+            raise ValueError(
+                "dependency-lock identities must be unique and canonically sorted"
+            )
+        owner, name = self.repository_full_name.split("/", maxsplit=1)
+        if owner in {".", ".."} or name in {".", ".."}:
+            raise ValueError("invalid repository identity")
+        return self
+
+
+class EvidenceReuseProvenance(EvidenceModel):
+    """Compact auditable outcome for fresh or locally verified execution."""
+
+    schema_version: Literal[1] = 1
+    decision: Literal["fresh", "reused", "unavailable"]
+    reason: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9_.:-]*$")
+    reuse_identity_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_run_id: int | None = Field(default=None, ge=1, le=9_223_372_036_854_775_807)
+    source_evidence_fingerprint: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
+
+    @model_validator(mode="after")
+    def validate_source_pair(self) -> Self:
+        has_source = self.source_run_id is not None
+        if has_source != (self.source_evidence_fingerprint is not None):
+            raise ValueError("reuse source identity must be complete")
+        if (self.decision == "reused") != has_source:
+            raise ValueError("only reused evidence may contain source provenance")
+        return self
+
+
+class ReuseCandidate(EvidenceModel):
+    """Server-derived source metadata safe for worker-local verification."""
+
+    schema_version: Literal[1] = 1
+    source_run_id: int = Field(ge=1, le=9_223_372_036_854_775_807)
+    expected_source_worker_id: str = Field(min_length=1, max_length=128)
+    expected_source_evidence_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    reuse_identity: EvidenceReuseIdentity
+    reuse_identity_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_created_at: dt.datetime
+    retention_expires_at: dt.datetime
+    artifacts: list[ArtifactRecord] = Field(
+        default_factory=list, max_length=MAX_EVIDENCE_ARTIFACTS
+    )
+
+    _created = field_validator("source_created_at")(_aware_utc)
+    _retention = field_validator("retention_expires_at")(_aware_utc)
+
+    @model_validator(mode="after")
+    def validate_candidate(self) -> Self:
+        if self.retention_expires_at <= self.source_created_at:
+            raise ValueError("reuse candidate retention must follow creation")
+        if self.reuse_identity_hash != compute_reuse_identity_hash(self.reuse_identity):
+            raise ValueError("reuse candidate identity hash mismatch")
+        if len({item.relative_path for item in self.artifacts}) != len(self.artifacts):
+            raise ValueError("reuse candidate artifact paths must be unique")
+        if any(
+            item.retention_expires_at != self.retention_expires_at
+            for item in self.artifacts
+        ):
+            raise ValueError("reuse candidate artifact retention is inconsistent")
+        return self
+
+
 class StepEvidence(EvidenceModel):
     """Compact identity and outcome for one reviewed validation step."""
 
@@ -296,6 +391,7 @@ class ExecutionEvidenceDraft(EvidenceModel):
     artifact_finalization_status: str = Field(min_length=1, max_length=64)
     source_cleanup_status: str = Field(min_length=1, max_length=64)
     local_record_status: str = Field(min_length=1, max_length=64)
+    reuse_provenance: EvidenceReuseProvenance | None = None
 
     _started = field_validator("started_at")(_aware_utc)
     _finished = field_validator("finished_at")(_aware_utc)
@@ -350,6 +446,9 @@ def canonical_evidence_json(
     """Serialize canonical fingerprint inputs with the fingerprint omitted."""
 
     payload = evidence.model_dump(mode="json", exclude={"fingerprint"})
+    # Preserve validation of evidence created before reuse provenance existed.
+    if payload.get("reuse_provenance") is None:
+        payload.pop("reuse_provenance", None)
     return json.dumps(
         payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     )
@@ -372,22 +471,106 @@ def finalize_evidence(evidence: ExecutionEvidenceDraft) -> ExecutionEvidence:
     return ExecutionEvidence.model_validate(payload)
 
 
+def canonical_reuse_identity_json(identity: EvidenceReuseIdentity) -> str:
+    """Serialize the complete deterministic reuse identity canonically."""
+
+    return json.dumps(
+        identity.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+
+
+def compute_reuse_identity_hash(identity: EvidenceReuseIdentity) -> str:
+    """Return SHA-256 over the canonical deterministic reuse identity."""
+
+    return hashlib.sha256(
+        canonical_reuse_identity_json(identity).encode("utf-8")
+    ).hexdigest()
+
+
+def canonical_payload_hash(payload: Mapping[str, Any]) -> str:
+    """Hash one server-owned JSON policy payload with stable ordering."""
+
+    validate_no_absolute_local_paths(payload)
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def compute_execution_policy_hash(  # noqa: PLR0913 - identity inputs are explicit
+    *,
+    manifest_parameters: Mapping[str, Any],
+    required_capabilities: Mapping[str, Any],
+    permitted_paths: list[str] | tuple[str, ...],
+    expected_artifact_kinds: list[str] | tuple[str, ...],
+    timeout_seconds: int,
+    network_policy: str,
+    repository_write_allowed: bool,
+) -> str:
+    """Hash every caller-visible result-affecting execution policy input."""
+
+    return canonical_payload_hash(
+        {
+            "expected_artifact_kinds": sorted(expected_artifact_kinds),
+            "manifest_parameters": dict(manifest_parameters),
+            "network_policy": network_policy,
+            "permitted_paths": sorted(permitted_paths),
+            "repository_write_allowed": repository_write_allowed,
+            "required_capabilities": dict(required_capabilities),
+            "schema_version": 1,
+            "timeout_seconds": timeout_seconds,
+        }
+    )
+
+
+def compute_result_contract_hash(
+    *,
+    fixed_step_metadata: list[dict[str, Any]],
+    artifact_declarations: list[dict[str, Any]],
+    dependency_lock_paths: list[str] | tuple[str, ...],
+) -> str:
+    """Hash parser/artifact/lock declarations independently of run values."""
+
+    normalized_paths = [validate_relative_path(path) for path in dependency_lock_paths]
+    return canonical_payload_hash(
+        {
+            "artifact_declarations": artifact_declarations,
+            "dependency_lock_paths": sorted(normalized_paths),
+            "fixed_step_metadata": fixed_step_metadata,
+            "schema_version": 1,
+        }
+    )
+
+
 __all__ = [
     "ARTIFACT_SCHEMA_VERSION",
     "EVIDENCE_SCHEMA_VERSION",
+    "REUSE_IDENTITY_SCHEMA_VERSION",
+    "REUSE_POLICY_VERSION",
     "ArtifactRecord",
     "AuditSummary",
     "DependencyLockHash",
     "EnvironmentIdentity",
+    "EvidenceReuseIdentity",
+    "EvidenceReuseProvenance",
     "ExecutionEvidence",
     "ExecutionEvidenceDraft",
     "ParsedCoverage",
     "ParsedResult",
     "ParsedTestCounts",
+    "ReuseCandidate",
     "StepEvidence",
     "ToolIdentity",
     "canonical_evidence_json",
+    "canonical_payload_hash",
+    "canonical_reuse_identity_json",
     "compute_evidence_fingerprint",
+    "compute_execution_policy_hash",
+    "compute_result_contract_hash",
+    "compute_reuse_identity_hash",
     "finalize_evidence",
     "validate_relative_path",
 ]

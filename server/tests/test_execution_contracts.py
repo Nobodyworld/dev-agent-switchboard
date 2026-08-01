@@ -30,9 +30,12 @@ from server.execution.enums import (
 from server.execution.evidence import (
     ArtifactRecord,
     EnvironmentIdentity,
+    EvidenceReuseIdentity,
     ExecutionEvidence,
     ExecutionEvidenceDraft,
     StepEvidence,
+    compute_result_contract_hash,
+    compute_reuse_identity_hash,
     finalize_evidence,
 )
 from server.execution.exceptions import (
@@ -41,6 +44,7 @@ from server.execution.exceptions import (
     ManifestIntegrityError,
     OwnershipConflictError,
 )
+from server.execution.registry import get_trusted_manifest
 from server.execution.repository import ExecutionRepository
 from server.execution.schemas import WorkOrderCreateIn
 from server.execution.service import ExecutionService
@@ -50,6 +54,7 @@ from server.task_status import TaskStatus
 from server.time_utils import utcnow_naive
 
 VALID_SHA = "a" * 40
+_SHA256_LENGTH = 64
 
 
 def _evidence_for_run(
@@ -599,6 +604,114 @@ async def test_execution_api_lifecycle_returns_typed_conflict_not_500() -> None:
         assert terminal_mutation.status_code == HTTPStatus.CONFLICT
         missing = await client.get("/api/execution/work-orders/999999")
         assert missing.status_code == HTTPStatus.NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_execution_api_defaults_reuse_off_and_rejects_caller_provenance() -> None:
+    transport = ASGITransport(app=app)
+    base = {
+        "repository_full_name": "Nobodyworld/dev-agent-switchboard",
+        "commit_sha": VALID_SHA,
+        "manifest": {"name": "worker-smoke", "version": "1"},
+    }
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        defaulted = await client.post("/api/execution/work-orders", json=base)
+        opted_in = await client.post(
+            "/api/execution/work-orders",
+            json={**base, "reuse_policy": "allow_exact"},
+        )
+        rejected = await client.post(
+            "/api/execution/work-orders",
+            json={**base, "source_run_id": 7},
+        )
+
+    assert defaulted.status_code == HTTPStatus.OK
+    assert defaulted.json()["reuse_policy"] == "never"
+    assert opted_in.status_code == HTTPStatus.OK
+    assert opted_in.json()["reuse_policy"] == "allow_exact"
+    assert len(opted_in.json()["execution_policy_hash"]) == _SHA256_LENGTH
+    assert rejected.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert "source_run_id" not in opted_in.text
+    assert "evidence_root" not in opted_in.text
+
+
+@pytest.mark.asyncio
+async def test_reuse_candidate_api_persists_only_bounded_server_provenance() -> None:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post(
+            "/api/execution/work-orders",
+            json={
+                "repository_full_name": "Nobodyworld/dev-agent-switchboard",
+                "commit_sha": VALID_SHA,
+                "manifest": {"name": "worker-smoke", "version": "1"},
+                "reuse_policy": "allow_exact",
+            },
+        )
+        assert created.status_code == HTTPStatus.OK
+        order = created.json()
+        approved = await client.post(
+            f"/api/execution/work-orders/{order['id']}/approve", json={}
+        )
+        assert approved.status_code == HTTPStatus.OK
+        registered = await client.post(
+            "/api/execution/workers",
+            json={
+                "worker_id": "api-reuse-worker",
+                "display_name": "API reuse worker",
+                "operating_system": "linux",
+                "architecture": "x86_64",
+                "python_version": "3.11",
+                "capabilities": {"git_available": True},
+            },
+        )
+        assert registered.status_code == HTTPStatus.OK
+        checkout = await client.post(
+            "/api/execution/checkout", json={"worker_id": "api-reuse-worker"}
+        )
+        assert checkout.status_code == HTTPStatus.OK
+        run_id = checkout.json()["run"]["id"]
+        manifest = get_trusted_manifest("worker-smoke", "1")
+        assert manifest is not None
+        identity = EvidenceReuseIdentity(
+            repository_full_name=order["repository_full_name"],
+            tested_sha=order["commit_sha"],
+            manifest_name=order["manifest_name"],
+            manifest_version=order["manifest_version"],
+            manifest_digest=order["manifest_digest"],
+            worker_environment_fingerprint="c" * 64,
+            dependency_lock_hashes=[],
+            execution_policy_hash=order["execution_policy_hash"],
+            result_contract_hash=compute_result_contract_hash(
+                fixed_step_metadata=manifest.fixed_step_metadata,
+                artifact_declarations=manifest.artifact_declarations,
+                dependency_lock_paths=manifest.dependency_lock_paths,
+            ),
+        )
+        identity_hash = compute_reuse_identity_hash(identity)
+        lookup = await client.post(
+            f"/api/execution/runs/{run_id}/reuse-candidate",
+            json={
+                "worker_id": "api-reuse-worker",
+                "reuse_identity": identity.model_dump(mode="json"),
+                "reuse_identity_hash": identity_hash,
+            },
+        )
+        persisted = await client.get(f"/api/execution/runs/{run_id}")
+
+    assert lookup.status_code == HTTPStatus.OK
+    assert lookup.json() == {
+        "decision": "unavailable",
+        "reason": "exact_candidate_not_found",
+        "candidate": None,
+    }
+    assert persisted.status_code == HTTPStatus.OK
+    assert persisted.json()["reuse_identity_hash"] == identity_hash
+    assert persisted.json()["reuse_decision"] == "unavailable"
+    assert persisted.json()["reused_from_run_id"] is None
+    for forbidden in ("evidence_root", "local_path", '"argv"', '"command"'):
+        assert forbidden not in lookup.text
+        assert forbidden not in persisted.text
 
 
 @pytest.mark.asyncio

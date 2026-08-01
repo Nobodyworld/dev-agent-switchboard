@@ -9,6 +9,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from server.execution.evidence import ReuseCandidate
+
 _SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -44,6 +46,8 @@ _WORK_ORDER_FIELDS = frozenset(
         "started_at",
         "finished_at",
         "terminal_reason",
+        "reuse_policy",
+        "execution_policy_hash",
     }
 )
 _FORBIDDEN_EXECUTABLE_KEYS = frozenset(
@@ -340,6 +344,8 @@ class AssignedWorkOrder:
     started_at: dt.datetime | None
     finished_at: dt.datetime | None
     terminal_reason: str | None
+    reuse_policy: str
+    execution_policy_hash: str
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> AssignedWorkOrder:
@@ -354,6 +360,14 @@ class AssignedWorkOrder:
         digest = _text(payload.get("manifest_digest"), "manifest digest", 64)
         if not _SHA.fullmatch(sha) or not _DIGEST.fullmatch(digest):
             raise ValueError("invalid work-order identity")
+        execution_policy_hash = _text(
+            payload.get("execution_policy_hash"), "execution policy hash", 64
+        )
+        if not _DIGEST.fullmatch(execution_policy_hash):
+            raise ValueError("invalid execution policy hash")
+        reuse_policy = _text(payload.get("reuse_policy"), "reuse policy", 32)
+        if reuse_policy not in {"never", "allow_exact", "require_exact"}:
+            raise ValueError("invalid reuse policy")
         if payload.get("repository_write_allowed") is not False:
             raise ValueError("repository writes are forbidden")
         network = _text(payload.get("network_policy"), "network policy")
@@ -425,6 +439,8 @@ class AssignedWorkOrder:
             _optional_datetime(payload.get("started_at"), "started_at"),
             _optional_datetime(payload.get("finished_at"), "finished_at"),
             _optional_text(payload.get("terminal_reason"), "terminal_reason", 4000),
+            reuse_policy,
+            execution_policy_hash,
         )
 
 
@@ -464,3 +480,29 @@ class ExecutionRun:
         if status not in _RUN_STATUSES:
             raise ValueError("invalid run status")
         return cls(_positive(payload.get("id"), "run id"), status)
+
+
+@dataclass(frozen=True, slots=True)
+class ReuseLookup:
+    decision: str
+    reason: str
+    candidate: ReuseCandidate | None
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> ReuseLookup:
+        payload = _mapping(payload, "reuse candidate response")
+        if set(payload) != {"decision", "reason", "candidate"}:
+            raise ValueError("invalid reuse candidate response fields")
+        decision = _text(payload.get("decision"), "reuse decision", 32)
+        if decision not in {"candidate_available", "unavailable"}:
+            raise ValueError("invalid reuse candidate decision")
+        reason = _text(payload.get("reason"), "reuse reason", 64)
+        candidate_payload = payload.get("candidate")
+        candidate = (
+            None
+            if candidate_payload is None
+            else ReuseCandidate.model_validate(candidate_payload)
+        )
+        if (decision == "candidate_available") != (candidate is not None):
+            raise ValueError("reuse candidate response is inconsistent")
+        return cls(decision, reason, candidate)

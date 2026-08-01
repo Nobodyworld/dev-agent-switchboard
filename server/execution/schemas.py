@@ -14,10 +14,17 @@ from .enums import (
     ExecutionRunStatus,
     NetworkPolicy,
     RepositoryWritePolicy,
+    ReuseDecision,
+    ReusePolicy,
     WorkerStatus,
     WorkOrderStatus,
 )
-from .evidence import ArtifactRecord, ExecutionEvidence
+from .evidence import (
+    ArtifactRecord,
+    EvidenceReuseIdentity,
+    ExecutionEvidence,
+    ReuseCandidate,
+)
 from .text_policy import (
     validate_no_absolute_local_paths,
     validate_optional_no_absolute_local_path,
@@ -104,6 +111,7 @@ class WorkOrderCreateIn(ExecutionInput):
     repository_write: Literal[False] = False
     preferred_executor: str | None = Field(default=None, max_length=128)
     cost_ceiling: float | None = Field(default=None, ge=0)
+    reuse_policy: ReusePolicy = ReusePolicy.NEVER
 
     @model_validator(mode="after")
     def reject_executable_metadata(self) -> WorkOrderCreateIn:
@@ -186,6 +194,16 @@ class ExecutionCompletionIn(ExecutionInput):
         default_factory=list, max_length=128
     )
     evidence_metadata: ExecutionEvidence | None = None
+    reuse_decision: ReuseDecision | None = None
+    reuse_reason: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z0-9][a-z0-9_.:-]*$",
+    )
+    reuse_identity: EvidenceReuseIdentity | None = None
+    reuse_identity_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    evidence_retention_expires_at: dt.datetime | None = None
 
     @field_validator("evidence_metadata", mode="before")
     @classmethod
@@ -268,6 +286,8 @@ class WorkOrderOut(BaseModel):
     started_at: dt.datetime | None
     finished_at: dt.datetime | None
     terminal_reason: str | None
+    reuse_policy: ReusePolicy
+    execution_policy_hash: str
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -323,6 +343,13 @@ class ExecutionRunOut(BaseModel):
     cleanup_status: str | None
     artifact_metadata: list[ArtifactRecord]
     evidence_metadata: ExecutionEvidence | None
+    reuse_identity: EvidenceReuseIdentity | None
+    reuse_identity_hash: str | None
+    reused_from_run_id: int | None
+    source_evidence_fingerprint: str | None
+    reuse_decision: ReuseDecision
+    reuse_reason: str | None
+    evidence_retention_expires_at: dt.datetime | None
     created_at: dt.datetime
     updated_at: dt.datetime
 
@@ -346,6 +373,22 @@ class CheckoutOut(BaseModel):
     run: ExecutionRunOut | None = None
     reason: str | None = None
     mismatch_reasons: list[str] = Field(default_factory=list)
+
+
+class ReuseCandidateRequestIn(ExecutionInput):
+    """Worker-derived current identity used for exact server lookup only."""
+
+    worker_id: str = Field(min_length=1, max_length=128)
+    reuse_identity: EvidenceReuseIdentity
+    reuse_identity_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class ReuseCandidateOut(BaseModel):
+    """Server-owned exact candidate or a bounded unavailable disposition."""
+
+    decision: ReuseDecision
+    reason: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9_.:-]*$")
+    candidate: ReuseCandidate | None = None
 
 
 class ExpireLeasesOut(BaseModel):

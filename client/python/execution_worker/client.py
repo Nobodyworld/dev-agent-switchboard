@@ -131,6 +131,27 @@ class ExecutionClient:
         )
         return cast(dict[str, Any], result)
 
+    def resolve_reuse_candidate(
+        self,
+        run_id: int,
+        *,
+        reuse_identity: Mapping[str, Any],
+        reuse_identity_hash: str,
+    ) -> dict[str, Any]:
+        """Request one exact server-selected source without retrying the write."""
+
+        result = self._request_json(
+            "post",
+            f"/api/execution/runs/{run_id}/reuse-candidate",
+            json={
+                "worker_id": self.worker_id,
+                "reuse_identity": dict(reuse_identity),
+                "reuse_identity_hash": reuse_identity_hash,
+            },
+            ownership_sensitive=True,
+        )
+        return cast(dict[str, Any], result)
+
     def complete_run(  # noqa: PLR0913 - mirrors the bounded completion contract
         self,
         run_id: int,
@@ -141,23 +162,41 @@ class ExecutionClient:
         cleanup_status: str | None = None,
         artifact_metadata: list[dict[str, Any]] | None = None,
         evidence_metadata: Mapping[str, Any] | None = None,
+        reuse_decision: str | None = None,
+        reuse_reason: str | None = None,
+        reuse_identity: Mapping[str, Any] | None = None,
+        reuse_identity_hash: str | None = None,
+        evidence_retention_expires_at: str | None = None,
     ) -> dict[str, Any]:
         """Submit one terminal result without retrying ambiguous writes."""
 
+        payload: dict[str, Any] = {
+            "worker_id": self.worker_id,
+            "status": status,
+            "result_summary": result_summary,
+            "terminal_reason": terminal_reason,
+            "cleanup_status": cleanup_status,
+            "artifact_metadata": artifact_metadata or [],
+            "evidence_metadata": (
+                dict(evidence_metadata) if evidence_metadata is not None else None
+            ),
+        }
+        optional_reuse = {
+            "reuse_decision": reuse_decision,
+            "reuse_reason": reuse_reason,
+            "reuse_identity": (
+                dict(reuse_identity) if reuse_identity is not None else None
+            ),
+            "reuse_identity_hash": reuse_identity_hash,
+            "evidence_retention_expires_at": evidence_retention_expires_at,
+        }
+        payload.update(
+            {key: value for key, value in optional_reuse.items() if value is not None}
+        )
         result = self._request_json(
             "post",
             f"/api/execution/runs/{run_id}/complete",
-            json={
-                "worker_id": self.worker_id,
-                "status": status,
-                "result_summary": result_summary,
-                "terminal_reason": terminal_reason,
-                "cleanup_status": cleanup_status,
-                "artifact_metadata": artifact_metadata or [],
-                "evidence_metadata": (
-                    dict(evidence_metadata) if evidence_metadata is not None else None
-                ),
-            },
+            json=payload,
             ownership_sensitive=True,
         )
         return cast(dict[str, Any], result)

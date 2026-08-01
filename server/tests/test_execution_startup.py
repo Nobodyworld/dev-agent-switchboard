@@ -124,6 +124,56 @@ async def test_existing_adapter_table_gains_actor_and_claim_columns(
         await engine.dispose()
 
 
+@pytest.mark.asyncio
+async def test_existing_execution_tables_gain_reuse_columns_and_indexes(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "existing-execution.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database}")
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("CREATE TABLE execution_work_orders (id INTEGER PRIMARY KEY)")
+            )
+            await connection.execute(
+                text(
+                    "CREATE TABLE execution_runs ("
+                    "id INTEGER PRIMARY KEY, worker_id VARCHAR(128), "
+                    "status VARCHAR(32))"
+                )
+            )
+        monkeypatch.setattr(lifecycle_module, "engine", engine)
+        monkeypatch.setattr(lifecycle_module, "AsyncSessionLocal", factory)
+
+        async with lifecycle_module.lifespan(FastAPI()):
+            pass
+
+        async with engine.begin() as connection:
+            work_order_columns, run_columns, indexes = await connection.run_sync(
+                _reuse_schema
+            )
+        assert {"reuse_policy", "execution_policy_hash"}.issubset(work_order_columns)
+        assert {
+            "reuse_identity",
+            "reuse_identity_hash",
+            "reused_from_run_id",
+            "source_evidence_fingerprint",
+            "reuse_decision",
+            "reuse_reason",
+            "reuse_candidate_metadata",
+            "evidence_retention_expires_at",
+        }.issubset(run_columns)
+        assert {
+            "ix_execution_run_exact_reuse_candidate",
+            "ix_execution_runs_reused_from_run_id",
+            "ix_execution_runs_evidence_retention_expires_at",
+        }.issubset(indexes)
+    finally:
+        await engine.dispose()
+
+
 def test_execution_models_are_new_tables_not_task_columns() -> None:
     assert "repository_full_name" not in Task.__table__.columns
     assert "commit_sha" not in Task.__table__.columns
@@ -136,3 +186,12 @@ def test_execution_models_are_new_tables_not_task_columns() -> None:
 
 def _table_names(sync_connection) -> set[str]:
     return set(inspect(sync_connection).get_table_names())
+
+
+def _reuse_schema(sync_connection) -> tuple[set[str], set[str], set[str]]:
+    inspector = inspect(sync_connection)
+    return (
+        {column["name"] for column in inspector.get_columns("execution_work_orders")},
+        {column["name"] for column in inspector.get_columns("execution_runs")},
+        {index["name"] for index in inspector.get_indexes("execution_runs")},
+    )

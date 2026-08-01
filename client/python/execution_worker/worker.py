@@ -12,17 +12,21 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from server.execution.evidence import (
     ArtifactRecord,
     DependencyLockHash,
     EnvironmentIdentity,
+    EvidenceReuseIdentity,
+    EvidenceReuseProvenance,
     ExecutionEvidence,
     ExecutionEvidenceDraft,
     StepEvidence,
     TerminalStatus,
     ToolIdentity,
+    compute_result_contract_hash,
+    compute_reuse_identity_hash,
     finalize_evidence,
 )
 from server.execution.registry import TrustedManifest, TrustedStep, get_trusted_manifest
@@ -36,8 +40,9 @@ from .evidence import (
     create_evidence_store,
     hash_declared_file,
     prune_expired_evidence,
+    verify_reuse_candidate,
 )
-from .models import AssignedWorkOrder, Checkout, ExecutionRun, SafeManifest
+from .models import AssignedWorkOrder, Checkout, ExecutionRun, ReuseLookup, SafeManifest
 from .runner import (
     CancellationToken,
     OverallDeadlineExceededError,
@@ -54,6 +59,7 @@ _SERVER_TERMINAL_STATUSES = {"succeeded", "failed", "timed_out", "cancelled"}
 RESULT_SUMMARY_LIMIT = 8000
 STEP_EVIDENCE_SUMMARY_LIMIT = 4096
 _ENVIRONMENT_TOOLS = ("ruff", "black", "mypy", "pytest", "coverage", "bandit")
+ReuseDecisionValue = Literal["fresh", "reused", "unavailable"]
 
 
 def _environment_identity() -> EnvironmentIdentity:
@@ -458,7 +464,7 @@ class LocalWorker:
         manifest: TrustedManifest, checkout: Path
     ) -> list[DependencyLockHash]:
         hashes: list[DependencyLockHash] = []
-        for relative_path in manifest.dependency_lock_paths:
+        for relative_path in sorted(manifest.dependency_lock_paths):
             _size, digest = hash_declared_file(checkout, relative_path)
             hashes.append(
                 DependencyLockHash(relative_path=relative_path, sha256=digest)
@@ -482,6 +488,8 @@ class LocalWorker:
         artifact_status: str,
         cleanup: str,
         local_record_status: str,
+        environment: EnvironmentIdentity,
+        reuse_provenance: EvidenceReuseProvenance,
     ) -> ExecutionEvidence:
         failing_step = next(
             (result.step_id for result in results if result.status != "succeeded"),
@@ -496,7 +504,7 @@ class LocalWorker:
             manifest_version=manifest.version,
             manifest_digest=manifest.digest,
             worker_id=self.config.worker_id,
-            environment=_environment_identity(),
+            environment=environment,
             dependency_lock_hashes=dependency_locks,
             started_at=started_at,
             finished_at=finished_at,
@@ -510,8 +518,37 @@ class LocalWorker:
             artifact_finalization_status=artifact_status,
             source_cleanup_status=cleanup,
             local_record_status=local_record_status,
+            reuse_provenance=reuse_provenance,
         )
         return finalize_evidence(draft)
+
+    @staticmethod
+    def _build_reuse_identity(
+        *,
+        order: AssignedWorkOrder,
+        manifest: TrustedManifest,
+        environment: EnvironmentIdentity,
+        dependency_locks: list[DependencyLockHash],
+    ) -> EvidenceReuseIdentity:
+        """Build the exact current result identity from trusted local inputs."""
+
+        return EvidenceReuseIdentity(
+            repository_full_name=order.repository_full_name,
+            tested_sha=order.commit_sha.lower(),
+            manifest_name=manifest.name,
+            manifest_version=manifest.version,
+            manifest_digest=manifest.digest,
+            worker_environment_fingerprint=environment.fingerprint,
+            dependency_lock_hashes=sorted(
+                dependency_locks, key=lambda item: item.relative_path
+            ),
+            execution_policy_hash=order.execution_policy_hash,
+            result_contract_hash=compute_result_contract_hash(
+                fixed_step_metadata=manifest.fixed_step_metadata,
+                artifact_declarations=manifest.artifact_declarations,
+                dependency_lock_paths=manifest.dependency_lock_paths,
+            ),
+        )
 
     def _complete_admission_rejection(self, run_id: int, reason: str) -> None:
         """Dispose one checked-out lease exactly once without local side effects."""
@@ -559,6 +596,13 @@ class LocalWorker:
         order: AssignedWorkOrder | None = None
         summary: dict[str, Any] = {"steps": []}
         evidence: ExecutionEvidence | None = None
+        provenance: EvidenceReuseProvenance | None = None
+        environment: EnvironmentIdentity | None = None
+        reuse_identity: EvidenceReuseIdentity | None = None
+        reuse_identity_hash: str | None = None
+        reuse_decision: ReuseDecisionValue = "fresh"
+        reuse_reason = "reuse_policy_never"
+        lookup: ReuseLookup | None = None
         started_at = dt.datetime.now(dt.UTC)
         try:
             order = AssignedWorkOrder.from_payload(
@@ -593,6 +637,7 @@ class LocalWorker:
                 terminal, reason = "cancelled", token.reason
             else:
                 started_at = dt.datetime.now(dt.UTC)
+                environment = _environment_identity()
                 store = self._create_evidence_store(checkout.run_id, started_at)
                 worktree = create_worktree(
                     self.config.repository_path(order.repository_full_name),
@@ -602,46 +647,104 @@ class LocalWorker:
                     execution_run_id=checkout.run_id,
                 )
                 terminal, reason, cleanup = "succeeded", None, "pending"
-                for step in manifest.execution_steps:
-                    attempted_steps.append(step)
-                    if self._shutdown.is_set():
-                        token.cancel("worker_shutdown")
-                    try:
-                        result = run_step(
-                            step,
-                            worktree.checkout,
-                            store.logs,
-                            self.config,
-                            deadline,
-                            cancellation=token,
+                execute_fresh = True
+                if order.reuse_policy != "never":
+                    if manifest.dependency_lock_paths:
+                        dependency_locks = self._hash_dependency_locks(
+                            manifest, worktree.checkout
                         )
-                    except OverallDeadlineExceededError as error:
-                        if token.cancelled:
-                            terminal, reason, skip_completion = _cancellation_outcome(
-                                token
+                        dependency_lock_status = "succeeded"
+                    reuse_identity = self._build_reuse_identity(
+                        order=order,
+                        manifest=manifest,
+                        environment=environment,
+                        dependency_locks=dependency_locks,
+                    )
+                    reuse_identity_hash = compute_reuse_identity_hash(reuse_identity)
+                    try:
+                        lookup = ReuseLookup.from_payload(
+                            self.client.resolve_reuse_candidate(
+                                checkout.run_id,
+                                reuse_identity=reuse_identity.model_dump(mode="json"),
+                                reuse_identity_hash=reuse_identity_hash,
                             )
-                        else:
-                            terminal, reason = "timed_out", str(error)
-                        break
-                    except Exception:
-                        if token.cancelled:
-                            terminal, reason, skip_completion = _cancellation_outcome(
-                                token
+                        )
+                        reuse_reason = lookup.reason
+                    except ExecutionOwnershipLostError:
+                        token.cancel("ownership_lost")
+                    except (OSError, ValueError):
+                        reuse_reason = "reuse_lookup_unavailable"
+                    if token.cancelled:
+                        terminal, reason, skip_completion = _cancellation_outcome(token)
+                        execute_fresh = False
+                    elif lookup is not None and lookup.candidate is not None:
+                        verification = verify_reuse_candidate(
+                            evidence_root=self.config.evidence_root,
+                            worker_id=self.config.worker_id,
+                            candidate=lookup.candidate,
+                            now=dt.datetime.now(dt.UTC),
+                            limits=store.limits,
+                        )
+                        reuse_reason = verification.reason
+                        if verification.verified:
+                            reuse_decision = "reused"
+                            execute_fresh = False
+                            terminal, reason = "succeeded", None
+                        elif order.reuse_policy == "require_exact":
+                            reuse_decision = "unavailable"
+                            execute_fresh = False
+                            terminal, reason = "failed", verification.reason
+                    elif order.reuse_policy == "require_exact":
+                        reuse_decision = "unavailable"
+                        execute_fresh = False
+                        terminal, reason = "failed", reuse_reason
+                    else:
+                        reuse_reason = (
+                            lookup.reason if lookup is not None else reuse_reason
+                        )
+
+                if execute_fresh:
+                    reuse_decision = "fresh"
+                    for step in manifest.execution_steps:
+                        attempted_steps.append(step)
+                        if self._shutdown.is_set():
+                            token.cancel("worker_shutdown")
+                        try:
+                            result = run_step(
+                                step,
+                                worktree.checkout,
+                                store.logs,
+                                self.config,
+                                deadline,
+                                cancellation=token,
+                            )
+                        except OverallDeadlineExceededError as error:
+                            if token.cancelled:
+                                terminal, reason, skip_completion = (
+                                    _cancellation_outcome(token)
+                                )
+                            else:
+                                terminal, reason = "timed_out", str(error)
+                            break
+                        except Exception:
+                            if token.cancelled:
+                                terminal, reason, skip_completion = (
+                                    _cancellation_outcome(token)
+                                )
+                                break
+                            raise
+                        results.append(result)
+                        if result.status != "succeeded" and step.required:
+                            terminal = (
+                                "timed_out"
+                                if result.status == "timed_out"
+                                else result.status
+                            )
+                            reason = (
+                                result.terminal_reason
+                                or f"required_step_{result.status}:{step.id}"
                             )
                             break
-                        raise
-                    results.append(result)
-                    if result.status != "succeeded" and step.required:
-                        terminal = (
-                            "timed_out"
-                            if result.status == "timed_out"
-                            else result.status
-                        )
-                        reason = (
-                            result.terminal_reason
-                            or f"required_step_{result.status}:{step.id}"
-                        )
-                        break
                 if token.cancelled:
                     terminal, reason, skip_completion = _cancellation_outcome(token)
         except ExecutionOwnershipLostError:
@@ -650,13 +753,19 @@ class LocalWorker:
             terminal, reason = "failed", "requested_sha_not_available_locally"
         except Exception as error:  # terminal outcome must stay truthful and bounded
             terminal, reason = "failed", f"worker_error:{type(error).__name__}"
+            if order is not None and order.reuse_policy == "require_exact":
+                reuse_decision = "unavailable"
+                reuse_reason = "reuse_precondition_failed"
         finally:
             if monitor is not None:
                 monitor.stop()
             with self._state_lock:
                 self._active_token = None
             if worktree is not None and manifest is not None:
-                if manifest.dependency_lock_paths:
+                if (
+                    manifest.dependency_lock_paths
+                    and dependency_lock_status != "succeeded"
+                ):
                     try:
                         dependency_locks = self._hash_dependency_locks(
                             manifest, worktree.checkout
@@ -698,6 +807,38 @@ class LocalWorker:
                 and worktree is not None
             ):
                 try:
+                    if environment is None:
+                        environment = _environment_identity()
+                    if reuse_identity is None:
+                        reuse_identity = self._build_reuse_identity(
+                            order=order,
+                            manifest=manifest,
+                            environment=environment,
+                            dependency_locks=dependency_locks,
+                        )
+                        reuse_identity_hash = compute_reuse_identity_hash(
+                            reuse_identity
+                        )
+                    assert reuse_identity_hash is not None
+                    provenance = EvidenceReuseProvenance(
+                        decision=reuse_decision,
+                        reason=reuse_reason,
+                        reuse_identity_hash=reuse_identity_hash,
+                        source_run_id=(
+                            lookup.candidate.source_run_id
+                            if reuse_decision == "reused"
+                            and lookup is not None
+                            and lookup.candidate is not None
+                            else None
+                        ),
+                        source_evidence_fingerprint=(
+                            lookup.candidate.expected_source_evidence_fingerprint
+                            if reuse_decision == "reused"
+                            and lookup is not None
+                            and lookup.candidate is not None
+                            else None
+                        ),
+                    )
                     finished_at = dt.datetime.now(dt.UTC)
                     evidence = self._build_evidence(
                         order=order,
@@ -714,11 +855,15 @@ class LocalWorker:
                         artifact_status=artifact_status,
                         cleanup=cleanup,
                         local_record_status="succeeded",
+                        environment=environment,
+                        reuse_provenance=provenance,
                     )
                     store.write_result(
                         {
                             "evidence": evidence.model_dump(mode="json"),
                             "result_summary": summary,
+                            "reuse_identity": reuse_identity.model_dump(mode="json"),
+                            "reuse_identity_hash": reuse_identity_hash,
                         }
                     )
                 except Exception as error:
@@ -726,6 +871,8 @@ class LocalWorker:
                     if terminal == "succeeded":
                         terminal, reason = "failed", "local_result_record_failed"
                     try:
+                        if environment is None or provenance is None:
+                            raise RuntimeError("reuse evidence inputs unavailable")
                         evidence = self._build_evidence(
                             order=order,
                             run_id=checkout.run_id,
@@ -741,6 +888,8 @@ class LocalWorker:
                             artifact_status=artifact_status,
                             cleanup=cleanup,
                             local_record_status=record_failure,
+                            environment=environment,
+                            reuse_provenance=provenance,
                         )
                     except Exception:
                         evidence = None
@@ -763,6 +912,19 @@ class LocalWorker:
                 ),
                 evidence_metadata=(
                     evidence.model_dump(mode="json") if evidence is not None else None
+                ),
+                reuse_decision=reuse_decision,
+                reuse_reason=reuse_reason,
+                reuse_identity=(
+                    reuse_identity.model_dump(mode="json")
+                    if reuse_identity is not None
+                    else None
+                ),
+                reuse_identity_hash=reuse_identity_hash,
+                evidence_retention_expires_at=(
+                    store.retention_expires_at.isoformat().replace("+00:00", "Z")
+                    if store is not None and evidence is not None
+                    else None
                 ),
             )
         except ExecutionOwnershipLostError:

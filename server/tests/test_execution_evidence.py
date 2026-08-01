@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 
 import pytest
 from pydantic import ValidationError
 
 from server.execution.evidence import (
     ArtifactRecord,
+    DependencyLockHash,
     EnvironmentIdentity,
+    EvidenceReuseIdentity,
     ExecutionEvidence,
     ExecutionEvidenceDraft,
     StepEvidence,
+    canonical_reuse_identity_json,
     compute_evidence_fingerprint,
+    compute_reuse_identity_hash,
     finalize_evidence,
 )
 from server.execution.schemas import ExecutionCompletionIn
@@ -273,3 +278,130 @@ def test_completion_accepts_safe_relative_references_and_ordinary_summary() -> N
         }
     )
     assert encoded_relative_windows_output.result_summary is not None
+
+
+def _reuse_identity(**overrides: object) -> EvidenceReuseIdentity:
+    values: dict[str, object] = {
+        "repository_full_name": "Nobodyworld/dev-agent-switchboard",
+        "tested_sha": _SHA,
+        "manifest_name": "validate-switchboard",
+        "manifest_version": "1",
+        "manifest_digest": _DIGEST,
+        "worker_environment_fingerprint": "d" * 64,
+        "dependency_lock_hashes": [
+            DependencyLockHash(relative_path="a.lock", sha256="1" * 64),
+            DependencyLockHash(relative_path="server/z.lock", sha256="2" * 64),
+        ],
+        "execution_policy_hash": "e" * 64,
+        "result_contract_hash": "f" * 64,
+    }
+    values.update(overrides)
+    return EvidenceReuseIdentity.model_validate(values)
+
+
+def test_reuse_identity_is_canonical_and_excludes_run_provenance() -> None:
+    identity = _reuse_identity()
+    encoded = canonical_reuse_identity_json(identity)
+
+    assert encoded == canonical_reuse_identity_json(
+        EvidenceReuseIdentity.model_validate(identity.model_dump(mode="json"))
+    )
+    assert compute_reuse_identity_hash(identity) == compute_reuse_identity_hash(
+        identity
+    )
+    for forbidden in (
+        "work_order_id",
+        "run_id",
+        "created_at",
+        "duration_seconds",
+        "terminal_reason",
+        "complete_evidence_fingerprint",
+        "source_run_id",
+    ):
+        assert forbidden not in json.loads(encoded)
+        payload = identity.model_dump(mode="json")
+        payload[forbidden] = 1
+        with pytest.raises(ValidationError):
+            EvidenceReuseIdentity.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("repository_full_name", "Nobodyworld/changed"),
+        ("tested_sha", "c" * 40),
+        ("manifest_name", "worker-smoke"),
+        ("manifest_version", "2"),
+        ("manifest_digest", "3" * 64),
+        ("worker_environment_fingerprint", "4" * 64),
+        ("execution_policy_hash", "5" * 64),
+        ("result_contract_hash", "6" * 64),
+    ],
+)
+def test_each_scalar_result_input_changes_reuse_identity_hash(
+    field: str, value: object
+) -> None:
+    original = _reuse_identity()
+    changed = _reuse_identity(**{field: value})
+    assert compute_reuse_identity_hash(changed) != compute_reuse_identity_hash(original)
+
+
+def test_dependency_lock_path_or_hash_changes_reuse_identity() -> None:
+    original = _reuse_identity()
+    changed_path = _reuse_identity(
+        dependency_lock_hashes=[
+            {"relative_path": "b.lock", "sha256": "1" * 64},
+            {"relative_path": "server/z.lock", "sha256": "2" * 64},
+        ]
+    )
+    changed_hash = _reuse_identity(
+        dependency_lock_hashes=[
+            {"relative_path": "a.lock", "sha256": "9" * 64},
+            {"relative_path": "server/z.lock", "sha256": "2" * 64},
+        ]
+    )
+    assert compute_reuse_identity_hash(changed_path) != compute_reuse_identity_hash(
+        original
+    )
+    assert compute_reuse_identity_hash(changed_hash) != compute_reuse_identity_hash(
+        original
+    )
+
+
+@pytest.mark.parametrize(
+    "dependency_locks",
+    [
+        [
+            {"relative_path": "z.lock", "sha256": "1" * 64},
+            {"relative_path": "a.lock", "sha256": "2" * 64},
+        ],
+        [
+            {"relative_path": "a.lock", "sha256": "1" * 64},
+            {"relative_path": "a.lock", "sha256": "2" * 64},
+        ],
+        [{"relative_path": "../escape.lock", "sha256": "1" * 64}],
+        [{"relative_path": "nul/file.lock", "sha256": "1" * 64}],
+    ],
+)
+def test_reuse_identity_rejects_noncanonical_or_unsafe_dependency_locks(
+    dependency_locks: list[dict[str, str]],
+) -> None:
+    with pytest.raises(ValidationError):
+        _reuse_identity(dependency_lock_hashes=dependency_locks)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("tested_sha", "A" * 40),
+        ("manifest_digest", "g" * 64),
+        ("worker_environment_fingerprint", "0" * 63),
+        ("schema_version", 2),
+        ("policy_version", 2),
+    ],
+)
+def test_reuse_identity_rejects_malformed_versions_and_hashes(
+    field: str, value: object
+) -> None:
+    with pytest.raises(ValidationError):
+        _reuse_identity(**{field: value})
