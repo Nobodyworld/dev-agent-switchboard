@@ -186,14 +186,68 @@ give credentials/network access to the worker. The exact resolved commit object
 must already exist in the operator-configured canonical repository. Missing
 objects fail locally without SHA substitution or success evidence.
 
-### Defer provider routing
+### Cheapest-capable routing remains local (#134)
 
-Phase 1 records a cost ceiling and preferred-executor metadata but routes only
-to deterministic local workers. Provider budgets, remaining rate limits, and
-cheapest-capable paid-agent routing are Phase 3 concerns.
+Work orders use a versioned `routing_policy`: `first_available` by default or
+explicit `cheapest_capable`. The default preserves existing capability-aware
+first-poller behavior without requiring a routing profile. Cheapest-capable
+routing still assigns only trusted outbound local workers. It does not invoke
+a paid coding agent, integrate an AI provider, handle provider credentials,
+query external rate limits, or make billing claims.
 
-The immediate rule is simpler: deterministic validation must not invoke a paid
-coding agent.
+Each routed worker has a separate one-to-one operator-owned profile containing
+enabled state, bounded integer estimated cost units, quota capacity and
+remaining units, optional reset time, routing priority, and optimistic
+revision. Workers cannot author these fields through registration or
+heartbeat. The legacy floating `cost_ceiling` remains stored for compatibility
+but is not authoritative; work orders use bounded integer
+`maximum_cost_units` and `required_quota_units`. Cost units are abstract local
+comparison values, not currency, credits, actual spend, or measured savings.
+
+Every known-worker checkout records a server-time poll timestamp for that
+requester. Heartbeat freshness proves liveness; poll freshness proves that the
+outbound worker is still asking for work. Cheapest-capable eligibility also
+requires online status, free capacity, manifest and work-order capabilities,
+network compatibility, false repository-write capability, an enabled valid
+profile, cost within the integer ceiling, and enough quota. Missing or
+malformed profiles fail closed for cheapest-capable and do not affect unpinned
+first-available work.
+
+The exact deterministic score is:
+
+1. lowest estimated cost units per run;
+2. highest remaining quota after the prospective reservation;
+3. lowest active-run/max-concurrency ratio using integer cross multiplication;
+4. lowest operator routing-priority integer;
+5. lexical stable worker ID.
+
+An explicit `preferred_executor` is a hard pin to a known worker. It overrides
+the score but none of approval, heartbeat, poll, status, capacity, capability,
+network, read-only, cost, quota, or profile-enabled eligibility. An unavailable
+pin never falls back to another worker.
+
+Capacity reservation, conditional profile revision/quota reservation,
+work-order claim, run creation, lease creation, and route provenance share one
+database transaction. A lost conditional update rolls the whole attempt back.
+The first valid owned run heartbeat changes reserved quota to consumed exactly
+once. Pre-start cancellation or stale expiry releases reserved quota exactly
+once and never above capacity. Once consumed, no terminal outcome or lease loss
+refunds quota. A requeued order receives another reservation only when a new
+attempt actually wins checkout. Profile replacements and quota resets use
+optimistic revisions and are rejected while any reservation is active; reset
+timestamps are monotonic and exact retries are idempotent.
+
+The route assessment endpoint reads this state without reserving anything or
+refreshing poll freshness. Assigned work orders and runs persist compact scalar
+provenance, never candidate lists, complete profiles, local roots, machine user
+names, commands, argv, logs, credentials, environment dumps, or private network
+details. Result-affecting requested routing inputs participate in execution and
+reuse policy identity; transient selected-worker cost/quota snapshots remain
+route provenance and do not weaken exact same-worker evidence proof.
+
+Provider budgets, external remaining-rate-limit ingestion, and paid-agent
+routing remain later concerns. Deterministic local validation must not invoke a
+paid coding agent.
 
 ## Execution-Plane Domain
 
@@ -211,7 +265,8 @@ A work order includes at least:
 - approval policy and status;
 - timeout and resource ceilings;
 - requested network and repository-write policies;
-- preferred executor and cost-ceiling metadata;
+- preferred executor, legacy cost-ceiling metadata, routing policy, integer
+  maximum cost, and required quota;
 - explicit evidence-reuse policy and server-derived execution-policy hash;
 - lifecycle timestamps and terminal reason.
 
@@ -245,7 +300,7 @@ A worker includes at least:
 - maximum concurrency;
 - supported network-policy level;
 - repository-write capability;
-- current status and last heartbeat.
+- current status, last heartbeat, and server-maintained last checkout poll.
 
 Phase 1 workers must declare repository-write capability as false.
 
@@ -286,6 +341,7 @@ An execution run includes at least:
 - terminal status and bounded result/cleanup metadata;
 - strict artifact metadata and versioned compact evidence, including a
   deterministic fingerprint after #114 completion.
+- compact server-owned route provenance and quota-reservation state after #134.
 
 Only one active execution run may exist for a work order at a time.
 
@@ -448,13 +504,26 @@ Tracked by #121:
 - one lease-owned fresh fallback for `allow_exact` and no validation for
   `require_exact`.
 
+### Phase 2C — Cheapest-capable trusted local routing
+
+Tracked by #134:
+
+- compatible `first_available` and explicit `cheapest_capable` policies;
+- operator-owned integer cost/quota/priority profiles with optimistic revision;
+- separate heartbeat and active-poll freshness;
+- exact deterministic local-worker score and hard worker pins;
+- atomic capacity, quota, claim, run, lease, and provenance persistence;
+- reserve/consume/release/reset quota lifecycle;
+- bounded route assessment and historical provenance APIs;
+- no paid-agent or provider execution path.
+
 ### Later phases
 
 - known-baseline failures;
 - GitHub webhook ingestion and status/check integrations;
 - GitHub Actions versus local-worker routing;
 - MCP tools and secure outbound tunnel integration;
-- provider budget and rate-limit routing;
+- provider budget and external rate-limit routing;
 - browser worker;
 - restricted desktop or RPA worker on a dedicated machine or VM.
 

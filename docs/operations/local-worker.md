@@ -117,6 +117,73 @@ environment summaries remain present. Serialized JSON text is never sliced.
 does **not** claim per-process network isolation or a firewall sandbox. Select
 `disabled` only when the worker can truthfully support that policy.
 
+## Cheapest-capable local routing
+
+Work orders default to `routing_policy: first_available`; existing workers and
+callers need no routing profile for unpinned work. An operator may instead
+choose `cheapest_capable` with optional integer `maximum_cost_units`, integer
+`required_quota_units`, and an optional hard `preferred_executor` worker ID.
+The legacy floating `cost_ceiling` field remains compatible but does not
+control this policy. Cost units are abstract values chosen by the local
+operator. They are not dollars, credits, actual spend, savings, or a provider
+rate-limit balance.
+
+Before queueing cheapest-capable work, register the worker normally and create
+its profile through the privileged execution API. A profile contains an
+enabled flag, estimated integer cost per run, quota capacity and remaining
+units, optional timezone-aware reset timestamp, routing priority, and revision.
+Worker registration and heartbeat payloads reject those fields, so the worker
+cannot make itself cheaper or increase its quota. Replace a profile or reset
+quota only with the exact expected revision returned by the latest read. A
+stale revision returns `409` without changing state. Switchboard rejects
+profile replacement and reset while a run has reserved, not-yet-consumed
+quota. Reset retries with the same timestamp and value are idempotent; older or
+conflicting resets fail closed.
+
+Cheapest-capable candidates must have both a fresh heartbeat and a fresh
+server-recorded checkout poll. Every authenticated checkout attempt by a known
+worker refreshes only that worker's poll timestamp. Route assessment does not.
+Keep `poll_interval_seconds` safely below
+`SWITCHBOARD_EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS` (default `60`) and keep
+worker heartbeats within
+`SWITCHBOARD_EXECUTION_HEARTBEAT_FRESHNESS_SECONDS` (default `300`). A worker
+that keeps heartbeating but stops checkout polling ages out, allowing another
+active poller to proceed.
+
+Among fully eligible active workers, Switchboard ranks lowest estimated cost,
+then highest quota headroom after reservation, lowest active-load ratio, lowest
+routing priority, and lexical worker ID. Load ratios use integer cross
+multiplication. A preferred executor overrides ranking only: it must already be
+known and still pass approval, profile enabled, heartbeat, poll, status,
+capacity, manifest/work-order capabilities, network, repository-read-only,
+cost, and quota checks. An unavailable pin does not fall back to another
+worker.
+
+On a successful checkout, capacity, quota, work-order claim, run, lease, and
+route provenance commit atomically. The first valid owned run heartbeat consumes
+reserved quota exactly once. Cancellation or stale expiry before that heartbeat
+releases it exactly once. Once consumed, success, failure, timeout,
+cancellation, lease loss, and requeue do not refund it. Requeued work reserves
+again only after a new attempt actually wins checkout. Common bounded
+non-assignment reasons include `better_candidate_active`,
+`preferred_executor_unavailable`, `routing_profile_missing`,
+`routing_profile_disabled`, `worker_heartbeat_stale`,
+`worker_checkout_poll_stale`, `routing_cost_ceiling_exceeded`,
+`routing_quota_insufficient`, and `routing_reservation_conflict`.
+
+Use `GET /api/execution/work-orders/{id}/route-assessment` before assignment to
+inspect the current bounded decision without reserving or refreshing polls.
+After assignment, the work-order and run responses and their `/route` endpoints
+show compact provenance: policy, selected worker/profile revision, estimated
+cost, required/reserved quota, reservation state, eligible count, pin flag,
+reason, and decision timestamp. They never include candidate lists, full
+profiles, local roots, machine user names, commands, argv, logs, secrets,
+credentials, environment dumps, or private network details.
+
+This routing path is still the same outbound-only local worker. It does not
+execute a paid coding agent, contact an AI provider or billing API, accept
+provider credentials, or add an inbound workstation listener.
+
 ## Evidence, retention, and privacy
 
 Each admitted run creates exactly one `run-{server_run_id}` directory beneath
