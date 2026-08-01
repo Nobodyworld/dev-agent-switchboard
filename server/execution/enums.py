@@ -80,6 +80,22 @@ class ReuseDecision(str, Enum):
     UNAVAILABLE = "unavailable"
 
 
+class RoutingPolicy(str, Enum):
+    """Versioned local-worker selection policies."""
+
+    FIRST_AVAILABLE = "first_available"
+    CHEAPEST_CAPABLE = "cheapest_capable"
+
+
+class QuotaReservationState(str, Enum):
+    """Lifecycle of server-owned quota reserved for one execution run."""
+
+    NOT_REQUIRED = "not_required"
+    RESERVED = "reserved"
+    CONSUMED = "consumed"
+    RELEASED = "released"
+
+
 WORK_ORDER_TERMINAL_STATUSES = frozenset(
     {
         WorkOrderStatus.SUCCEEDED,

@@ -18,6 +18,7 @@ from server.schema import (
     DiagnosticsPackageOut,
     DiagnosticsReportOut,
     EnvironmentVariableOut,
+    ExecutionRoutingSettingsOut,
     ExtensionDescriptorOut,
     ExtensionSettingsOut,
     LeaseSettingsOut,
@@ -51,6 +52,7 @@ def _build_settings_response(
     rate_settings = bundle.rate_limit
     lease_settings = bundle.lease
     extension_settings = bundle.extensions
+    routing_settings = bundle.routing
     return SettingsResponse(
         rate_limit=RateLimitSettingsOut(
             requests=rate_settings.requests,
@@ -60,6 +62,12 @@ def _build_settings_response(
             enabled=rate_settings.enabled,
         ),
         lease=LeaseSettingsOut(duration_seconds=lease_settings.duration_seconds),
+        execution_routing=ExecutionRoutingSettingsOut(
+            heartbeat_freshness_seconds=(routing_settings.heartbeat_freshness_seconds),
+            active_poll_freshness_seconds=(
+                routing_settings.active_poll_freshness_seconds
+            ),
+        ),
         extensions=ExtensionSettingsOut(
             modules=list(extension_settings.modules),
             builtin_enabled=extension_settings.enable_builtin,

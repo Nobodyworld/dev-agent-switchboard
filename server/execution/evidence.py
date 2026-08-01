@@ -509,6 +509,10 @@ def compute_execution_policy_hash(  # noqa: PLR0913 - identity inputs are explic
     timeout_seconds: int,
     network_policy: str,
     repository_write_allowed: bool,
+    routing_policy: str = "first_available",
+    maximum_cost_units: int | None = None,
+    required_quota_units: int = 0,
+    preferred_executor: str | None = None,
 ) -> str:
     """Hash every caller-visible result-affecting execution policy input."""
 
@@ -520,7 +524,14 @@ def compute_execution_policy_hash(  # noqa: PLR0913 - identity inputs are explic
             "permitted_paths": sorted(permitted_paths),
             "repository_write_allowed": repository_write_allowed,
             "required_capabilities": dict(required_capabilities),
-            "schema_version": 1,
+            "routing": {
+                "maximum_cost_units": maximum_cost_units,
+                "policy": routing_policy,
+                "preferred_executor": preferred_executor,
+                "required_quota_units": required_quota_units,
+                "schema_version": 1,
+            },
+            "schema_version": 2,
             "timeout_seconds": timeout_seconds,
         }
     )

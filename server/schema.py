@@ -28,6 +28,7 @@ __all__ = [
     "ExecPlanOwner",
     "ExecPlanRegistryIndex",
     "ExecPlanRegistrySource",
+    "ExecutionRoutingSettingsOut",
     "ExtensionDescriptorOut",
     "ExtensionSettingsOut",
     "FileUploadResponse",
@@ -151,6 +152,11 @@ class RateLimitSettingsOut(BaseModel):
 
 class LeaseSettingsOut(BaseModel):
     duration_seconds: int
+
+
+class ExecutionRoutingSettingsOut(BaseModel):
+    heartbeat_freshness_seconds: int = Field(ge=1, le=86_400)
+    active_poll_freshness_seconds: int = Field(ge=1, le=3_600)
 
 
 class ExtensionDescriptorOut(BaseModel):
@@ -308,6 +314,7 @@ class DiagnosticsPackageOut(BaseModel):
 class SettingsResponse(BaseModel):
     rate_limit: RateLimitSettingsOut
     lease: LeaseSettingsOut
+    execution_routing: ExecutionRoutingSettingsOut
     extensions: ExtensionSettingsOut
 
 

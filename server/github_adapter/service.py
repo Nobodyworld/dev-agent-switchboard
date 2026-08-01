@@ -179,7 +179,7 @@ class GitHubAdapterService:
                         resource_metadata={},
                         network_policy=manifest.network_policy,
                         repository_write_allowed=False,
-                        preferred_executor="local",
+                        preferred_executor=None,
                         cost_ceiling=0.0,
                     )
                 )

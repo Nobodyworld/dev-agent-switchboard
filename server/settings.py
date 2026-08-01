@@ -19,6 +19,10 @@ class LeaseConfigurationError(ValueError):
     """Raised when lease environment variables are invalid."""
 
 
+class ExecutionRoutingConfigurationError(ValueError):
+    """Raised when local-worker routing freshness settings are invalid."""
+
+
 class ExtensionConfigurationError(ValueError):
     """Raised when extension environment variables are invalid."""
 
@@ -37,6 +41,12 @@ RATE_LIMIT_TRUSTED_ENV = "SWITCHBOARD_RATE_LIMIT_TRUSTED_BYPASS"
 RATE_LIMIT_TRUSTED_PROXIES_ENV = "SWITCHBOARD_RATE_LIMIT_TRUSTED_PROXIES"
 
 LEASE_SECONDS_ENV = "SWITCHBOARD_LEASE_SECONDS"
+EXECUTION_HEARTBEAT_FRESHNESS_SECONDS_ENV = (
+    "SWITCHBOARD_EXECUTION_HEARTBEAT_FRESHNESS_SECONDS"
+)
+EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS_ENV = (
+    "SWITCHBOARD_EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS"
+)
 ADMIN_TOKEN_ENV = "SWITCHBOARD_ADMIN_TOKEN"  # noqa: S105  # nosec B105
 EXTENSION_MODULES_ENV = "SWITCHBOARD_EXTENSIONS"
 ENABLE_BUILTIN_EXTENSIONS_ENV = "SWITCHBOARD_ENABLE_BUILTIN_EXTENSIONS"
@@ -48,6 +58,10 @@ OPERATOR_ID_ENV = "SWITCHBOARD_OPERATOR_ID"
 _DEFAULT_REQUESTS = 120
 _DEFAULT_WINDOW_SECONDS = 60
 _DEFAULT_LEASE_SECONDS = 300
+_DEFAULT_EXECUTION_HEARTBEAT_FRESHNESS_SECONDS = 300
+_DEFAULT_EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS = 60
+_MAX_EXECUTION_HEARTBEAT_FRESHNESS_SECONDS = 86_400
+_MAX_EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS = 3_600
 _DEFAULT_MAX_LIVE_FILE_BYTES = 10 * 1024 * 1024
 DEFAULT_GITHUB_API_URL = "https://api.github.com"
 DEFAULT_OPERATOR_ID = "local-operator"
@@ -87,6 +101,14 @@ class LeaseSettings:
 
 
 @dataclass(frozen=True)
+class ExecutionRoutingSettings:
+    """Bounded server-owned freshness windows for routed local workers."""
+
+    heartbeat_freshness_seconds: int
+    active_poll_freshness_seconds: int
+
+
+@dataclass(frozen=True)
 class ExtensionSettings:
     """Configuration describing extension modules and builtin toggles."""
 
@@ -101,6 +123,16 @@ class SettingsBundle:
     rate_limit: RateLimitSettings
     lease: LeaseSettings
     extensions: ExtensionSettings
+    routing: ExecutionRoutingSettings = field(
+        default_factory=lambda: ExecutionRoutingSettings(
+            heartbeat_freshness_seconds=(
+                _DEFAULT_EXECUTION_HEARTBEAT_FRESHNESS_SECONDS
+            ),
+            active_poll_freshness_seconds=(
+                _DEFAULT_EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS
+            ),
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,6 +268,46 @@ def reload_lease_settings() -> LeaseSettings:
 
 
 @lru_cache(maxsize=1)
+def get_execution_routing_settings() -> ExecutionRoutingSettings:
+    """Load bounded local-worker routing freshness windows."""
+
+    heartbeat = _parse_int(
+        EXECUTION_HEARTBEAT_FRESHNESS_SECONDS_ENV,
+        os.getenv(EXECUTION_HEARTBEAT_FRESHNESS_SECONDS_ENV),
+        _DEFAULT_EXECUTION_HEARTBEAT_FRESHNESS_SECONDS,
+        error_type=ExecutionRoutingConfigurationError,
+        allow_zero=False,
+    )
+    active_poll = _parse_int(
+        EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS_ENV,
+        os.getenv(EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS_ENV),
+        _DEFAULT_EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS,
+        error_type=ExecutionRoutingConfigurationError,
+        allow_zero=False,
+    )
+    if (
+        heartbeat > _MAX_EXECUTION_HEARTBEAT_FRESHNESS_SECONDS
+        or active_poll > _MAX_EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS
+    ):
+        raise ExecutionRoutingConfigurationError(
+            "execution routing freshness windows exceed bounded limits"
+        )
+    return ExecutionRoutingSettings(
+        heartbeat_freshness_seconds=heartbeat,
+        active_poll_freshness_seconds=active_poll,
+    )
+
+
+def reload_execution_routing_settings() -> ExecutionRoutingSettings:
+    """Clear cached routing configuration and return the refreshed value."""
+
+    get_execution_routing_settings.cache_clear()
+    settings = get_execution_routing_settings()
+    reload_settings_bundle()
+    return settings
+
+
+@lru_cache(maxsize=1)
 def get_extension_settings() -> ExtensionSettings:
     """Return extension configuration derived from environment variables."""
 
@@ -263,6 +335,7 @@ def get_settings_bundle() -> SettingsBundle:
         rate_limit=get_rate_limit_settings(),
         lease=get_lease_settings(),
         extensions=get_extension_settings(),
+        routing=get_execution_routing_settings(),
     )
 
 
@@ -270,6 +343,7 @@ def reload_settings_bundle() -> SettingsBundle:
     """Clear the cached bundle and return an up-to-date snapshot."""
 
     get_extension_settings.cache_clear()
+    get_execution_routing_settings.cache_clear()
     get_settings_bundle.cache_clear()
     return get_settings_bundle()
 

@@ -18,6 +18,9 @@ from server.api.dependencies import (
 )
 from server.execution.entities import (
     ExecutionCompletion,
+    RoutingProfileDraft,
+    RoutingProfileReplacement,
+    RoutingQuotaReset,
     WorkerRegistration,
     WorkOrderDraft,
 )
@@ -46,10 +49,16 @@ from server.execution.schemas import (
     ReasonIn,
     ReuseCandidateOut,
     ReuseCandidateRequestIn,
+    RouteAssessmentOut,
+    RouteProvenanceOut,
+    RoutingQuotaResetIn,
     RunHeartbeatIn,
     WorkerHeartbeatIn,
     WorkerOut,
     WorkerRegistrationIn,
+    WorkerRoutingProfileCreateIn,
+    WorkerRoutingProfileOut,
+    WorkerRoutingProfileReplaceIn,
     WorkOrderCreateIn,
     WorkOrderOut,
 )
@@ -166,6 +175,9 @@ async def create_work_order(
         preferred_executor=body.preferred_executor,
         cost_ceiling=body.cost_ceiling,
         reuse_policy=body.reuse_policy,
+        routing_policy=body.routing_policy,
+        maximum_cost_units=body.maximum_cost_units,
+        required_quota_units=body.required_quota_units,
     )
     try:
         work_order = await service.create_work_order(draft)
@@ -314,6 +326,166 @@ async def requeue_stale_work_order(
     return WorkOrderOut.model_validate(work_order)
 
 
+@router.get(
+    "/api/execution/work-orders/{work_order_id}/route-assessment",
+    response_model=RouteAssessmentOut,
+)
+async def assess_work_order_route(
+    work_order_id: int,
+    service: ExecutionServiceDependency,
+    session: SessionDependency,
+) -> RouteAssessmentOut:
+    """Assess current routing without refreshing polls or reserving state."""
+
+    try:
+        assessment = await service.assess_route(work_order_id)
+    except ExecutionDomainError as error:
+        await _rollback_and_raise(session, error)
+    await _commit(session)
+    return RouteAssessmentOut.model_validate(assessment)
+
+
+@router.get(
+    "/api/execution/work-orders/{work_order_id}/route",
+    response_model=RouteProvenanceOut,
+)
+async def get_work_order_route(
+    work_order_id: int,
+    service: ExecutionServiceDependency,
+    session: SessionDependency,
+) -> RouteProvenanceOut:
+    """Read compact persisted route provenance for an assigned order."""
+
+    try:
+        work_order = await service.get_work_order(work_order_id)
+        if work_order.route_provenance is None:
+            raise ExecutionNotFoundError("route_provenance_not_found")
+    except ExecutionDomainError as error:
+        await _rollback_and_raise(session, error)
+    return RouteProvenanceOut.model_validate(work_order.route_provenance)
+
+
+@router.post(
+    "/api/execution/routing-profiles",
+    response_model=WorkerRoutingProfileOut,
+)
+async def create_routing_profile(
+    body: WorkerRoutingProfileCreateIn,
+    service: ExecutionServiceDependency,
+    session: SessionDependency,
+) -> WorkerRoutingProfileOut:
+    """Create privileged operator-owned cost and quota state."""
+
+    try:
+        profile = await service.create_routing_profile(
+            RoutingProfileDraft(
+                schema_version=body.schema_version,
+                worker_id=body.worker_id,
+                enabled=body.enabled,
+                estimated_cost_units_per_run=body.estimated_cost_units_per_run,
+                quota_capacity_units=body.quota_capacity_units,
+                quota_remaining_units=body.quota_remaining_units,
+                quota_reset_at=body.quota_reset_at,
+                routing_priority=body.routing_priority,
+            )
+        )
+    except ExecutionDomainError as error:
+        await _rollback_and_raise(session, error)
+    await _commit(session)
+    return WorkerRoutingProfileOut.model_validate(profile)
+
+
+@router.get(
+    "/api/execution/routing-profiles",
+    response_model=list[WorkerRoutingProfileOut],
+)
+async def list_routing_profiles(
+    service: ExecutionServiceDependency,
+) -> list[WorkerRoutingProfileOut]:
+    """List privileged routing profiles in stable worker-ID order."""
+
+    return [
+        WorkerRoutingProfileOut.model_validate(profile)
+        for profile in await service.list_routing_profiles()
+    ]
+
+
+@router.get(
+    "/api/execution/routing-profiles/{worker_id}",
+    response_model=WorkerRoutingProfileOut,
+)
+async def get_routing_profile(
+    worker_id: str,
+    service: ExecutionServiceDependency,
+    session: SessionDependency,
+) -> WorkerRoutingProfileOut:
+    """Read one privileged routing profile."""
+
+    try:
+        profile = await service.get_routing_profile(worker_id)
+    except ExecutionDomainError as error:
+        await _rollback_and_raise(session, error)
+    return WorkerRoutingProfileOut.model_validate(profile)
+
+
+@router.put(
+    "/api/execution/routing-profiles/{worker_id}",
+    response_model=WorkerRoutingProfileOut,
+)
+async def replace_routing_profile(
+    worker_id: str,
+    body: WorkerRoutingProfileReplaceIn,
+    service: ExecutionServiceDependency,
+    session: SessionDependency,
+) -> WorkerRoutingProfileOut:
+    """Replace one profile only at its expected revision."""
+
+    try:
+        profile = await service.replace_routing_profile(
+            worker_id,
+            RoutingProfileReplacement(
+                expected_revision=body.expected_revision,
+                enabled=body.enabled,
+                estimated_cost_units_per_run=body.estimated_cost_units_per_run,
+                quota_capacity_units=body.quota_capacity_units,
+                quota_remaining_units=body.quota_remaining_units,
+                quota_reset_at=body.quota_reset_at,
+                routing_priority=body.routing_priority,
+            ),
+        )
+    except ExecutionDomainError as error:
+        await _rollback_and_raise(session, error)
+    await _commit(session)
+    return WorkerRoutingProfileOut.model_validate(profile)
+
+
+@router.post(
+    "/api/execution/routing-profiles/{worker_id}/quota-reset",
+    response_model=WorkerRoutingProfileOut,
+)
+async def reset_routing_quota(
+    worker_id: str,
+    body: RoutingQuotaResetIn,
+    service: ExecutionServiceDependency,
+    session: SessionDependency,
+) -> WorkerRoutingProfileOut:
+    """Apply an idempotent monotonic quota reset at an expected revision."""
+
+    try:
+        profile = await service.reset_routing_quota(
+            worker_id,
+            RoutingQuotaReset(
+                expected_revision=body.expected_revision,
+                quota_remaining_units=body.quota_remaining_units,
+                quota_reset_at=body.quota_reset_at,
+            ),
+        )
+    except ExecutionDomainError as error:
+        await _rollback_and_raise(session, error)
+    await _commit(session)
+    return WorkerRoutingProfileOut.model_validate(profile)
+
+
 @router.post("/api/execution/workers", response_model=WorkerOut)
 async def register_worker(
     body: WorkerRegistrationIn,
@@ -413,6 +585,24 @@ async def get_run(
     except ExecutionDomainError as error:
         await _rollback_and_raise(session, error)
     return ExecutionRunOut.model_validate(run)
+
+
+@router.get(
+    "/api/execution/runs/{run_id}/route",
+    response_model=RouteProvenanceOut,
+)
+async def get_run_route(
+    run_id: int,
+    service: ExecutionServiceDependency,
+    session: SessionDependency,
+) -> RouteProvenanceOut:
+    """Read compact persisted route provenance for one execution run."""
+
+    try:
+        run = await service.get_run(run_id)
+    except ExecutionDomainError as error:
+        await _rollback_and_raise(session, error)
+    return RouteProvenanceOut.model_validate(run.route_provenance)
 
 
 @router.get("/api/execution/runs/{run_id}/evidence", response_model=ExecutionEvidence)

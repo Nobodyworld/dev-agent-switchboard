@@ -13,6 +13,7 @@ from server.models import (
     ExecutionRun,
     ExecutionWorker,
     ExecutionWorkOrder,
+    WorkerRoutingProfile,
 )
 
 from .capabilities import match_worker_capabilities
@@ -21,14 +22,20 @@ from .entities import (
     ExecutionCompletion,
     ExpiryResult,
     ReuseCandidateResult,
+    RouteAssessment,
+    RoutingProfileDraft,
+    RoutingProfileReplacement,
+    RoutingQuotaReset,
     WorkerRegistration,
     WorkOrderDraft,
 )
 from .enums import (
     ApprovalPolicy,
     ExecutionRunStatus,
+    QuotaReservationState,
     ReuseDecision,
     ReusePolicy,
+    RoutingPolicy,
     WorkerStatus,
     WorkOrderStatus,
     is_terminal_run,
@@ -59,9 +66,21 @@ from .registry import (
     get_trusted_manifest,
     iter_trusted_manifests,
 )
-from .repository import ExecutionRepository, LeaseSnapshot
+from .repository import ExecutionRepository, LeaseSnapshot, RunLeaseWindow
+from .routing import (
+    MAX_ROUTING_INTEGER,
+    ROUTING_SCHEMA_VERSION,
+    RoutingCandidate,
+    evaluate_routing_candidate,
+    rank_routing_candidates,
+    unavailable_route_reason,
+)
 
 _SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
+
+
+class _CheckoutReservationConflictError(RuntimeError):
+    """Internal signal that rolls back one nested checkout attempt."""
 
 
 class ExecutionService:
@@ -73,10 +92,14 @@ class ExecutionService:
         repository: ExecutionRepository,
         clock: Callable[[], dt.datetime],
         lease_seconds: Callable[[], int],
+        routing_freshness_seconds: Callable[[], tuple[int, int]] | None = None,
     ) -> None:
         self._repository = repository
         self._clock = clock
         self._lease_seconds = lease_seconds
+        self._routing_freshness_seconds = routing_freshness_seconds or (
+            lambda: (lease_seconds(), lease_seconds())
+        )
 
     async def sync_trusted_manifests(self) -> tuple[CommandManifest, ...]:
         """Persist the version-controlled manifest registry without mutation."""
@@ -109,6 +132,10 @@ class ExecutionService:
         if unsupported:
             names = ",".join(sorted(unsupported))
             raise ManifestParameterError(f"unsupported_manifest_parameters:{names}")
+        if draft.preferred_executor is not None and (
+            await self._repository.get_worker(draft.preferred_executor) is None
+        ):
+            raise ExecutionNotFoundError("preferred_executor_not_found")
 
         manifest = await self._repository.ensure_manifest(definition)
         execution_policy_hash = compute_execution_policy_hash(
@@ -119,6 +146,10 @@ class ExecutionService:
             timeout_seconds=draft.timeout_seconds,
             network_policy=draft.network_policy.value,
             repository_write_allowed=False,
+            routing_policy=draft.routing_policy.value,
+            maximum_cost_units=draft.maximum_cost_units,
+            required_quota_units=draft.required_quota_units,
+            preferred_executor=draft.preferred_executor,
         )
         return await self._repository.create_work_order(
             {
@@ -142,6 +173,9 @@ class ExecutionService:
                 "repository_write_allowed": False,
                 "preferred_executor": draft.preferred_executor,
                 "cost_ceiling": draft.cost_ceiling,
+                "routing_policy": draft.routing_policy,
+                "maximum_cost_units": draft.maximum_cost_units,
+                "required_quota_units": draft.required_quota_units,
                 "reuse_policy": draft.reuse_policy,
                 "execution_policy_hash": execution_policy_hash,
             }
@@ -342,6 +376,187 @@ class ExecutionService:
             worker, now=self._clock(), status=status
         )
 
+    async def create_routing_profile(
+        self, draft: RoutingProfileDraft
+    ) -> WorkerRoutingProfile:
+        """Create one privileged server-owned profile for a known worker."""
+
+        if await self._repository.get_worker(draft.worker_id) is None:
+            raise ExecutionNotFoundError("worker_not_found")
+        if await self._repository.get_routing_profile(draft.worker_id) is not None:
+            raise LifecycleConflictError("routing_profile_already_exists")
+        values = self._routing_profile_values(draft)
+        try:
+            async with self._repository.session.begin_nested():
+                return await self._repository.create_routing_profile(values)
+        except IntegrityError as error:
+            raise LifecycleConflictError("routing_profile_already_exists") from error
+
+    async def get_routing_profile(self, worker_id: str) -> WorkerRoutingProfile:
+        """Return one operator-owned profile or a typed not-found error."""
+
+        profile = await self._repository.get_routing_profile(worker_id, refresh=True)
+        if profile is None:
+            raise ExecutionNotFoundError("routing_profile_not_found")
+        return profile
+
+    async def list_routing_profiles(self) -> list[WorkerRoutingProfile]:
+        """Return all operator profiles in stable worker-ID order."""
+
+        return await self._repository.list_routing_profiles()
+
+    async def replace_routing_profile(
+        self,
+        worker_id: str,
+        replacement: RoutingProfileReplacement,
+    ) -> WorkerRoutingProfile:
+        """Replace a profile using optimistic revision protection."""
+
+        if not self._valid_routing_revision(replacement.expected_revision):
+            raise LifecycleConflictError("routing_profile_revision_out_of_bounds")
+        profile = await self.get_routing_profile(worker_id)
+        if await self._repository.count_reserved_quota_runs(worker_id):
+            raise LifecycleConflictError("routing_profile_has_active_reservations")
+        if profile.revision != replacement.expected_revision:
+            raise LifecycleConflictError("routing_profile_revision_conflict")
+        now = self._clock()
+        values = self._routing_profile_values(replacement)
+        updated = await self._repository.replace_routing_profile(
+            worker_id,
+            expected_revision=replacement.expected_revision,
+            values=values,
+            now=now,
+        )
+        if not updated:
+            raise LifecycleConflictError("routing_profile_revision_conflict")
+        return await self.get_routing_profile(worker_id)
+
+    async def reset_routing_quota(
+        self,
+        worker_id: str,
+        reset: RoutingQuotaReset,
+    ) -> WorkerRoutingProfile:
+        """Apply one idempotent monotonic quota reset without active reservations."""
+
+        if not self._valid_routing_revision(reset.expected_revision):
+            raise LifecycleConflictError("routing_profile_revision_out_of_bounds")
+        if (
+            not isinstance(reset.quota_remaining_units, int)
+            or isinstance(reset.quota_remaining_units, bool)
+            or not 0 <= reset.quota_remaining_units <= MAX_ROUTING_INTEGER
+        ):
+            raise LifecycleConflictError("routing_profile_integer_out_of_bounds")
+        if (
+            reset.quota_reset_at.tzinfo is None
+            or reset.quota_reset_at.utcoffset() is None
+        ):
+            raise LifecycleConflictError("routing_quota_reset_must_be_aware")
+        profile = await self.get_routing_profile(worker_id)
+        requested_reset = self._utc_naive(reset.quota_reset_at)
+        existing_reset = (
+            self._utc_naive(profile.quota_reset_at)
+            if profile.quota_reset_at is not None
+            else None
+        )
+        if existing_reset is not None and requested_reset < existing_reset:
+            raise LifecycleConflictError("routing_quota_reset_is_stale")
+        if existing_reset == requested_reset:
+            if (
+                profile.quota_remaining_units == reset.quota_remaining_units
+                and profile.revision == reset.expected_revision + 1
+            ):
+                return profile
+            if profile.quota_remaining_units == reset.quota_remaining_units:
+                raise LifecycleConflictError("routing_profile_revision_conflict")
+            raise LifecycleConflictError("routing_quota_reset_conflict")
+        if await self._repository.count_reserved_quota_runs(worker_id):
+            raise LifecycleConflictError("routing_profile_has_active_reservations")
+        if profile.revision != reset.expected_revision:
+            raise LifecycleConflictError("routing_profile_revision_conflict")
+        if reset.quota_remaining_units > profile.quota_capacity_units:
+            raise LifecycleConflictError("routing_quota_exceeds_capacity")
+        updated = await self._repository.reset_routing_quota(
+            worker_id,
+            reset=RoutingQuotaReset(
+                expected_revision=reset.expected_revision,
+                quota_remaining_units=reset.quota_remaining_units,
+                quota_reset_at=requested_reset,
+            ),
+            now=self._clock(),
+        )
+        if not updated:
+            raise LifecycleConflictError("routing_profile_revision_conflict")
+        return await self.get_routing_profile(worker_id)
+
+    async def assess_route(self, work_order_id: int) -> RouteAssessment:
+        """Return a bounded current decision without changing poll or quota state."""
+
+        await self.sync_trusted_manifests()
+        work_order = await self.get_work_order(work_order_id, refresh=True)
+        if work_order.status != WorkOrderStatus.QUEUED:
+            raise LifecycleConflictError("route_assessment_requires_queued_work")
+        manifest = await self._repository.get_manifest(
+            work_order.manifest_name, work_order.manifest_version
+        )
+        if manifest is None:
+            raise ManifestIntegrityError("trusted_manifest_not_found")
+        now = self._clock()
+        explicit_pin = work_order.preferred_executor is not None
+        if (
+            work_order.routing_policy == RoutingPolicy.FIRST_AVAILABLE
+            and not explicit_pin
+        ):
+            count = await self._first_available_candidate_count(
+                work_order=work_order, manifest=manifest
+            )
+            return RouteAssessment(
+                schema_version=ROUTING_SCHEMA_VERSION,
+                work_order_id=work_order.id,
+                routing_policy=work_order.routing_policy,
+                selected_worker_id=None,
+                selected_routing_profile_revision=None,
+                estimated_cost_units=None,
+                required_quota_units=work_order.required_quota_units,
+                reserved_quota_units=0,
+                quota_reservation_state=QuotaReservationState.NOT_REQUIRED,
+                eligible_candidate_count=count,
+                explicit_pin_applied=False,
+                reason="first_available",
+                decision_timestamp=now,
+            )
+        candidates, mismatches = await self._routed_candidates(
+            work_order=work_order,
+            manifest=manifest,
+            now=now,
+        )
+        ranked = rank_routing_candidates(
+            candidates, required_quota_units=work_order.required_quota_units
+        )
+        selected = ranked[0] if ranked else None
+        return RouteAssessment(
+            schema_version=ROUTING_SCHEMA_VERSION,
+            work_order_id=work_order.id,
+            routing_policy=work_order.routing_policy,
+            selected_worker_id=(selected.worker.worker_id if selected else None),
+            selected_routing_profile_revision=(
+                selected.profile.revision if selected else None
+            ),
+            estimated_cost_units=(
+                selected.profile.estimated_cost_units_per_run if selected else None
+            ),
+            required_quota_units=work_order.required_quota_units,
+            reserved_quota_units=0,
+            quota_reservation_state=QuotaReservationState.NOT_REQUIRED,
+            eligible_candidate_count=len(ranked),
+            explicit_pin_applied=explicit_pin,
+            reason=(
+                "routing_selected"
+                if selected is not None
+                else unavailable_route_reason(mismatches, explicit_pin=explicit_pin)
+            ),
+            decision_timestamp=now,
+        )
+
     async def checkout(self, worker_id: str) -> CheckoutResult:
         """Atomically assign one capability-compatible queued work order."""
 
@@ -350,62 +565,87 @@ class ExecutionService:
         worker = await self._repository.get_worker(worker_id)
         if worker is None:
             raise ExecutionNotFoundError("worker_not_found")
+        if not await self._repository.record_checkout_poll(
+            worker_id, now=self._clock()
+        ):
+            raise ExecutionNotFoundError("worker_not_found")
+        worker = await self._repository.get_worker(worker_id)
+        if worker is None:  # pragma: no cover - guarded update cannot remove it
+            raise ExecutionNotFoundError("worker_not_found")
         unavailable = self._unavailable_worker_result(worker)
         if unavailable is not None:
             return unavailable
         return await self._checkout_eligible_work(worker)
 
     async def _checkout_eligible_work(self, worker: ExecutionWorker) -> CheckoutResult:
-        """Claim one compatible order after worker availability has been checked."""
+        """Claim one stable queued order under its selected routing policy."""
 
         candidates = await self._repository.list_queued_work_orders()
         mismatch_reasons: list[str] = []
+        route_reasons: list[str] = []
         for work_order, manifest in candidates:
-            capability_match = match_worker_capabilities(
-                worker,
-                manifest_requirements=manifest.required_capabilities,
-                requested_requirements=work_order.required_capabilities,
-                network_policy=work_order.network_policy,
-            )
-            if not capability_match.eligible:
-                mismatch_reasons.extend(capability_match.reasons)
-                continue
             now = self._clock()
-            expires_at = now + dt.timedelta(seconds=self._lease_seconds())
-            try:
-                async with self._repository.session.begin_nested():
-                    reserved = await self._repository.reserve_worker_capacity(
-                        worker.worker_id, now=now
+            explicit_pin = work_order.preferred_executor is not None
+            if (
+                work_order.routing_policy == RoutingPolicy.FIRST_AVAILABLE
+                and not explicit_pin
+            ):
+                capability_match = match_worker_capabilities(
+                    worker,
+                    manifest_requirements=manifest.required_capabilities,
+                    requested_requirements=work_order.required_capabilities,
+                    network_policy=work_order.network_policy,
+                )
+                if not capability_match.eligible:
+                    mismatch_reasons.extend(capability_match.reasons)
+                    continue
+                result = await self._claim_routed_work(
+                    worker=worker,
+                    work_order=work_order,
+                    profile=None,
+                    eligible_candidate_count=1,
+                    explicit_pin=False,
+                    now=now,
+                )
+            else:
+                routed, reasons = await self._routed_candidates(
+                    work_order=work_order,
+                    manifest=manifest,
+                    now=now,
+                )
+                mismatch_reasons.extend(reasons)
+                ranked = rank_routing_candidates(
+                    routed,
+                    required_quota_units=work_order.required_quota_units,
+                )
+                if not ranked:
+                    route_reasons.append(
+                        unavailable_route_reason(reasons, explicit_pin=explicit_pin)
                     )
-                    if not reserved:
-                        return CheckoutResult(None, None, "worker_concurrency_limit")
-                    claimed = await self._repository.claim_queued_work_order(
-                        work_order.id, now=now
-                    )
-                    if not claimed:
-                        released = await self._repository.release_worker_capacity(
-                            worker.worker_id, now=now
-                        )
-                        if not released:
-                            raise LifecycleConflictError(
-                                "worker_capacity_release_failed"
-                            )
-                        continue
-                    claimed_order = await self._repository.get_work_order(
-                        work_order.id, refresh=True
-                    )
-                    if claimed_order is None:  # pragma: no cover - defensive guard
-                        raise ExecutionNotFoundError("work_order_not_found")
-                    run = await self._repository.create_active_run(
-                        work_order=claimed_order,
-                        worker_id=worker.worker_id,
-                        now=now,
-                        expires_at=expires_at,
-                    )
-                    return CheckoutResult(run.id, claimed_order.id, None)
-            except IntegrityError:
-                # The unique active-lease invariant caught a concurrent claim.
-                return CheckoutResult(None, None, "checkout_conflict")
+                    continue
+                selected = ranked[0]
+                if selected.worker.worker_id != worker.worker_id:
+                    route_reasons.append("better_candidate_active")
+                    continue
+                result = await self._claim_routed_work(
+                    worker=worker,
+                    work_order=work_order,
+                    profile=selected.profile,
+                    eligible_candidate_count=len(ranked),
+                    explicit_pin=explicit_pin,
+                    now=now,
+                )
+            if result.reason == "checkout_conflict":
+                route_reasons.append("checkout_conflict")
+                continue
+            return result
+        if route_reasons:
+            return CheckoutResult(
+                None,
+                None,
+                route_reasons[0],
+                tuple(dict.fromkeys(mismatch_reasons)),
+            )
         if mismatch_reasons:
             return CheckoutResult(
                 None,
@@ -414,6 +654,224 @@ class ExecutionService:
                 tuple(dict.fromkeys(mismatch_reasons)),
             )
         return CheckoutResult(None, None, "no_queued_work_orders")
+
+    async def _claim_routed_work(  # noqa: PLR0913
+        self,
+        *,
+        worker: ExecutionWorker,
+        work_order: ExecutionWorkOrder,
+        profile: WorkerRoutingProfile | None,
+        eligible_candidate_count: int,
+        explicit_pin: bool,
+        now: dt.datetime,
+    ) -> CheckoutResult:
+        """Atomically reserve capacity/quota and create one run and lease."""
+
+        expires_at = now + dt.timedelta(seconds=self._lease_seconds())
+        try:
+            async with self._repository.session.begin_nested():
+                if not await self._repository.reserve_worker_capacity(
+                    worker.worker_id, now=now
+                ):
+                    raise _CheckoutReservationConflictError("worker_concurrency_limit")
+
+                profile_revision: int | None = None
+                estimated_cost_units: int | None = None
+                reserved_quota_units = 0
+                quota_state = QuotaReservationState.NOT_REQUIRED
+                if profile is not None:
+                    profile_revision = await self._repository.reserve_routing_quota(
+                        worker.worker_id,
+                        expected_revision=profile.revision,
+                        units=work_order.required_quota_units,
+                        now=now,
+                    )
+                    if profile_revision is None:
+                        raise _CheckoutReservationConflictError(
+                            "routing_reservation_conflict"
+                        )
+                    estimated_cost_units = profile.estimated_cost_units_per_run
+                    reserved_quota_units = work_order.required_quota_units
+                    if reserved_quota_units:
+                        quota_state = QuotaReservationState.RESERVED
+
+                order_route_values = {
+                    "route_schema_version": ROUTING_SCHEMA_VERSION,
+                    "route_selected_worker_id": worker.worker_id,
+                    "route_profile_revision": profile_revision,
+                    "route_estimated_cost_units": estimated_cost_units,
+                    "route_reserved_quota_units": reserved_quota_units,
+                    "route_quota_state": quota_state,
+                    "route_eligible_candidate_count": eligible_candidate_count,
+                    "route_explicit_pin_applied": explicit_pin,
+                    "route_reason": "routing_selected",
+                    "route_decided_at": now,
+                }
+                if not await self._repository.claim_queued_work_order(
+                    work_order.id,
+                    now=now,
+                    route_values=order_route_values,
+                ):
+                    raise _CheckoutReservationConflictError("checkout_conflict")
+                claimed_order = await self._repository.get_work_order(
+                    work_order.id, refresh=True
+                )
+                if claimed_order is None:  # pragma: no cover - guarded claim exists
+                    raise ExecutionNotFoundError("work_order_not_found")
+                run = await self._repository.create_active_run(
+                    work_order=claimed_order,
+                    worker_id=worker.worker_id,
+                    lease_window=RunLeaseWindow(
+                        assigned_at=now,
+                        expires_at=expires_at,
+                    ),
+                    route_values={
+                        "route_schema_version": ROUTING_SCHEMA_VERSION,
+                        "routing_policy": work_order.routing_policy,
+                        "route_profile_revision": profile_revision,
+                        "route_estimated_cost_units": estimated_cost_units,
+                        "route_required_quota_units": (work_order.required_quota_units),
+                        "route_reserved_quota_units": reserved_quota_units,
+                        "route_quota_state": quota_state,
+                        "route_eligible_candidate_count": eligible_candidate_count,
+                        "route_explicit_pin_applied": explicit_pin,
+                        "route_reason": "routing_selected",
+                        "route_decided_at": now,
+                    },
+                )
+                return CheckoutResult(run.id, claimed_order.id, None)
+        except _CheckoutReservationConflictError as error:
+            return CheckoutResult(None, None, str(error))
+        except IntegrityError:
+            return CheckoutResult(None, None, "checkout_conflict")
+
+    async def _routed_candidates(
+        self,
+        *,
+        work_order: ExecutionWorkOrder,
+        manifest: CommandManifest,
+        now: dt.datetime,
+    ) -> tuple[list[RoutingCandidate], list[str]]:
+        """Load and evaluate the complete authoritative routed-worker set."""
+
+        candidates: list[RoutingCandidate] = []
+        mismatch_reasons: list[str] = []
+        heartbeat_freshness_seconds, active_poll_freshness_seconds = (
+            self._routing_freshness_seconds()
+        )
+        for worker, profile in await self._repository.list_workers_with_profiles():
+            eligibility = evaluate_routing_candidate(
+                worker,
+                profile,
+                work_order=work_order,
+                manifest=manifest,
+                now=now,
+                heartbeat_freshness_seconds=heartbeat_freshness_seconds,
+                active_poll_freshness_seconds=active_poll_freshness_seconds,
+            )
+            if eligibility.candidate is not None:
+                candidates.append(eligibility.candidate)
+            else:
+                mismatch_reasons.extend(eligibility.reasons)
+        return candidates, list(dict.fromkeys(mismatch_reasons))
+
+    async def _first_available_candidate_count(
+        self,
+        *,
+        work_order: ExecutionWorkOrder,
+        manifest: CommandManifest,
+    ) -> int:
+        """Count compatibility candidates without adding new legacy gates."""
+
+        count = 0
+        for worker, _profile in await self._repository.list_workers_with_profiles():
+            if (
+                worker.status != WorkerStatus.ONLINE
+                or worker.active_run_count >= worker.max_concurrency
+            ):
+                continue
+            match = match_worker_capabilities(
+                worker,
+                manifest_requirements=manifest.required_capabilities,
+                requested_requirements=work_order.required_capabilities,
+                network_policy=work_order.network_policy,
+            )
+            if match.eligible:
+                count += 1
+        return count
+
+    @classmethod
+    def _routing_profile_values(
+        cls,
+        values: RoutingProfileDraft | RoutingProfileReplacement,
+    ) -> dict[str, object]:
+        """Validate service-level profile inputs and normalize reset time to UTC."""
+
+        if not isinstance(values.enabled, bool):
+            raise LifecycleConflictError("routing_profile_enabled_must_be_boolean")
+        integer_values = (
+            values.estimated_cost_units_per_run,
+            values.quota_capacity_units,
+            values.quota_remaining_units,
+            values.routing_priority,
+        )
+        if any(
+            not isinstance(value, int)
+            or isinstance(value, bool)
+            or not 0 <= value <= MAX_ROUTING_INTEGER
+            for value in integer_values
+        ):
+            raise LifecycleConflictError("routing_profile_integer_out_of_bounds")
+        if values.quota_remaining_units > values.quota_capacity_units:
+            raise LifecycleConflictError("routing_quota_exceeds_capacity")
+        reset_at = values.quota_reset_at
+        if reset_at is not None:
+            if reset_at.tzinfo is None or reset_at.utcoffset() is None:
+                raise LifecycleConflictError("routing_quota_reset_must_be_aware")
+            reset_at = cls._utc_naive(reset_at)
+        payload: dict[str, object] = {
+            "enabled": values.enabled,
+            "estimated_cost_units_per_run": values.estimated_cost_units_per_run,
+            "quota_capacity_units": values.quota_capacity_units,
+            "quota_remaining_units": values.quota_remaining_units,
+            "quota_reset_at": reset_at,
+            "routing_priority": values.routing_priority,
+        }
+        if isinstance(values, RoutingProfileDraft):
+            if (
+                not isinstance(values.schema_version, int)
+                or isinstance(values.schema_version, bool)
+                or values.schema_version != ROUTING_SCHEMA_VERSION
+            ):
+                raise LifecycleConflictError(
+                    "unsupported_routing_profile_schema_version"
+                )
+            payload.update(
+                {
+                    "schema_version": values.schema_version,
+                    "worker_id": values.worker_id,
+                    "revision": 1,
+                }
+            )
+        return payload
+
+    @staticmethod
+    def _valid_routing_revision(value: object) -> bool:
+        """Return whether an operator revision is a bounded strict integer."""
+
+        return (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and 1 <= value <= MAX_ROUTING_INTEGER
+        )
+
+    @staticmethod
+    def _utc_naive(value: dt.datetime) -> dt.datetime:
+        """Normalize an aware timestamp for the repository's UTC-naive storage."""
+
+        if value.tzinfo is None or value.utcoffset() is None:
+            return value
+        return value.astimezone(dt.UTC).replace(tzinfo=None)
 
     @staticmethod
     def _unavailable_worker_result(
@@ -538,13 +996,18 @@ class ExecutionService:
             )
             if not renewed:
                 raise OwnershipConflictError("execution_lease_expired")
+            quota_consumed = await self._repository.consume_run_quota_reservation(
+                run_id,
+                work_order_id=snapshot.work_order_id,
+                now=now,
+            )
             run_updated = await self._repository.mark_active_run_running(
                 run_id, now=now, expires_at=expires_at
             )
             work_order_updated = await self._repository.mark_active_work_order_running(
                 snapshot.work_order_id, now=now
             )
-            if not run_updated or not work_order_updated:
+            if not quota_consumed or not run_updated or not work_order_updated:
                 raise LifecycleConflictError("execution_run_is_not_active")
         run = await self._repository.get_run(run_id, refresh=True)
         if run is None:  # pragma: no cover - direct update cannot remove a run
@@ -586,6 +1049,12 @@ class ExecutionService:
                 )
                 if not consumed:
                     continue
+                quota_released = await self._repository.release_run_quota_reservation(
+                    snapshot.execution_run_id,
+                    work_order_id=snapshot.work_order_id,
+                    worker_id=snapshot.worker_id,
+                    now=now,
+                )
                 run_updated = await self._repository.requeue_stale_active_run(
                     snapshot.execution_run_id, now=now
                 )
@@ -597,7 +1066,12 @@ class ExecutionService:
                 released = await self._repository.release_worker_capacity(
                     snapshot.worker_id, now=now
                 )
-                if not run_updated or not work_order_updated or not released:
+                if (
+                    not quota_released
+                    or not run_updated
+                    or not work_order_updated
+                    or not released
+                ):
                     raise LifecycleConflictError("stale_lease_state_conflict")
             timed_out.append(snapshot.execution_run_id)
             requeued.append(snapshot.work_order_id)
@@ -624,6 +1098,26 @@ class ExecutionService:
             raise RepositoryWritePolicyError(
                 "repository_write_capability_not_permitted"
             )
+        if draft.routing_policy not in {
+            RoutingPolicy.FIRST_AVAILABLE,
+            RoutingPolicy.CHEAPEST_CAPABLE,
+        }:
+            raise LifecycleConflictError("unsupported_routing_policy")
+        routing_integers = (
+            draft.required_quota_units,
+            *(
+                (draft.maximum_cost_units,)
+                if draft.maximum_cost_units is not None
+                else ()
+            ),
+        )
+        if any(
+            not isinstance(value, int)
+            or isinstance(value, bool)
+            or not 0 <= value <= MAX_ROUTING_INTEGER
+            for value in routing_integers
+        ):
+            raise LifecycleConflictError("routing_integer_out_of_bounds")
 
     def _validate_reuse_identity(
         self, order: ExecutionWorkOrder, identity: EvidenceReuseIdentity
@@ -770,6 +1264,12 @@ class ExecutionService:
                 if ownership_error:
                     raise OwnershipConflictError("execution_lease_not_owned")
                 raise LifecycleConflictError("execution_lease_transition_in_progress")
+            quota_released = await self._repository.release_run_quota_reservation(
+                snapshot.execution_run_id,
+                work_order_id=snapshot.work_order_id,
+                worker_id=snapshot.worker_id,
+                now=now,
+            )
             run_updated = await self._repository.finish_active_run(
                 snapshot.execution_run_id,
                 values={
@@ -800,7 +1300,12 @@ class ExecutionService:
             released = await self._repository.release_worker_capacity(
                 snapshot.worker_id, now=now
             )
-            if not run_updated or not work_order_updated or not released:
+            if (
+                not quota_released
+                or not run_updated
+                or not work_order_updated
+                or not released
+            ):
                 raise LifecycleConflictError("execution_record_transition_in_progress")
         run = await self._repository.get_run(snapshot.execution_run_id, refresh=True)
         if run is None:  # pragma: no cover - direct update cannot remove a run
