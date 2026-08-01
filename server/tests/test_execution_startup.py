@@ -36,6 +36,7 @@ async def test_fresh_database_creates_execution_tables_and_seeds_manifest(
             "execution_command_manifests",
             "execution_work_orders",
             "execution_workers",
+            "execution_worker_routing_profiles",
             "execution_runs",
             "execution_leases",
             "github_validation_requests",
@@ -60,9 +61,7 @@ async def test_existing_core_database_starts_with_additive_execution_tables(
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with engine.begin() as connection:
-            await connection.run_sync(
-                lambda sync_connection: Task.__table__.create(sync_connection)
-            )
+            await connection.run_sync(Task.__table__.create)
         monkeypatch.setattr(lifecycle_module, "engine", engine)
         monkeypatch.setattr(lifecycle_module, "AsyncSessionLocal", factory)
         async with lifecycle_module.lifespan(FastAPI()):
@@ -170,6 +169,34 @@ async def test_existing_execution_tables_gain_reuse_columns_and_indexes(
             "ix_execution_runs_reused_from_run_id",
             "ix_execution_runs_evidence_retention_expires_at",
         }.issubset(indexes)
+        assert {
+            "routing_policy",
+            "maximum_cost_units",
+            "required_quota_units",
+            "route_schema_version",
+            "route_selected_worker_id",
+            "route_profile_revision",
+            "route_estimated_cost_units",
+            "route_reserved_quota_units",
+            "route_quota_state",
+            "route_eligible_candidate_count",
+            "route_explicit_pin_applied",
+            "route_reason",
+            "route_decided_at",
+        }.issubset(work_order_columns)
+        assert {
+            "route_schema_version",
+            "routing_policy",
+            "route_profile_revision",
+            "route_estimated_cost_units",
+            "route_required_quota_units",
+            "route_reserved_quota_units",
+            "route_quota_state",
+            "route_eligible_candidate_count",
+            "route_explicit_pin_applied",
+            "route_reason",
+            "route_decided_at",
+        }.issubset(run_columns)
     finally:
         await engine.dispose()
 

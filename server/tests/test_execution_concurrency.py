@@ -1,9 +1,11 @@
+# ruff: noqa: PLR0915, PLR2004
 """Independent-session, file-backed SQLite concurrency tests for execution."""
 
 from __future__ import annotations
 
 import asyncio
 import datetime as dt
+from dataclasses import replace
 
 import pytest
 from sqlalchemy import func, select
@@ -13,6 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from server.db import Base
 from server.execution.entities import (
     ExecutionCompletion,
+    RoutingProfileDraft,
     WorkerRegistration,
     WorkOrderDraft,
 )
@@ -20,6 +23,8 @@ from server.execution.enums import (
     ApprovalPolicy,
     ExecutionRunStatus,
     NetworkPolicy,
+    QuotaReservationState,
+    RoutingPolicy,
     WorkerStatus,
     WorkOrderStatus,
 )
@@ -31,6 +36,7 @@ from server.models import (
     ExecutionRun,
     ExecutionWorker,
     ExecutionWorkOrder,
+    WorkerRoutingProfile,
 )
 from server.time_utils import utcnow_naive
 
@@ -54,6 +60,28 @@ def _draft() -> WorkOrderDraft:
         repository_write_allowed=False,
         preferred_executor=None,
         cost_ceiling=None,
+    )
+
+
+def _routed_draft(*, required_quota_units: int = 3) -> WorkOrderDraft:
+    return replace(
+        _draft(),
+        routing_policy=RoutingPolicy.CHEAPEST_CAPABLE,
+        maximum_cost_units=100,
+        required_quota_units=required_quota_units,
+    )
+
+
+def _profile(worker_id: str, *, cost: int) -> RoutingProfileDraft:
+    return RoutingProfileDraft(
+        schema_version=1,
+        worker_id=worker_id,
+        enabled=True,
+        estimated_cost_units_per_run=cost,
+        quota_capacity_units=20,
+        quota_remaining_units=20,
+        quota_reset_at=None,
+        routing_priority=0,
     )
 
 
@@ -422,5 +450,292 @@ async def test_completion_and_cancellation_race_terminalize_once(
         }
         assert lease_count == 0
         assert worker.active_run_count == 0
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_routed_concurrent_sessions_select_only_cheapest_active_worker(
+    tmp_path,
+) -> None:
+    """Committed poll state makes the deterministic winner authoritative."""
+
+    database = tmp_path / "execution-routing-concurrency.db"
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{database}", connect_args={"timeout": 30}
+    )
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        async with factory() as session:
+            service = _service(session)
+            for worker_id, cost in (("worker-cheap", 2), ("worker-expensive", 9)):
+                await service.register_worker(_worker(worker_id))
+                await service.create_routing_profile(_profile(worker_id, cost=cost))
+                polled = await service.checkout(worker_id)
+                assert polled.reason == "no_queued_work_orders"
+            work_order = await service.create_work_order(_routed_draft())
+            await service.approve_work_order(work_order.id)
+            await session.commit()
+
+        gate = asyncio.Event()
+
+        async def attempt(worker_id: str):
+            await gate.wait()
+            async with factory() as session:
+                result = await _service(session).checkout(worker_id)
+                await session.commit()
+                return result
+
+        cheap_task = asyncio.create_task(attempt("worker-cheap"))
+        expensive_task = asyncio.create_task(attempt("worker-expensive"))
+        gate.set()
+        cheap_result, expensive_result = await asyncio.gather(
+            cheap_task, expensive_task
+        )
+
+        assert cheap_result.assigned
+        assert not expensive_result.assigned
+        assert expensive_result.reason in {
+            "better_candidate_active",
+            "no_queued_work_orders",
+        }
+        async with factory() as session:
+            runs = list((await session.execute(select(ExecutionRun))).scalars())
+            leases = list((await session.execute(select(ExecutionLease))).scalars())
+            profiles = {
+                item.worker_id: item
+                for item in (
+                    await session.execute(select(WorkerRoutingProfile))
+                ).scalars()
+            }
+            workers = {
+                item.worker_id: item
+                for item in (await session.execute(select(ExecutionWorker))).scalars()
+            }
+            assert len(runs) == 1
+            assert len(leases) == 1
+            assert runs[0].worker_id == "worker-cheap"
+            assert runs[0].route_eligible_candidate_count == 2
+            assert runs[0].route_profile_revision == 2
+            assert profiles["worker-cheap"].quota_remaining_units == 17
+            assert profiles["worker-expensive"].quota_remaining_units == 20
+            assert workers["worker-cheap"].active_run_count == 1
+            assert workers["worker-expensive"].active_run_count == 0
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failure_point", "expected_reason"),
+    [
+        ("capacity", "worker_concurrency_limit"),
+        ("quota", "routing_reservation_conflict"),
+        ("claim", "checkout_conflict"),
+        ("run_or_lease", "checkout_conflict"),
+    ],
+)
+async def test_routed_checkout_failure_rolls_back_every_mutation(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_point: str,
+    expected_reason: str,
+) -> None:
+    """Each conditional-write loss rolls back capacity, quota, order, run, and lease."""
+
+    database = tmp_path / f"execution-routing-rollback-{failure_point}.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database}")
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        async with factory() as session:
+            service = _service(session)
+            await service.register_worker(_worker("worker-rollback"))
+            await service.create_routing_profile(_profile("worker-rollback", cost=1))
+            work_order = await service.create_work_order(_routed_draft())
+            await service.approve_work_order(work_order.id)
+            await session.commit()
+
+        async with factory() as session:
+            repository = ExecutionRepository(session)
+            service = ExecutionService(
+                repository=repository,
+                clock=utcnow_naive,
+                lease_seconds=lambda: 60,
+            )
+            create_active_run = repository.create_active_run
+
+            async def fail_capacity(*_args, **_kwargs) -> bool:
+                return False
+
+            async def fail_quota(*_args, **_kwargs) -> None:
+                return None
+
+            async def fail_claim(*_args, **_kwargs) -> bool:
+                return False
+
+            async def fail_run(*_args, **_kwargs):
+                await create_active_run(*_args, **_kwargs)
+                raise IntegrityError("forced run failure", {}, RuntimeError())
+
+            if failure_point == "capacity":
+                monkeypatch.setattr(
+                    repository, "reserve_worker_capacity", fail_capacity
+                )
+            elif failure_point == "quota":
+                monkeypatch.setattr(repository, "reserve_routing_quota", fail_quota)
+            elif failure_point == "claim":
+                monkeypatch.setattr(repository, "claim_queued_work_order", fail_claim)
+            else:
+                monkeypatch.setattr(repository, "create_active_run", fail_run)
+
+            result = await service.checkout("worker-rollback")
+            assert not result.assigned
+            assert result.reason == expected_reason
+            await session.commit()
+
+        async with factory() as session:
+            worker = await session.scalar(select(ExecutionWorker))
+            profile = await session.scalar(select(WorkerRoutingProfile))
+            work_order = await session.scalar(select(ExecutionWorkOrder))
+            run_count = await session.scalar(select(func.count(ExecutionRun.id)))
+            lease_count = await session.scalar(select(func.count(ExecutionLease.id)))
+            assert worker is not None
+            assert profile is not None
+            assert work_order is not None
+            assert worker.active_run_count == 0
+            assert worker.status == WorkerStatus.ONLINE
+            assert profile.quota_remaining_units == 20
+            assert profile.revision == 1
+            assert work_order.status == WorkOrderStatus.QUEUED
+            assert work_order.attempt_count == 0
+            assert work_order.route_provenance is None
+            assert run_count == 0
+            assert lease_count == 0
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_stale_prestart_routed_lease_releases_once_and_requeues_once(
+    tmp_path,
+) -> None:
+    database = tmp_path / "execution-routing-stale-release.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database}")
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    assigned_at = _base_time()
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        async with factory() as session:
+            service = _service_at(session, now=assigned_at, lease_seconds=30)
+            await service.register_worker(_worker("worker-stale-routing"))
+            await service.create_routing_profile(
+                _profile("worker-stale-routing", cost=1)
+            )
+            work_order = await service.create_work_order(_routed_draft())
+            await service.approve_work_order(work_order.id)
+            assignment = await service.checkout("worker-stale-routing")
+            assert assignment.assigned
+            await session.commit()
+
+        expired_at = assigned_at + dt.timedelta(seconds=31)
+        async with factory() as session:
+            first = await _service_at(
+                session, now=expired_at, lease_seconds=30
+            ).expire_stale_leases()
+            await session.commit()
+            assert first.requeued_work_order_ids == (work_order.id,)
+            assert first.timed_out_run_ids == (assignment.run_id,)
+
+        async with factory() as session:
+            second = await _service_at(
+                session, now=expired_at, lease_seconds=30
+            ).expire_stale_leases()
+            await session.commit()
+            assert second.requeued_work_order_ids == ()
+            profile = await session.scalar(select(WorkerRoutingProfile))
+            run = await session.get(ExecutionRun, assignment.run_id)
+            persisted = await session.get(ExecutionWorkOrder, work_order.id)
+            assert profile is not None
+            assert run is not None
+            assert persisted is not None
+            assert profile.quota_remaining_units == 20
+            assert profile.revision == 3
+            assert run.route_quota_state == QuotaReservationState.RELEASED
+            assert run.status == ExecutionRunStatus.TIMED_OUT
+            assert persisted.status == WorkOrderStatus.QUEUED
+            assert persisted.route_quota_state == QuotaReservationState.RELEASED
+
+            retry_service = _service_at(session, now=expired_at, lease_seconds=30)
+            await retry_service.heartbeat_worker("worker-stale-routing")
+            retry = await retry_service.checkout("worker-stale-routing")
+            assert retry.assigned
+            assert retry.run_id != assignment.run_id
+            await session.commit()
+            await session.refresh(profile)
+            await session.refresh(persisted)
+            assert profile.quota_remaining_units == 17
+            assert profile.revision == 4
+            assert persisted.attempt_count == 2
+            assert persisted.route_quota_state == QuotaReservationState.RESERVED
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_stale_started_routed_lease_requeues_without_quota_refund(
+    tmp_path,
+) -> None:
+    database = tmp_path / "execution-routing-stale-consumed.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database}")
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    assigned_at = _base_time()
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        async with factory() as session:
+            service = _service_at(session, now=assigned_at, lease_seconds=30)
+            await service.register_worker(_worker("worker-stale-consumed"))
+            await service.create_routing_profile(
+                _profile("worker-stale-consumed", cost=1)
+            )
+            work_order = await service.create_work_order(_routed_draft())
+            await service.approve_work_order(work_order.id)
+            assignment = await service.checkout("worker-stale-consumed")
+            assert assignment.assigned
+            await session.commit()
+
+        heartbeat_at = assigned_at + dt.timedelta(seconds=1)
+        async with factory() as session:
+            service = _service_at(session, now=heartbeat_at, lease_seconds=30)
+            running = await service.heartbeat_run(
+                assignment.run_id,
+                worker_id="worker-stale-consumed",
+            )
+            assert running.route_quota_state == QuotaReservationState.CONSUMED
+            await session.commit()
+
+        expired_at = heartbeat_at + dt.timedelta(seconds=31)
+        async with factory() as session:
+            expired = await _service_at(
+                session, now=expired_at, lease_seconds=30
+            ).expire_stale_leases()
+            await session.commit()
+            assert expired.requeued_work_order_ids == (work_order.id,)
+            profile = await session.scalar(select(WorkerRoutingProfile))
+            run = await session.get(ExecutionRun, assignment.run_id)
+            persisted = await session.get(ExecutionWorkOrder, work_order.id)
+            assert profile is not None
+            assert run is not None
+            assert persisted is not None
+            assert profile.quota_remaining_units == 17
+            assert profile.revision == 2
+            assert run.route_quota_state == QuotaReservationState.CONSUMED
+            assert persisted.route_quota_state == QuotaReservationState.CONSUMED
+            assert persisted.status == WorkOrderStatus.QUEUED
     finally:
         await engine.dispose()
