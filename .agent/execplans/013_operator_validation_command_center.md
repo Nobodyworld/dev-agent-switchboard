@@ -94,6 +94,9 @@ PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY
 - Observation: the current-main manifest restart regression remains the relevant prior-schema startup proof because this slice changes no table shape.
   Evidence: `test_main_manifest_schema_survives_repeated_startup` creates the manifest table in its merged-main shape without `updated_at`, runs lifespan twice, resolves/lists the trusted manifest both times, proves one identity, and verifies routing tables and columns remain present. The adapter compatibility regression independently proves legacy default identity recovery without duplication.
 
+- Observation: the first implementation-head Linux matrix ran fast enough for the new hard-bounds ASGI requests to consume the shared default-client rate-limit bucket before a later live-file authentication test.
+  Evidence: CI workflow `31279411403` returned `429` instead of the later test's expected `401`, while slower Windows runs remained green. Giving the endpoint test a distinct synthetic ASGI client identity isolates its request accounting without changing production limits, bypass rules, or authentication behavior. The same workflow also confirmed that `list_workers` needs the focused `PLR0913` annotation already used for other typed projection boundaries.
+
 ## Decision Log
 
 - Decision: deliver backend projections, operator UX, history, avoided-work metrics, documentation, and end-to-end acceptance in one large vertical PR.

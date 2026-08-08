@@ -887,7 +887,9 @@ async def test_routed_github_validation_is_fresh_then_reused_and_projected() -> 
 
 @pytest.mark.asyncio
 async def test_operator_projection_routes_enforce_hard_query_bounds() -> None:
-    transport = ASGITransport(app=server_app)
+    transport = ASGITransport(
+        app=server_app, client=("operator-projection-test", 12_345)
+    )
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         overview = await client.get("/api/execution/operator/overview")
         history = await client.get("/api/execution/operator/history")

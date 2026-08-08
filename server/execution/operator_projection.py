@@ -320,7 +320,7 @@ class ExecutionOperatorProjection:
             ),
         )
 
-    async def list_workers(
+    async def list_workers(  # noqa: PLR0913
         self,
         *,
         limit: int,
