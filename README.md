@@ -12,6 +12,7 @@ Switchboard is a reference implementation for coordinating multiple agents again
 - **Lease-based ownership** — agents claim work with expiry and heartbeat semantics that reduce duplicate execution.
 - **Trusted local execution** — approved exact-SHA work orders are claimed by an outbound local worker using fixed reviewed argv, read-only disposable worktrees, bounded output, cancellation, and cleanup.
 - **Compact validation evidence** — `validate-switchboard@1` records strict step outcomes, parsed test/coverage/security summaries, dependency-lock hashes, retained artifact hashes, and a deterministic fingerprint without returning full local logs.
+- **Validation Broker workspace** — operators can configure local-worker routing, resolve a GitHub pull request to an exact head, approve and queue it, distinguish fresh execution from exact reuse, publish current or stale evidence, and inspect bounded history without assembling API calls by hand.
 - **Live state synchronization** — plan changes are broadcast to the dashboard and clients over WebSockets.
 - **Live-file hosting** — agents can fetch mutable documents by URL; mutation endpoints can be protected with an admin token.
 - **Operational visibility** — health, readiness, diagnostics, metrics hooks, structured logs, and rate limiting.
@@ -58,6 +59,12 @@ python scripts/run_uvicorn.py
 ```
 
 Open [http://localhost:8000/](http://localhost:8000/) to view the operator dashboard.
+
+The **Validation Broker** workspace uses the same optional admin-token boundary as
+the execution APIs. Its comparison units are operator-authored routing values,
+not currency, provider credits, or measured savings. See the
+[command-center operations guide](docs/operations/validation-command-center.md)
+for the end-to-end workflow and trust boundaries.
 
 ### 3. Create a task
 
@@ -152,6 +159,7 @@ See [SECURITY.md](SECURITY.md) and [docs/configuration.md](docs/configuration.md
 - **[Configuration](docs/configuration.md)** — environment variables and runtime settings.
 - **[Agent Integration](docs/ai-interface.md)** — how agents interact with Switchboard.
 - **[Local Worker Operations](docs/operations/local-worker.md)** — trusted repository mapping, worker configuration, execution, evidence retention, and limitations.
+- **[Validation Command Center](docs/operations/validation-command-center.md)** — browser workflow, bounded projections, exact-reuse metrics, and publication controls.
 - **[Public Status](docs/reports/status.md)** — current developer-preview posture and release boundaries.
 - **[Two-Agent Workflow](docs/visuals/TWO_AGENT_WORKFLOW.md)** — dependency-unlock sequence.
 - **[Documentation Index](docs/index.md)** — full navigation.

@@ -49,6 +49,14 @@ These values are local operator comparison units only: Switchboard does not
 interpret them as currency, credits, spend, savings, billing, or a provider
 rate limit. No provider credential or paid-agent configuration is introduced.
 
+The Validation Broker workspace edits the same persisted profiles through the
+revision-protected APIs and reads active/stale worker state through a bounded
+projection. It does not introduce browser-owned routing configuration. The
+browser reads the existing admin token from local storage only when sending an
+authenticated request; the token is never returned by a projection or rendered
+into the workspace. Overview windows are request parameters bounded from 1
+through 365 days and do not mutate worker heartbeat or checkout-poll freshness.
+
 ## Outbound GitHub adapter
 
 The manual exact-PR adapter uses server-only environment configuration:
@@ -68,6 +76,13 @@ comment ownership, and never exposes that ownership identity through the
 configuration surface. See
 [GitHub exact pull-request validation](operations/github-exact-pr-validation.md)
 for the complete operator and security contract.
+
+Validation requests may add strict per-request reuse and routing policy. These
+values are persisted on the linked execution work order, whose schema already
+owns the authoritative policy fields. The adapter table therefore needs no new
+policy columns or startup migration. Existing all-default adapter identities
+remain discoverable through the exact prior idempotency calculation; non-default
+requests use the complete policy-bound identity.
 
 ## Exact evidence reuse
 

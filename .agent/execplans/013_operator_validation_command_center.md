@@ -40,19 +40,19 @@ PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY
 - [x] Issue #136 created as one large end-to-end product slice.
 - [x] Canonical branch `feat/operator-validation-command-center` created from the exact base.
 - [x] Initial living ExecPlan created.
-- [ ] Verify local/remote preflight and establish a clean isolated worktree.
-- [ ] Run the pre-change focused backend, adapter, worker, and strict-browser baselines.
-- [ ] Audit current dashboard state, execution APIs, GitHub adapter identity, and persistence upgrade path.
-- [ ] Lock bounded operator projection and adapter-policy contracts.
-- [ ] Implement additive adapter policy persistence and restart compatibility.
-- [ ] Implement bounded worker, request, overview, and history projection APIs.
-- [ ] Implement truthful avoided-work aggregation.
-- [ ] Implement the Validation Broker dashboard workspace and profile-management UX.
-- [ ] Implement explicit lifecycle and publication controls.
-- [ ] Add server-backed fresh-then-reused routed GitHub validation proof.
-- [ ] Add strict browser and accessibility acceptance.
-- [ ] Add public-safe screenshot and operator documentation.
-- [ ] Run the complete protected local matrix and public-hygiene audit.
+- [x] Verify local/remote preflight and establish a clean isolated worktree.
+- [x] Run the pre-change focused backend, adapter, worker, and strict-browser baselines.
+- [x] Audit current dashboard state, execution APIs, GitHub adapter identity, and persistence upgrade path.
+- [x] Lock bounded operator projection and adapter-policy contracts.
+- [x] Implement additive adapter policy handling and restart compatibility without adapter schema changes.
+- [x] Implement bounded worker, request, overview, and history projection APIs.
+- [x] Implement truthful avoided-work aggregation.
+- [x] Implement the Validation Broker dashboard workspace and profile-management UX.
+- [x] Implement explicit lifecycle and publication controls.
+- [x] Add server-backed fresh-then-reused routed GitHub validation proof.
+- [x] Add strict browser and accessibility acceptance.
+- [x] Add public-safe screenshot and operator documentation.
+- [x] Run the complete protected local matrix and public-hygiene audit.
 - [ ] Push focused commits to the existing branch and require the complete hosted matrix.
 - [ ] Complete connector review while keeping PR #137 draft and unmerged.
 
@@ -78,6 +78,21 @@ PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY
 
 - Observation: existing strict Playwright tests spin up a real FastAPI application with a file-backed SQLite database and use browser route interception only for deliberately simulated failures.
   Evidence: `web/tests/test_ui.py`. New browser tests should continue exercising the real application wherever possible and use bounded mocks only for GitHub transport-dependent surfaces.
+
+- Observation: connector planning review `4888524384` established the canonical branch, draft PR #137, and this vertical-slice contract at the planning head.
+  Evidence: the branch began at `e905a3d7020c76d940c0938b2617d55d6d57de7e`; planning-head Commitlint workflow `31249483907` and CI workflow `31249483899` succeeded.
+
+- Observation: the pre-change shared Python 3.14 environment was dependency-dirty even though the focused suites were green.
+  Evidence: `python -m pip check` reported unrelated global conflicts for OpenCV versus NumPy and Streamlit versus Pillow, plus a stale invalid `~andit` installation warning. The pre-change backend/adapter matrix passed 169 tests with 8 warnings, the worker matrix passed 36 tests, and strict Playwright passed 2 tests with zero skips.
+
+- Observation: additive GitHub adapter policy does not require a persisted adapter-table column.
+  Evidence: the linked `ExecutionWorkOrder` already owns reuse, routing, integer ceiling, quota, and preferred-executor policy. Keeping that record authoritative avoids duplicating mutable state and avoids any `github_validation_requests` schema migration or `schema_version = 1` constraint change.
+
+- Observation: the exact pre-#136 adapter key must remain a separate calculation rather than a partially populated form of the new key.
+  Evidence: `_legacy_idempotency_key` preserves the prior canonical input byte-for-byte. Only an all-default request checks it after a new-key miss; a recovered legacy row is returned without changing its immutable key or linked work order.
+
+- Observation: the current-main manifest restart regression remains the relevant prior-schema startup proof because this slice changes no table shape.
+  Evidence: `test_main_manifest_schema_survives_repeated_startup` creates the manifest table in its merged-main shape without `updated_at`, runs lifespan twice, resolves/lists the trusted manifest both times, proves one identity, and verifies routing tables and columns remain present. The adapter compatibility regression independently proves legacy default identity recovery without duplication.
 
 ## Decision Log
 
@@ -117,20 +132,63 @@ PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY
   Rationale: the current APIs are sufficient; a new event transport is not a requirement for the user outcome.
   Date/Author: 2026-08-08 / connector planning
 
+- Decision: keep execution policy authoritative on the linked work order and add no adapter persistence.
+  Rationale: every new request field already maps to an accepted work-order field, so duplicating it in `github_validation_requests` would introduce drift, a needless prior-schema migration, and a schema-version constraint change without adding recoverability.
+  Date/Author: 2026-08-08 / implementation
+
+- Decision: expose one bounded projection module with a 100-row maximum, 10,000 maximum offset, 365-day maximum window, stable request ordering, and redacted worker summaries.
+  Rationale: these hard bounds give the browser the joined state it needs without N+1 queries or raw-domain overexposure.
+  Date/Author: 2026-08-08 / implementation
+
+- Decision: preserve the existing page shell while rendering the new command center as a visually distinct dark operator workspace.
+  Rationale: the final implementation carries the concept's dense scan-friendly metrics and two-column control surface without replacing the existing task, maintenance, configuration, diagnostics, analytics, live-document, or WebSocket UI.
+  Date/Author: 2026-08-08 / implementation
+
 ## Outcomes & Retrospective
 
-Pending implementation.
+The operator can now complete the complete validation workflow in the existing
+dashboard without assembling curl calls: inspect workers and profiles, create or
+revision-safely replace a profile, reset quota, request an exact GitHub PR head,
+approve/queue or apply another valid lifecycle action, monitor route/run/reuse/
+evidence state, explicitly publish current or stale evidence, and review bounded
+history and avoided-work metrics. Existing task and operational surfaces remain
+in the same page and their strict browser regressions remain green.
 
-The final retrospective must describe:
+The server boundary is one focused read-only projection module plus four bounded
+authenticated routes: overview (1-365 UTC days), history and GitHub request lists
+(1-100 rows and offsets through 10,000), and worker/profile summaries. Request
+history is newest-first by creation time then numeric ID, joins only the latest
+run, accepts typed repository/PR/work-order/run/reuse/routing/publication/time
+filters, and omits executable, local, private, credential, and unbounded fields.
 
-- whether the operator can complete the entire workflow without curl;
-- the final API and projection boundaries;
-- exact adapter-policy and migration behavior;
-- fresh versus reused end-to-end evidence;
-- avoided-work aggregation semantics and limitations;
-- browser/accessibility results;
-- screenshot provenance;
-- remaining limitations before MCP or paid-provider work.
+Every new adapter policy input participates in the new identity. Existing
+all-default requests remain recoverable through the exact pre-#136 key and are
+returned without mutating identity; non-default requests never use legacy
+fallback. Policy is authoritative on the linked work order, so this slice adds
+no table column, schema-version change, or migration. The existing merged-main
+manifest-shape regression ran lifespan startup twice and remained green.
+
+The offline server-backed proof created a fresh successful run and a distinct
+same-worker reused run whose compact evidence contained no validation steps. It
+reported one fresh and one reused success, one avoided execution, 7 historical
+reference seconds, 3 operator comparison units, and a 50% reuse rate without
+double-counting repeat publication. Missing source timing and route cost were
+separately proven to contribute zero rather than a guess. Publication was current
+before the mocked head moved and stale afterward while preserving the tested SHA.
+
+Strict Playwright passed all three tests with zero skips. The command-center test
+proved native malformed-input rejection, server-loaded selectors, UI profile
+creation/replacement/quota reset, visible revision conflict recovery, explicit
+lifecycle/publication transitions, fresh/reused and current/stale rendering,
+disabled-action reasons, keyboard order, zero unexpected console errors, and
+page containment at 1440 and 390 pixels. The approved screenshot was generated
+from that no-network file-backed application with synthetic public data and was
+visually inspected against the generated concept.
+
+The product remains a public developer preview for trusted local networks. MCP,
+paid-agent/provider execution, billing, browser/desktop/RPA workers, automatic
+approval/publication, webhooks, repository writes, full-log transfer, and
+production multi-tenancy remain deliberately out of scope.
 
 ## Context and Orientation
 
@@ -588,6 +646,24 @@ Record during implementation:
 - public-hygiene result;
 - final local/remote SHA equality;
 - final hosted Commitlint and CI IDs in PR #137's external review record.
+
+Current evidence before the complete validation pass:
+
+- preflight: `origin/main` and merge base were `223df7752716dd6ad35e75ba7613eeb03cfb2887`; the local and remote implementation branch began at `e905a3d7020c76d940c0938b2617d55d6d57de7e`; the isolated worktree was clean and exclusively owned the branch;
+- pre-change backend/adapter baseline: 169 passed, 8 warnings;
+- pre-change worker baseline: 36 passed;
+- pre-change strict browser baseline: 2 passed, zero skips;
+- implemented server-backed proof: request/work-order/run IDs are database-local synthetic IDs; request 1 completed fresh on the lower-cost worker, request 2 completed as a distinct reused run on the same worker with an empty step list, reference duration 7 seconds, route comparison units 3, one avoided execution, and a 50% reuse rate; publication was current before the mocked head moved and stale afterward;
+- focused implementation checks before documentation: the new policy/operator tests passed 4 tests, the adapter/startup target passed 44 tests, and the new strict command-center browser test passed 1 test;
+- public screenshot: `docs/assets/switchboard-validation-command-center.png`, captured from the offline file-backed browser application with synthetic public-repository data and inspected against the generated command-center concept; no token, authorization value, path, machine identity, private URL, credential-shaped value, environment value, or financial-savings claim is present;
+- final focused backend/adapter/startup matrix: 173 passed with 8 existing SQLAlchemy deprecation warnings;
+- final focused worker matrix: 36 passed;
+- final strict browser matrix: 3 passed with zero skips in 21.55 seconds;
+- complete pytest: 576 passed, 5 documented platform skips, and 344 warnings in 404.09 seconds;
+- coverage pytest: the same 576 passed and 5 skipped; aggregate configured coverage was 93%; all 16 gates passed at 95.40%, 94.17%, 100%, 100%, 92.59%, 95%, 87.76%, 100%, 100%, 97.73%, 90.16%, 97.59%, 94.83%, 100%, 90.71%, and 91.30% in workflow order;
+- clean Python 3.11 `pip check`, pre-commit, TODO policy, Ruff, Black, Mypy, compatible-interpreter Bandit, pip-audit, Gitleaks over 250 commits, Lychee, and `git diff --check` passed;
+- the shared Python 3.14 environment retains the unrelated baseline OpenCV/NumPy and Streamlit/Pillow conflicts. A clean external Python 3.11 environment proved dependency consistency and direct gates. The fixed worker argv `python` resolves the base Astral interpreter ahead of a Windows venv under its intentionally sanitized environment, so the established host interpreter was retained for worker/full pytest while direct Python 3.11 gates used the clean environment; no worker command or trust boundary was weakened;
+- generated reports, coverage data, databases, caches, bytecode, link output, and temporary environments are removed before commit. The final public-hygiene audit, local/remote equality, and hosted ultimate-head workflow IDs are recorded during delivery; ultimate-head IDs belong in PR #137's external review record rather than a self-referential plan commit.
 
 ## Interfaces and Dependencies
 

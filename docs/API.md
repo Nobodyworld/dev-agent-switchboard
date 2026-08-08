@@ -32,7 +32,7 @@ Use this page as the concise endpoint index; use [ai-interface.md](ai-interface.
 | `/api/execution/routing-profiles` | `GET`, `POST` | List or create privileged operator-owned local-worker cost, quota, and priority profiles. |
 | `/api/execution/routing-profiles/{worker_id}` | `GET`, `PUT` | Read or revision-protected replace one worker routing profile. |
 | `/api/execution/routing-profiles/{worker_id}/quota-reset` | `POST` | Apply an explicit monotonic, revision-protected quota replacement. |
-| `/api/execution/workers` | `POST` | Register or refresh a read-only worker capability declaration. |
+| `/api/execution/workers` | `GET`, `POST` | Read a bounded, redacted operator worker/profile projection or register/refresh a read-only worker capability declaration. |
 | `/api/execution/workers/{worker_id}/heartbeat` | `POST` | Refresh a registered worker heartbeat and availability state. |
 | `/api/execution/checkout` | `POST` | Atomically assign one capability-compatible queued work order to one worker. |
 | `/api/execution/runs` | `GET` | List historical execution attempts; filter with `work_order_id`. |
@@ -44,8 +44,11 @@ Use this page as the concise endpoint index; use [ai-interface.md](ai-interface.
 | `/api/execution/runs/{id}/complete` | `POST` | Record `succeeded`, `failed`, `timed_out`, or `cancelled` after ownership validation. |
 | `/api/execution/leases/expire` | `POST` | Timeout stale runs, release worker capacity, and safely requeue their work orders. |
 | `/api/execution/github/pull-requests/validate` | `POST` | Resolve an allowlisted GitHub PR to one exact head and create or return one normal pending work order. |
+| `/api/execution/github/requests` | `GET` | List a bounded, stably ordered adapter projection with repository, lifecycle, reuse, and publication filters. |
 | `/api/execution/github/requests/{request_id}` | `GET` | Return bounded adapter identity and execution/publication lifecycle. |
 | `/api/execution/github/requests/{request_id}/publish` | `POST` | Recheck the PR head and synchronously create or update one bounded managed comment as current or stale. |
+| `/api/execution/operator/overview` | `GET` | Return database-derived request, run, reuse, publication, avoided-work, and worker counts for a bounded day window. |
+| `/api/execution/operator/history` | `GET` | Return bounded, paginated, newest-first request/work-order/latest-run history with redacted route and evidence fields. |
 | `/api/plan` | `GET` | Return current plan snapshot used by agents and dashboard. |
 | `/api/execplans/index` | `GET` | Return ExecPlan registry index in JSON (default) or YAML based on query/header negotiation. |
 | `/health/live` | `GET` | Liveness probe returning process and probe observations. |
@@ -170,18 +173,35 @@ retention is not changed.
 ## GitHub exact-PR adapter
 
 The manual outbound adapter reuses `SWITCHBOARD_ADMIN_TOKEN` authentication.
-Its create request accepts only `repository_full_name`, `pull_request_number`,
-and a trusted manifest `name`/`version`. Stable GitHub identities, exact head
-SHA, base provenance, manifest digest, work-order identity, terminal evidence,
-comment identity, and publication state are server-owned. Unknown fields,
-including commands, URLs, paths, status, hashes, worker IDs, and comment IDs,
-return `422`.
+Its create request accepts `repository_full_name`, `pull_request_number`, a
+trusted manifest `name`/`version`, and optional strict `reuse_policy`,
+`routing_policy`, `maximum_cost_units`, `required_quota_units`, and
+`preferred_executor` fields. Defaults preserve the original `never` plus
+`first_available` behavior. Stable GitHub identities, exact head SHA, base
+provenance, manifest digest, work-order identity, terminal evidence, comment
+identity, and publication state are server-owned. Unknown or executable-shaped
+fields still return `422`.
 
-An identical authenticated actor + stable PR + exact head + trusted manifest
-request returns the same adapter and work-order identities. A new head or
-credential actor creates a distinct request. Stable actor ownership identifiers
-remain server-owned and are not returned. The work order remains
-`pending_approval` until the normal explicit approval route is called.
+An identical authenticated actor + stable PR + exact head + trusted manifest +
+complete execution-policy request returns the same adapter and work-order
+identities. Every accepted execution-policy field participates in the new
+idempotency identity. An all-default request also recognizes the exact legacy
+pre-command-center identity, so an existing default request is returned without
+mutation or duplication; a non-default request never falls back to that legacy
+identity. Policy remains authoritative on the linked work order rather than on
+adapter-owned schema columns. A new head, credential actor, or material policy
+creates a distinct request. The work order remains `pending_approval` until the
+normal explicit approval route is called.
+
+The operator projections accept bounded pagination (`limit` at most `100`,
+`offset` at most `10000`) and the overview accepts a day window at most `365`.
+History has stable newest-first ordering and joins only the latest run per
+request. It never returns commands, argv, logs, environment dumps, local paths,
+credentials, candidate lists, or complete worker capabilities. Avoided-work
+counts include successful reused runs only; reference seconds come from each
+linked successful source run's persisted start/finish interval, and comparison
+units come from the reused run's persisted route estimate. Missing values are
+excluded rather than guessed.
 
 Publication requires terminal compact evidence and re-resolves the PR
 immediately before its managed comment is written. A moved or unavailable head
@@ -200,6 +220,9 @@ See
 [GitHub exact pull-request validation](operations/github-exact-pr-validation.md)
 for credential permissions, marker recovery, local commit availability, and
 transport limits.
+
+See [Validation command center](operations/validation-command-center.md) for
+the browser workflow and projection semantics.
 
 ## Related Docs
 
