@@ -2,15 +2,28 @@
 
 from __future__ import annotations
 
-from typing import NoReturn
+import datetime as dt
+from typing import Literal, NoReturn
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
 
 from server.api.dependencies import (
     GitHubAdapterServiceDependency,
     SessionDependency,
     require_admin_token,
+)
+from server.execution.enums import (
+    ExecutionRunStatus,
+    ReuseDecision,
+    RoutingPolicy,
+    WorkOrderStatus,
+)
+from server.execution.operator_projection import (
+    MAX_OPERATOR_LIMIT,
+    MAX_OPERATOR_OFFSET,
+    ExecutionHistoryPageOut,
+    ExecutionOperatorProjection,
 )
 from server.github_adapter.errors import (
     GitHubAdapterError,
@@ -26,6 +39,52 @@ from server.github_adapter.schemas import (
 )
 
 router = APIRouter(dependencies=[Depends(require_admin_token)])
+
+
+@router.get(
+    "/api/execution/github/requests",
+    response_model=ExecutionHistoryPageOut,
+)
+async def list_github_validation_requests(  # noqa: PLR0913
+    session: SessionDependency,
+    limit: int = Query(default=25, ge=1, le=MAX_OPERATOR_LIMIT),
+    offset: int = Query(default=0, ge=0, le=MAX_OPERATOR_OFFSET),
+    repository_full_name: str | None = Query(
+        default=None, min_length=3, max_length=255
+    ),
+    pull_request_number: int | None = Query(default=None, ge=1),
+    work_order_status: WorkOrderStatus | None = None,
+    run_status: ExecutionRunStatus | None = None,
+    reuse_decision: ReuseDecision | None = None,
+    routing_policy: RoutingPolicy | None = None,
+    publication_state: (
+        Literal[
+            "not_published",
+            "published_current",
+            "published_stale",
+            "retryable_failure",
+            "failed",
+        ]
+        | None
+    ) = None,
+    created_after: dt.datetime | None = None,
+    created_before: dt.datetime | None = None,
+) -> ExecutionHistoryPageOut:
+    """List bounded GitHub request and linked lifecycle projections."""
+
+    return await ExecutionOperatorProjection(session).list_history(
+        limit=limit,
+        offset=offset,
+        repository_full_name=repository_full_name,
+        pull_request_number=pull_request_number,
+        work_order_status=(work_order_status.value if work_order_status else None),
+        run_status=(run_status.value if run_status else None),
+        reuse_decision=(reuse_decision.value if reuse_decision else None),
+        routing_policy=(routing_policy.value if routing_policy else None),
+        publication_state=publication_state,
+        created_after=created_after,
+        created_before=created_before,
+    )
 
 
 def _raise_adapter_error(error: GitHubAdapterError) -> NoReturn:
@@ -71,6 +130,11 @@ async def request_pull_request_validation(
             pull_request_number=body.pull_request_number,
             manifest_name=body.manifest.name,
             manifest_version=body.manifest.version,
+            reuse_policy=body.reuse_policy,
+            routing_policy=body.routing_policy,
+            maximum_cost_units=body.maximum_cost_units,
+            required_quota_units=body.required_quota_units,
+            preferred_executor=body.preferred_executor,
         )
     except GitHubAdapterError as error:
         await session.rollback()
