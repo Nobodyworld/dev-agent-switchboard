@@ -32,6 +32,11 @@ This slice remains local-only. It does not call a paid coding agent, provider AP
 - [x] Add focused contract, concurrency, lifecycle, compatibility, and security tests.
 - [x] Update architecture, API, configuration, message-schema, and operator documentation.
 - [x] Run the complete protected local matrix, remove generated artifacts, and record exact evidence.
+- [x] Connector review `4835888072` identified the prior-schema manifest restart blocker.
+- [x] Correction preflight reverified `origin/main` at `7587a77a32e07f180d21cec65881c7868afa0e4d`, branch head `49b96ea361c9532d60eaf031582a8f55c52f228a`, merge base `7587a77a32e07f180d21cec65881c7868afa0e4d`, and a clean synchronized isolated branch worktree.
+- [x] Remove the unused `CommandManifest.updated_at` field and add a file-backed current-main-schema regression that runs lifespan startup twice.
+- [x] Rerun focused and complete protected validation for the restart correction and record exact evidence.
+- [x] Remove generated artifacts and repeat the public-hygiene audit; only the three intended correction files remain before the focused commit.
 - [ ] Push the focused commits and record the ultimate-head hosted workflow evidence in PR #135's external review record.
 
 ## Surprises & Discoveries
@@ -68,6 +73,9 @@ This slice remains local-only. It does not call a paid coding agent, provider AP
 
 - Observation: one pre-existing Windows worker-cancellation timing assertion exceeded its 5-second bound once during the first full-suite run.
   Evidence: `test_cancel_running_terminates_process_tree` measured approximately 7.5 seconds on that run. Its exact isolated rerun passed in 2.19 seconds, and the complete suite was restarted and passed `570 passed, 5 skipped` without weakening or reclassifying the gate.
+
+- Observation: connector review `4835888072` found that the PR added `CommandManifest.updated_at` even though current `main` created `execution_command_manifests` with only `created_at` and startup uses `Base.metadata.create_all()`, which does not alter an existing table.
+  Evidence: the new file-backed prior-schema regression failed on the uncorrected head during the first `ensure_manifests()` lookup with `sqlite3.OperationalError: no such column: execution_command_manifests.updated_at`.
 
 ## Decision Log
 
@@ -127,6 +135,10 @@ This slice remains local-only. It does not call a paid coding agent, provider AP
   Rationale: heartbeats prove liveness, polls prove demand for work, and neither callers nor assessment requests may extend candidacy with an arbitrary interval.
   Date/Author: 2026-08-01 / Codex implementation
 
+- Decision: remove `CommandManifest.updated_at` instead of adding a startup migration.
+  Rationale: trusted manifests are immutable, repository writes never update the field, and `CommandManifestOut` does not expose it. Removing the unused field restores the current-main table contract without introducing mutable timestamp semantics merely to preserve an unused PR-only column.
+  Date/Author: 2026-08-07 / Codex connector correction
+
 ## Outcomes & Retrospective
 
 Implementation and the complete protected local matrix are complete. The slice adds one
@@ -150,6 +162,22 @@ coverage was 93% aggregate and all 16 module thresholds passed. Dependency,
 quality, type, security, secret, link, diff, artifact-cleanup, and public-hygiene
 gates are green. Focused commits, the normal push, and ultimate-head hosted
 workflow evidence remain to be recorded externally on draft PR #135.
+
+Connector review `4835888072` subsequently exposed a restart-compatibility gap
+in the PR-only manifest mapping. The narrow correction removes the unused
+manifest `updated_at` field. A file-backed regression creates the exact prior
+manifest column shape without that field, lets the first lifespan startup look
+up and insert the trusted manifest, then runs a second lifespan startup against
+the same database and proves lookup/list stability, one manifest identity, and
+continued routing table/column availability. The regression failed on the
+uncorrected head with the expected missing-column query and the startup module
+passed `6 passed` after the field removal. Final focused groups passed `89` and
+`52` tests; complete pytest passed `571 passed, 5 skipped`; strict browser
+passed `2 passed` with no skip; coverage remained 93% aggregate with all 16
+thresholds satisfied; and dependency, quality, type, security, secret, and link
+gates passed. Generated artifacts were removed, and the final diff contained no
+workstation identity, local path, credential-shaped value, private URL,
+environment dump, response body, log, database, report, cache, or bytecode.
 
 ## Context and Orientation
 
@@ -399,6 +427,89 @@ Post-change local evidence on 2026-08-01:
     -> passed; two informational redirects and no link failures
 
 Generated JUnit, coverage, Lychee, browser, database, cache, bytecode, and temporary output under the worktree were removed after validation. Ultimate-head Commitlint and CI workflow identifiers are deliberately not embedded here: after the final head exists, they belong in PR #135's external review record under the established non-self-referential convention.
+
+Connector correction evidence on 2026-08-08:
+
+    connector review
+    -> 4835888072 identified the current-main manifest restart incompatibility
+
+    correction preflight
+    -> origin/main 7587a77a32e07f180d21cec65881c7868afa0e4d
+    -> branch head 49b96ea361c9532d60eaf031582a8f55c52f228a
+    -> merge base 7587a77a32e07f180d21cec65881c7868afa0e4d
+    -> isolated branch worktree clean and synchronized with origin
+
+    prior-schema regression before correction
+    -> failed during the first lifespan startup with
+       sqlite3.OperationalError: no such column:
+       execution_command_manifests.updated_at
+
+    corrected startup behavior
+    -> removed unused CommandManifest.updated_at; no manifest migration or
+       mutable timestamp behavior retained
+    -> prior table contains id, name, version, schema_version, digest,
+       description, trusted_registry_source, required_capabilities,
+       fixed_step_metadata, environment_policy, network_policy,
+       repository_write_policy, timeout_seconds, artifact_declarations, and
+       created_at, plus current-main uniqueness/read-only constraints and the
+       name index
+    -> first lifespan lookup found no trusted identity and inserted it safely
+    -> second lifespan lookup/list returned the same id and digest
+    -> exactly one validate-switchboard/1 identity remained
+    -> execution_worker_routing_profiles, worker poll freshness, and routing
+       columns remained present after both startups
+
+    python -m pip check
+    -> No broken requirements found in the pinned clean project environment
+
+    focused startup/routing/contracts/concurrency/reuse group
+    -> 89 passed in 48.68s
+
+    focused settings/strict-work-order/server-smoke group
+    -> 52 passed in 24.28s
+
+    python -m pytest --maxfail=1 --disable-warnings --junitxml=reports/pytest.xml
+    -> 571 passed, 5 skipped, 344 warnings in 455.67s
+
+    SWITCHBOARD_STRICT_PLAYWRIGHT=1 python -m pytest web/tests/test_ui.py -rA
+    -> 2 passed in 9.08s; no strict-mode skip
+
+    configured coverage suite and all 16 module thresholds
+    -> 571 passed, 5 skipped; 93% aggregate
+       contracts.py 95.40%, interfaces.py 94.17%, loader.py 100%, runtime.py 100%,
+       task_metrics.py 92.59%, plan_metrics.py 95%, plan_latency.py 87.76%,
+       plan_snapshot.py 100%, activity_feed.py 100%, extensions/observability.py 97.73%,
+       diagnostics.py 90.16%, health.py 97.59%, activity.py 94.83%, overview.py 100%,
+       task_service.py 90.71%, configuration_service.py 91.30%
+
+    quality and type gates
+    -> pre-commit, TODO policy, pinned Ruff, pinned Black, and configured Mypy
+       passed; Mypy checked 176 source files
+
+    security and public-content gates
+    -> Bandit 1.8.6 passed under Python 3.13.7
+    -> pip-audit found no known vulnerabilities
+    -> Gitleaks scanned 247 commits / approximately 4.90 MB with no leaks
+    -> Lychee passed with two informational redirects
+
+    generated-artifact and public-hygiene audit
+    -> JUnit, coverage, Lychee, browser, database, cache, bytecode, log, and the
+       temporary Python 3.13 Bandit environment were removed
+    -> the only remaining database is the unchanged tracked switchboard.db
+    -> git diff --check passed
+    -> the final pre-commit status contained only this ExecPlan, server/models.py,
+       and server/tests/test_execution_startup.py, with no untracked files
+    -> added lines contain no workstation identity, absolute local path,
+       credential or authorization value, private URL, environment dump,
+       response body, log, database contents, or generated validation artifact
+    -> the focused commit left the isolated branch worktree clean, with no
+       staged, unstaged, or untracked files and exactly one local commit pending
+       its normal push to the existing branch
+
+Final generated-artifact cleanup, public-hygiene evidence, exact correction
+commit/head, and clean local/remote equality are recorded after this evidence
+update. Ultimate-head workflow identifiers remain external to this plan and
+belong in draft PR #135's review record after the corrected head exists.
 
 ## Interfaces and Dependencies
 

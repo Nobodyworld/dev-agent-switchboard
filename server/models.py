@@ -318,12 +318,6 @@ class CommandManifest(Base):
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime, default=utcnow_naive, nullable=False
     )
-    updated_at: Mapped[dt.datetime] = mapped_column(
-        DateTime,
-        default=utcnow_naive,
-        onupdate=utcnow_naive,
-        nullable=False,
-    )
 
 
 class ExecutionWorkOrder(Base):
