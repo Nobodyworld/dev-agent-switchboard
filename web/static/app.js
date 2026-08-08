@@ -1409,3 +1409,12 @@ document.addEventListener('click', (event) => {
 });
 
 document.addEventListener('DOMContentLoaded', initialize);
+
+export {
+  apiFetch,
+  apiFetchJson,
+  copyToClipboard,
+  escapeHtml,
+  loadAdminToken,
+  showToast,
+};

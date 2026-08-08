@@ -1,3 +1,9 @@
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 .toast-container {
   position: fixed;
   top: 1rem;
@@ -199,6 +205,474 @@
   justify-content: space-between;
 }
 
+.preview-badge {
+  align-self: flex-start;
+  border: 1px solid #d97706;
+  border-radius: 999px;
+  color: #92400e;
+  background: #fffbeb;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.broker-shell {
+  --broker-bg: #07111f;
+  --broker-panel: #0d1a2b;
+  --broker-border: #26364d;
+  --broker-muted: #9fb0c6;
+  --broker-text: #eff6ff;
+  --broker-accent: #22d3ee;
+  --broker-success: #34d399;
+  --broker-warning: #fbbf24;
+  color: var(--broker-text);
+  background: var(--broker-bg);
+  border: 1px solid #17263a;
+  border-radius: 1rem;
+  padding: 1rem;
+  overflow: hidden;
+  box-shadow: 0 24px 60px -42px rgba(15, 23, 42, 0.9);
+}
+
+.broker-shell * {
+  box-sizing: border-box;
+}
+
+.broker-heading-row,
+.broker-panel-heading,
+.broker-pagination,
+.broker-action-row,
+.broker-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.broker-heading-row,
+.broker-panel-heading,
+.broker-pagination {
+  justify-content: space-between;
+}
+
+.broker-heading-row h2 {
+  margin: 0;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 750;
+}
+
+.broker-heading-row p,
+.broker-panel p,
+.broker-pagination p {
+  color: var(--broker-muted);
+}
+
+.broker-eyebrow {
+  margin: 0 0 0.25rem;
+  color: var(--broker-accent) !important;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.broker-toolbar label,
+.broker-form label {
+  color: #dbeafe;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.broker-toolbar select,
+.broker-form input,
+.broker-form select,
+.broker-history-filters input,
+.broker-history-filters select {
+  min-width: 0;
+  border: 1px solid #34465f;
+  border-radius: 0.45rem;
+  color: var(--broker-text);
+  background: #07111f;
+  padding: 0.55rem 0.65rem;
+}
+
+.broker-toolbar select:focus-visible,
+.broker-form input:focus-visible,
+.broker-form select:focus-visible,
+.broker-history-filters input:focus-visible,
+.broker-history-filters select:focus-visible,
+.broker-button:focus-visible {
+  outline: 2px solid var(--broker-accent);
+  outline-offset: 2px;
+}
+
+.broker-inline-status {
+  min-height: 1.25rem;
+  margin: 0.8rem 0;
+  color: var(--broker-muted);
+  font-size: 0.8rem;
+}
+
+.broker-inline-status[data-tone="error"],
+.broker-help[data-tone="error"] {
+  color: #fca5a5;
+}
+
+.broker-inline-status[data-tone="success"],
+.broker-help[data-tone="success"] {
+  color: #6ee7b7;
+}
+
+.broker-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-bottom: 0.85rem;
+}
+
+.broker-metric {
+  min-width: 0;
+  border: 1px solid var(--broker-border);
+  border-radius: 0.65rem;
+  background: var(--broker-panel);
+  padding: 0.8rem;
+}
+
+.broker-metric dt {
+  min-height: 2rem;
+  color: var(--broker-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1rem;
+}
+
+.broker-metric dd {
+  margin: 0.25rem 0 0;
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.broker-workspace-grid {
+  display: grid;
+  gap: 0.85rem;
+  margin-bottom: 0.85rem;
+}
+
+.broker-panel {
+  min-width: 0;
+  border: 1px solid var(--broker-border);
+  border-radius: 0.75rem;
+  background: var(--broker-panel);
+  padding: 0.9rem;
+}
+
+.broker-panel h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 750;
+}
+
+.broker-form {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+}
+
+.broker-form label {
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.broker-form label span {
+  color: var(--broker-muted);
+  font-weight: 500;
+}
+
+.broker-form > input,
+.broker-form > select,
+.broker-form-pair input,
+.broker-form-pair select {
+  width: 100%;
+}
+
+.broker-form-pair {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.broker-help {
+  margin: 0;
+  color: var(--broker-muted);
+  font-size: 0.72rem;
+  line-height: 1.1rem;
+}
+
+.broker-checkbox {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.broker-button {
+  border: 1px solid transparent;
+  border-radius: 0.45rem;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.broker-action-row {
+  flex-wrap: wrap;
+}
+
+.broker-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.broker-button--primary {
+  color: #06202a;
+  background: var(--broker-accent);
+}
+
+.broker-button--secondary {
+  border-color: #3b516e;
+  color: #dbeafe;
+  background: #16253a;
+}
+
+.broker-button--quiet {
+  border-color: #34465f;
+  color: #cbd5e1;
+  background: transparent;
+}
+
+.broker-button--danger {
+  border-color: #7f1d1d;
+  color: #fecaca;
+  background: #3f1218;
+}
+
+.broker-empty {
+  margin-top: 0.8rem;
+  border: 1px dashed #34465f;
+  border-radius: 0.6rem;
+  color: var(--broker-muted);
+  padding: 1rem;
+  font-size: 0.8rem;
+}
+
+.broker-detail-list {
+  display: grid;
+  grid-template-columns: minmax(7rem, 0.7fr) minmax(0, 1.3fr);
+  gap: 0.45rem 0.75rem;
+  margin: 0.8rem 0;
+  font-size: 0.78rem;
+}
+
+.broker-detail-list dt {
+  color: var(--broker-muted);
+}
+
+.broker-detail-list dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.broker-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+.broker-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #40526c;
+  border-radius: 999px;
+  color: #dbeafe;
+  background: #17263a;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.65rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.broker-badge[data-tone="success"] {
+  border-color: #166534;
+  color: #86efac;
+  background: #0c2f25;
+}
+
+.broker-badge[data-tone="warning"] {
+  border-color: #92400e;
+  color: #fde68a;
+  background: #352309;
+}
+
+.broker-badge[data-tone="fresh"] {
+  border-color: #0369a1;
+  color: #7dd3fc;
+  background: #082f49;
+}
+
+.broker-worker-list {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.8rem;
+}
+
+.broker-worker-card {
+  border: 1px solid #34465f;
+  border-radius: 0.55rem;
+  padding: 0.7rem;
+}
+
+.broker-worker-card header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.broker-worker-card dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+  margin: 0.6rem 0;
+  color: var(--broker-muted);
+  font-size: 0.72rem;
+}
+
+.broker-worker-card dd {
+  margin: 0;
+  color: var(--broker-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.broker-history-panel {
+  overflow: hidden;
+}
+
+.broker-panel-heading--history {
+  align-items: flex-end;
+}
+
+.broker-history-filters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.broker-history-filters input,
+.broker-history-filters select {
+  max-width: 12rem;
+  font-size: 0.72rem;
+}
+
+.broker-table-wrap {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin-top: 0.8rem;
+  overflow-x: auto;
+  contain: inline-size layout paint;
+}
+
+.broker-table {
+  width: 100%;
+  min-width: 62rem;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+}
+
+.broker-table th,
+.broker-table td {
+  border-bottom: 1px solid #26364d;
+  padding: 0.55rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.broker-table th {
+  color: var(--broker-muted);
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.broker-table tbody tr:hover {
+  background: #111f32;
+}
+
+.broker-table .copy-button {
+  color: #bae6fd;
+  background: #143147;
+}
+
+.broker-pagination {
+  margin-top: 0.7rem;
+  font-size: 0.72rem;
+}
+
+@media (min-width: 768px) {
+  .broker-metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .broker-workspace-grid {
+    grid-template-columns: minmax(18rem, 0.85fr) minmax(22rem, 1.15fr);
+  }
+
+  .broker-workspace-grid--profiles {
+    grid-template-columns: minmax(22rem, 1.2fr) minmax(18rem, 0.8fr);
+  }
+}
+
+@media (min-width: 1200px) {
+  .broker-metrics {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .broker-heading-row,
+  .broker-panel-heading--history,
+  .broker-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .broker-toolbar,
+  .broker-history-filters {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .broker-history-filters input,
+  .broker-history-filters select {
+    max-width: none;
+    width: 100%;
+  }
+
+  .broker-form-pair {
+    grid-template-columns: 1fr;
+  }
+
+  .toast-container {
+    right: 0.75rem;
+    left: 0.75rem;
+    max-width: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .toast {
     transition: none;
@@ -208,3 +682,4 @@
     transition: none;
   }
 }
+.toast-container {
