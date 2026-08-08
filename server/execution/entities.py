@@ -10,8 +10,10 @@ from .enums import (
     ApprovalPolicy,
     ExecutionRunStatus,
     NetworkPolicy,
+    QuotaReservationState,
     ReuseDecision,
     ReusePolicy,
+    RoutingPolicy,
     WorkerStatus,
     WorkOrderStatus,
 )
@@ -45,6 +47,9 @@ class WorkOrderDraft:
     preferred_executor: str | None
     cost_ceiling: float | None
     reuse_policy: ReusePolicy = ReusePolicy.NEVER
+    routing_policy: RoutingPolicy = RoutingPolicy.FIRST_AVAILABLE
+    maximum_cost_units: int | None = None
+    required_quota_units: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,3 +130,58 @@ class ReuseCandidateResult:
     decision: ReuseDecision
     reason: str
     candidate: ReuseCandidate | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RoutingProfileDraft:
+    """Privileged operator-authored routing profile values."""
+
+    schema_version: int
+    worker_id: str
+    enabled: bool
+    estimated_cost_units_per_run: int
+    quota_capacity_units: int
+    quota_remaining_units: int
+    quota_reset_at: dt.datetime | None
+    routing_priority: int
+
+
+@dataclass(frozen=True, slots=True)
+class RoutingProfileReplacement:
+    """Optimistic full replacement for one routing profile."""
+
+    expected_revision: int
+    enabled: bool
+    estimated_cost_units_per_run: int
+    quota_capacity_units: int
+    quota_remaining_units: int
+    quota_reset_at: dt.datetime | None
+    routing_priority: int
+
+
+@dataclass(frozen=True, slots=True)
+class RoutingQuotaReset:
+    """Idempotent revision-protected quota replacement request."""
+
+    expected_revision: int
+    quota_remaining_units: int
+    quota_reset_at: dt.datetime
+
+
+@dataclass(frozen=True, slots=True)
+class RouteAssessment:
+    """Bounded current routing decision that performs no reservations."""
+
+    schema_version: int
+    work_order_id: int
+    routing_policy: RoutingPolicy
+    selected_worker_id: str | None
+    selected_routing_profile_revision: int | None
+    estimated_cost_units: int | None
+    required_quota_units: int
+    reserved_quota_units: int
+    quota_reservation_state: QuotaReservationState
+    eligible_candidate_count: int
+    explicit_pin_applied: bool
+    reason: str
+    decision_timestamp: dt.datetime

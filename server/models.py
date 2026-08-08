@@ -26,9 +26,11 @@ from .execution.enums import (
     ApprovalPolicy,
     ExecutionRunStatus,
     NetworkPolicy,
+    QuotaReservationState,
     RepositoryWritePolicy,
     ReuseDecision,
     ReusePolicy,
+    RoutingPolicy,
     WorkerStatus,
     WorkOrderStatus,
 )
@@ -51,13 +53,46 @@ __all__ = [
     "SystemState",
     "Task",
     "TaskDependency",
+    "WorkerRoutingProfile",
 ]
+
+_MAX_ROUTING_INTEGER = 2_147_483_647
 
 
 def _enum_values(enum_type: type[Enum]) -> list[str]:
     """Persist string-enum values rather than implementation member names."""
 
     return [str(member.value) for member in enum_type]
+
+
+def _route_provenance_payload(
+    record: Any,
+    *,
+    selected_worker_id: str,
+    required_quota_units: int,
+) -> dict[str, Any]:
+    """Build the bounded route-provenance shape shared by orders and runs."""
+
+    quota_state = record.route_quota_state
+    if isinstance(quota_state, Enum):
+        quota_state = quota_state.value
+    routing_policy = record.routing_policy
+    if isinstance(routing_policy, Enum):
+        routing_policy = routing_policy.value
+    return {
+        "schema_version": record.route_schema_version,
+        "routing_policy": routing_policy,
+        "selected_worker_id": selected_worker_id,
+        "selected_routing_profile_revision": record.route_profile_revision,
+        "estimated_cost_units": record.route_estimated_cost_units,
+        "required_quota_units": required_quota_units,
+        "reserved_quota_units": record.route_reserved_quota_units,
+        "quota_reservation_state": quota_state,
+        "eligible_candidate_count": record.route_eligible_candidate_count,
+        "explicit_pin_applied": record.route_explicit_pin_applied,
+        "reason": record.route_reason,
+        "decision_timestamp": record.route_decided_at,
+    }
 
 
 class Agent(Base):
@@ -299,6 +334,21 @@ class ExecutionWorkOrder(Base):
             "reuse_policy IN ('never', 'allow_exact', 'require_exact')",
             name="ck_execution_work_order_reuse_policy",
         ),
+        CheckConstraint(
+            "routing_policy IN ('first_available', 'cheapest_capable')",
+            name="ck_execution_work_order_routing_policy",
+        ),
+        CheckConstraint(
+            "maximum_cost_units IS NULL OR "
+            "(maximum_cost_units >= 0 AND "
+            f"maximum_cost_units <= {_MAX_ROUTING_INTEGER})",
+            name="ck_execution_work_order_maximum_cost_units",
+        ),
+        CheckConstraint(
+            "required_quota_units >= 0 AND "
+            f"required_quota_units <= {_MAX_ROUTING_INTEGER}",
+            name="ck_execution_work_order_required_quota_units",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -370,6 +420,21 @@ class ExecutionWorkOrder(Base):
     )
     preferred_executor: Mapped[str | None] = mapped_column(String(128), nullable=True)
     cost_ceiling: Mapped[float | None] = mapped_column(Float, nullable=True)
+    routing_policy: Mapped[RoutingPolicy] = mapped_column(
+        SAEnum(
+            RoutingPolicy,
+            native_enum=False,
+            validate_strings=True,
+            values_callable=_enum_values,
+            name="execution_routing_policy",
+        ),
+        nullable=False,
+        default=RoutingPolicy.FIRST_AVAILABLE,
+    )
+    maximum_cost_units: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    required_quota_units: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
     reuse_policy: Mapped[ReusePolicy] = mapped_column(
         SAEnum(
             ReusePolicy,
@@ -400,6 +465,49 @@ class ExecutionWorkOrder(Base):
     started_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
     terminal_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    route_schema_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    route_selected_worker_id: Mapped[str | None] = mapped_column(
+        String(128), nullable=True
+    )
+    route_profile_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    route_estimated_cost_units: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    route_reserved_quota_units: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    route_quota_state: Mapped[QuotaReservationState | None] = mapped_column(
+        SAEnum(
+            QuotaReservationState,
+            native_enum=False,
+            validate_strings=True,
+            values_callable=_enum_values,
+            name="execution_quota_reservation_state",
+        ),
+        nullable=True,
+    )
+    route_eligible_candidate_count: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    route_explicit_pin_applied: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    route_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    route_decided_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+
+    @property
+    def route_provenance(self) -> dict[str, Any] | None:
+        """Return compact server-owned route provenance for API serialization."""
+
+        if self.route_decided_at is None or self.route_selected_worker_id is None:
+            return None
+        return _route_provenance_payload(
+            self,
+            selected_worker_id=self.route_selected_worker_id,
+            required_quota_units=self.required_quota_units,
+        )
 
 
 class ExecutionWorker(Base):
@@ -469,6 +577,64 @@ class ExecutionWorker(Base):
         index=True,
     )
     last_heartbeat_at: Mapped[dt.datetime] = mapped_column(DateTime, nullable=False)
+    last_checkout_poll_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime, nullable=True, index=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, default=utcnow_naive, nullable=False
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime,
+        default=utcnow_naive,
+        onupdate=utcnow_naive,
+        nullable=False,
+    )
+
+
+class WorkerRoutingProfile(Base):
+    """Privileged operator-owned cost and quota state for one worker."""
+
+    __tablename__ = "execution_worker_routing_profiles"
+    __table_args__ = (
+        CheckConstraint("schema_version = 1", name="ck_routing_profile_schema_version"),
+        CheckConstraint(
+            "estimated_cost_units_per_run >= 0 AND "
+            f"estimated_cost_units_per_run <= {_MAX_ROUTING_INTEGER}",
+            name="ck_routing_profile_cost",
+        ),
+        CheckConstraint(
+            "quota_capacity_units >= 0 AND "
+            f"quota_capacity_units <= {_MAX_ROUTING_INTEGER}",
+            name="ck_routing_profile_quota_capacity",
+        ),
+        CheckConstraint(
+            "quota_remaining_units >= 0 AND "
+            "quota_remaining_units <= quota_capacity_units",
+            name="ck_routing_profile_quota_remaining",
+        ),
+        CheckConstraint(
+            f"routing_priority >= 0 AND routing_priority <= {_MAX_ROUTING_INTEGER}",
+            name="ck_routing_profile_priority",
+        ),
+        CheckConstraint(
+            f"revision >= 1 AND revision <= {_MAX_ROUTING_INTEGER}",
+            name="ck_routing_profile_revision",
+        ),
+    )
+
+    worker_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("execution_workers.worker_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    estimated_cost_units_per_run: Mapped[int] = mapped_column(Integer, nullable=False)
+    quota_capacity_units: Mapped[int] = mapped_column(Integer, nullable=False)
+    quota_remaining_units: Mapped[int] = mapped_column(Integer, nullable=False)
+    quota_reset_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
+    routing_priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime, default=utcnow_naive, nullable=False
     )
@@ -498,6 +664,15 @@ class ExecutionRun(Base):
             "reuse_decision IN ('not_requested', 'pending', "
             "'candidate_available', 'fresh', 'reused', 'unavailable')",
             name="ck_execution_run_reuse_decision",
+        ),
+        CheckConstraint(
+            "routing_policy IN ('first_available', 'cheapest_capable')",
+            name="ck_execution_run_routing_policy",
+        ),
+        CheckConstraint(
+            "route_quota_state IN "
+            "('not_required', 'reserved', 'consumed', 'released')",
+            name="ck_execution_run_quota_state",
         ),
     )
 
@@ -571,6 +746,53 @@ class ExecutionRun(Base):
     evidence_retention_expires_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime, nullable=True, index=True
     )
+    route_schema_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1
+    )
+    routing_policy: Mapped[RoutingPolicy] = mapped_column(
+        SAEnum(
+            RoutingPolicy,
+            native_enum=False,
+            validate_strings=True,
+            values_callable=_enum_values,
+            name="execution_run_routing_policy",
+        ),
+        nullable=False,
+        default=RoutingPolicy.FIRST_AVAILABLE,
+    )
+    route_profile_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    route_estimated_cost_units: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    route_required_quota_units: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    route_reserved_quota_units: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    route_quota_state: Mapped[QuotaReservationState] = mapped_column(
+        SAEnum(
+            QuotaReservationState,
+            native_enum=False,
+            validate_strings=True,
+            values_callable=_enum_values,
+            name="execution_run_quota_reservation_state",
+        ),
+        nullable=False,
+        default=QuotaReservationState.NOT_REQUIRED,
+    )
+    route_eligible_candidate_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1
+    )
+    route_explicit_pin_applied: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    route_reason: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="routing_selected"
+    )
+    route_decided_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, default=utcnow_naive, nullable=False
+    )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime, default=utcnow_naive, nullable=False
     )
@@ -580,6 +802,16 @@ class ExecutionRun(Base):
         onupdate=utcnow_naive,
         nullable=False,
     )
+
+    @property
+    def route_provenance(self) -> dict[str, Any]:
+        """Return compact server-owned route provenance for API serialization."""
+
+        return _route_provenance_payload(
+            self,
+            selected_worker_id=self.worker_id,
+            required_quota_units=self.route_required_quota_units,
+        )
 
 
 class ExecutionLease(Base):

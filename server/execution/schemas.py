@@ -13,9 +13,11 @@ from .enums import (
     ApprovalPolicy,
     ExecutionRunStatus,
     NetworkPolicy,
+    QuotaReservationState,
     RepositoryWritePolicy,
     ReuseDecision,
     ReusePolicy,
+    RoutingPolicy,
     WorkerStatus,
     WorkOrderStatus,
 )
@@ -25,6 +27,7 @@ from .evidence import (
     ExecutionEvidence,
     ReuseCandidate,
 )
+from .routing import MAX_ROUTING_INTEGER
 from .text_policy import (
     validate_no_absolute_local_paths,
     validate_optional_no_absolute_local_path,
@@ -43,6 +46,12 @@ _FORBIDDEN_EXECUTABLE_KEYS = frozenset(
         "executable_path",
     }
 )
+
+
+def _require_aware_timestamp(value: dt.datetime | None) -> dt.datetime | None:
+    if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+        raise ValueError("quota_reset_at must be timezone-aware")
+    return value
 
 
 def _reject_executable_keys(value: object, *, field_name: str) -> None:
@@ -112,6 +121,13 @@ class WorkOrderCreateIn(ExecutionInput):
     preferred_executor: str | None = Field(default=None, max_length=128)
     cost_ceiling: float | None = Field(default=None, ge=0)
     reuse_policy: ReusePolicy = ReusePolicy.NEVER
+    routing_policy: RoutingPolicy = RoutingPolicy.FIRST_AVAILABLE
+    maximum_cost_units: int | None = Field(
+        default=None, strict=True, ge=0, le=MAX_ROUTING_INTEGER
+    )
+    required_quota_units: int = Field(
+        default=0, strict=True, ge=0, le=MAX_ROUTING_INTEGER
+    )
 
     @model_validator(mode="after")
     def reject_executable_metadata(self) -> WorkOrderCreateIn:
@@ -168,6 +184,69 @@ class WorkerHeartbeatIn(ExecutionInput):
     """Worker liveness update with an optional availability state change."""
 
     status: WorkerStatus | None = None
+
+
+class WorkerRoutingProfileCreateIn(ExecutionInput):
+    """Privileged creation contract for server-owned routing state."""
+
+    schema_version: Literal[1] = 1
+    worker_id: str = Field(min_length=1, max_length=128)
+    enabled: bool = Field(default=True, strict=True)
+    estimated_cost_units_per_run: int = Field(strict=True, ge=0, le=MAX_ROUTING_INTEGER)
+    quota_capacity_units: int = Field(strict=True, ge=0, le=MAX_ROUTING_INTEGER)
+    quota_remaining_units: int = Field(strict=True, ge=0, le=MAX_ROUTING_INTEGER)
+    quota_reset_at: dt.datetime | None = None
+    routing_priority: int = Field(default=0, strict=True, ge=0, le=MAX_ROUTING_INTEGER)
+
+    @field_validator("quota_reset_at")
+    @classmethod
+    def validate_reset_timestamp(cls, value: dt.datetime | None) -> dt.datetime | None:
+        return _require_aware_timestamp(value)
+
+    @model_validator(mode="after")
+    def validate_quota_bounds(self) -> WorkerRoutingProfileCreateIn:
+        if self.quota_remaining_units > self.quota_capacity_units:
+            raise ValueError("quota_remaining_units must not exceed capacity")
+        return self
+
+
+class WorkerRoutingProfileReplaceIn(ExecutionInput):
+    """Revision-protected full replacement for one routing profile."""
+
+    expected_revision: int = Field(strict=True, ge=1, le=MAX_ROUTING_INTEGER)
+    enabled: bool = Field(strict=True)
+    estimated_cost_units_per_run: int = Field(strict=True, ge=0, le=MAX_ROUTING_INTEGER)
+    quota_capacity_units: int = Field(strict=True, ge=0, le=MAX_ROUTING_INTEGER)
+    quota_remaining_units: int = Field(strict=True, ge=0, le=MAX_ROUTING_INTEGER)
+    quota_reset_at: dt.datetime | None = None
+    routing_priority: int = Field(strict=True, ge=0, le=MAX_ROUTING_INTEGER)
+
+    @field_validator("quota_reset_at")
+    @classmethod
+    def validate_reset_timestamp(cls, value: dt.datetime | None) -> dt.datetime | None:
+        return _require_aware_timestamp(value)
+
+    @model_validator(mode="after")
+    def validate_quota_bounds(self) -> WorkerRoutingProfileReplaceIn:
+        if self.quota_remaining_units > self.quota_capacity_units:
+            raise ValueError("quota_remaining_units must not exceed capacity")
+        return self
+
+
+class RoutingQuotaResetIn(ExecutionInput):
+    """Revision-safe explicit quota replacement with idempotency timestamp."""
+
+    expected_revision: int = Field(strict=True, ge=1, le=MAX_ROUTING_INTEGER)
+    quota_remaining_units: int = Field(strict=True, ge=0, le=MAX_ROUTING_INTEGER)
+    quota_reset_at: dt.datetime
+
+    @field_validator("quota_reset_at")
+    @classmethod
+    def validate_reset_timestamp(cls, value: dt.datetime) -> dt.datetime:
+        validated = _require_aware_timestamp(value)
+        if validated is None:  # pragma: no cover - field itself is required
+            raise ValueError("quota_reset_at is required")
+        return validated
 
 
 class CheckoutIn(ExecutionInput):
@@ -277,6 +356,9 @@ class WorkOrderOut(BaseModel):
     repository_write_allowed: bool
     preferred_executor: str | None
     cost_ceiling: float | None
+    routing_policy: RoutingPolicy
+    maximum_cost_units: int | None
+    required_quota_units: int
     attempt_count: int
     created_at: dt.datetime
     updated_at: dt.datetime
@@ -288,6 +370,7 @@ class WorkOrderOut(BaseModel):
     terminal_reason: str | None
     reuse_policy: ReusePolicy
     execution_policy_hash: str
+    route_provenance: RouteProvenanceOut | None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -318,6 +401,7 @@ class WorkerOut(BaseModel):
     repository_write_capability: bool
     status: WorkerStatus
     last_heartbeat_at: dt.datetime
+    last_checkout_poll_at: dt.datetime | None
     created_at: dt.datetime
     updated_at: dt.datetime
 
@@ -350,6 +434,7 @@ class ExecutionRunOut(BaseModel):
     reuse_decision: ReuseDecision
     reuse_reason: str | None
     evidence_retention_expires_at: dt.datetime | None
+    route_provenance: RouteProvenanceOut
     created_at: dt.datetime
     updated_at: dt.datetime
 
@@ -373,6 +458,72 @@ class CheckoutOut(BaseModel):
     run: ExecutionRunOut | None = None
     reason: str | None = None
     mismatch_reasons: list[str] = Field(default_factory=list)
+
+
+class WorkerRoutingProfileOut(BaseModel):
+    """Bounded privileged view of one operator-owned routing profile."""
+
+    schema_version: int
+    worker_id: str
+    enabled: bool
+    estimated_cost_units_per_run: int
+    quota_capacity_units: int
+    quota_remaining_units: int
+    quota_reset_at: dt.datetime | None
+    routing_priority: int
+    revision: int = Field(ge=1, le=MAX_ROUTING_INTEGER)
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("quota_reset_at", mode="before")
+    @classmethod
+    def normalize_reset_timestamp(cls, value: dt.datetime | None) -> dt.datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            return value.replace(tzinfo=dt.UTC)
+        return value.astimezone(dt.UTC) if value is not None else None
+
+
+class RouteProvenanceOut(BaseModel):
+    """Compact route decision safe for normal work-order and run APIs."""
+
+    schema_version: Literal[1]
+    routing_policy: RoutingPolicy
+    selected_worker_id: str = Field(min_length=1, max_length=128)
+    selected_routing_profile_revision: int | None = Field(
+        default=None, ge=1, le=MAX_ROUTING_INTEGER
+    )
+    estimated_cost_units: int | None = Field(default=None, ge=0, le=MAX_ROUTING_INTEGER)
+    required_quota_units: int = Field(ge=0, le=MAX_ROUTING_INTEGER)
+    reserved_quota_units: int = Field(ge=0, le=MAX_ROUTING_INTEGER)
+    quota_reservation_state: QuotaReservationState
+    eligible_candidate_count: int = Field(ge=1, le=MAX_ROUTING_INTEGER)
+    explicit_pin_applied: bool
+    reason: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9_.:-]*$")
+    decision_timestamp: dt.datetime
+
+
+class RouteAssessmentOut(BaseModel):
+    """Read-only bounded assessment for one queued work order."""
+
+    schema_version: Literal[1]
+    work_order_id: int = Field(ge=1)
+    routing_policy: RoutingPolicy
+    selected_worker_id: str | None = Field(default=None, max_length=128)
+    selected_routing_profile_revision: int | None = Field(
+        default=None, ge=1, le=MAX_ROUTING_INTEGER
+    )
+    estimated_cost_units: int | None = Field(default=None, ge=0, le=MAX_ROUTING_INTEGER)
+    required_quota_units: int = Field(ge=0, le=MAX_ROUTING_INTEGER)
+    reserved_quota_units: Literal[0] = 0
+    quota_reservation_state: QuotaReservationState = QuotaReservationState.NOT_REQUIRED
+    eligible_candidate_count: int = Field(ge=0, le=MAX_ROUTING_INTEGER)
+    explicit_pin_applied: bool
+    reason: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9_.:-]*$")
+    decision_timestamp: dt.datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ReuseCandidateRequestIn(ExecutionInput):

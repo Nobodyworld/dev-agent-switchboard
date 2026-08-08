@@ -27,11 +27,17 @@ Use this page as the concise endpoint index; use [ai-interface.md](ai-interface.
 | `/api/execution/work-orders/{id}/cancel` | `POST` | Cancel a work order and release any active execution lease safely. |
 | `/api/execution/work-orders/{id}/expire` | `POST` | Expire an unassigned approved or queued work order. |
 | `/api/execution/work-orders/{id}/requeue` | `POST` | Requeue only an assigned/running order whose active lease is stale. |
+| `/api/execution/work-orders/{id}/route-assessment` | `GET` | Assess the current bounded local-worker route for a queued work order without reserving capacity or quota and without refreshing worker polls. |
+| `/api/execution/work-orders/{id}/route` | `GET` | Read compact persisted route provenance after assignment. |
+| `/api/execution/routing-profiles` | `GET`, `POST` | List or create privileged operator-owned local-worker cost, quota, and priority profiles. |
+| `/api/execution/routing-profiles/{worker_id}` | `GET`, `PUT` | Read or revision-protected replace one worker routing profile. |
+| `/api/execution/routing-profiles/{worker_id}/quota-reset` | `POST` | Apply an explicit monotonic, revision-protected quota replacement. |
 | `/api/execution/workers` | `POST` | Register or refresh a read-only worker capability declaration. |
 | `/api/execution/workers/{worker_id}/heartbeat` | `POST` | Refresh a registered worker heartbeat and availability state. |
 | `/api/execution/checkout` | `POST` | Atomically assign one capability-compatible queued work order to one worker. |
 | `/api/execution/runs` | `GET` | List historical execution attempts; filter with `work_order_id`. |
 | `/api/execution/runs/{id}` | `GET` | Read a bounded execution-run record. |
+| `/api/execution/runs/{id}/route` | `GET` | Read compact persisted route provenance for one run. |
 | `/api/execution/runs/{id}/evidence` | `GET` | Read strict, versioned compact evidence for a completed run; full logs remain worker-local. |
 | `/api/execution/runs/{id}/heartbeat` | `POST` | Refresh a lease owned by the named worker and mark first execution start. |
 | `/api/execution/runs/{id}/reuse-candidate` | `POST` | Resolve one server-selected exact candidate for the live lease owner after validating the worker-derived reuse identity. |
@@ -89,6 +95,49 @@ records return `404`, invalid lifecycle/ownership/approval conflicts return
 `409`, and malformed or forbidden request fields return FastAPI validation
 responses (`422`). A normal empty checkout returns `200` with a machine-readable
 reason instead of treating no available work as a server failure.
+
+Work-order creation also accepts a strict `routing_policy`:
+`first_available` (the default) or `cheapest_capable`. Existing callers that
+omit it keep the original capability-aware first-poller behavior and do not
+need a routing profile. `cheapest_capable` considers only trusted outbound
+local workers with a valid enabled operator-owned profile, fresh heartbeat,
+fresh checkout poll, online capacity, matching manifest and work-order
+capabilities, matching network posture, read-only repository capability,
+sufficient integer quota, and an estimated integer cost no greater than
+`maximum_cost_units` when supplied. Legacy floating-point `cost_ceiling`
+remains accepted and stored for compatibility but never controls the new
+route. Cost units are abstract operator comparison units, not dollars,
+credits, spend, or measured savings.
+
+Eligible workers are ranked deterministically by lowest
+`estimated_cost_units_per_run`, highest quota headroom after the prospective
+reservation, lowest active-load ratio (integer cross multiplication), lowest
+operator `routing_priority`, and finally lexical worker ID. An explicit
+`preferred_executor` is a hard pin to a known worker. It overrides ranking but
+never approval, liveness, polling, status, capacity, capability, network,
+read-only, cost, quota, or profile-enabled checks, and it never falls back to a
+different worker when unavailable.
+
+Every checkout by a known authenticated worker records only that requester's
+`last_checkout_poll_at` using server time. Poll freshness and heartbeat
+freshness are separate. A heartbeating worker that stops pulling ages out of
+`cheapest_capable` candidacy; `first_available` compatibility is unchanged.
+The successful checkout transaction conditionally reserves worker capacity
+and quota, claims the queued order, and creates the run and lease together.
+The first valid run heartbeat consumes reserved quota exactly once. A
+pre-start cancellation or stale lease releases it exactly once; after start,
+success, failure, timeout, cancellation, lease loss, and requeue do not refund
+consumed quota. Profile replacement and quota reset require an exact revision
+and fail closed while a reservation is active.
+
+Normal work-order and run responses expose only bounded route provenance:
+routing schema/policy, selected worker ID and profile revision, estimated cost,
+required/reserved quota, reservation state, eligible count, pin flag, bounded
+reason, and decision timestamp. They do not expose candidate lists, complete
+profiles, capabilities, commands, argv, logs, credentials, environment dumps,
+local roots, or private network details. This routing slice never dispatches a
+paid coding agent or contacts an AI provider, billing service, or external
+rate-limit API.
 
 The outbound worker, rather than an API route, resolves reviewed executable
 definitions and validates detached exact-SHA worktrees. The evidence endpoint

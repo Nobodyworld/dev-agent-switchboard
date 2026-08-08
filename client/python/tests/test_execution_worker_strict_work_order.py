@@ -15,6 +15,9 @@ from client.python.tests.test_execution_worker_runtime import _FakeClient
 from server.execution.registry import get_trusted_manifest
 
 _TOKEN = "strict-work-order-token"  # noqa: S105 - non-secret test fixture
+_MAX_ROUTING_INTEGER = (1 << 31) - 1
+_TEST_MAXIMUM_COST_UNITS = 17
+_TEST_REQUIRED_QUOTA_UNITS = 3
 
 
 def _payload(**overrides: object) -> dict[str, object]:
@@ -59,6 +62,46 @@ def test_unknown_work_order_response_field_is_rejected() -> None:
 
     with pytest.raises(ValueError, match="response fields"):
         AssignedWorkOrder.from_payload(payload)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("routing_policy", "random"),
+        ("maximum_cost_units", -1),
+        ("maximum_cost_units", _MAX_ROUTING_INTEGER + 1),
+        ("maximum_cost_units", 1.5),
+        ("required_quota_units", -1),
+        ("required_quota_units", _MAX_ROUTING_INTEGER + 1),
+        ("required_quota_units", True),
+    ],
+)
+def test_routing_fields_are_strict_and_integer_bounded(
+    field: str, value: object
+) -> None:
+    with pytest.raises(ValueError, match=r"routing|cost|quota"):
+        AssignedWorkOrder.from_payload(_payload(**{field: value}))
+
+
+def test_cheapest_capable_routing_fields_are_accepted() -> None:
+    order = AssignedWorkOrder.from_payload(
+        _payload(
+            routing_policy="cheapest_capable",
+            maximum_cost_units=_TEST_MAXIMUM_COST_UNITS,
+            required_quota_units=_TEST_REQUIRED_QUOTA_UNITS,
+        )
+    )
+
+    assert order.routing_policy == "cheapest_capable"
+    assert order.maximum_cost_units == _TEST_MAXIMUM_COST_UNITS
+    assert order.required_quota_units == _TEST_REQUIRED_QUOTA_UNITS
+
+
+def test_route_provenance_rejects_executable_metadata() -> None:
+    with pytest.raises(ValueError, match="executable field"):
+        AssignedWorkOrder.from_payload(
+            _payload(route_provenance={"command": "do-not-run"})
+        )
 
 
 @pytest.mark.parametrize("created_at", [True, 7, "2026-07-16", "not-a-datetime"])

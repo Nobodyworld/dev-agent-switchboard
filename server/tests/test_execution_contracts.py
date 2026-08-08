@@ -179,7 +179,7 @@ def _work_order_draft(
         resource_metadata={"memory_mb": 1024},
         network_policy=NetworkPolicy.WORKER_RESTRICTED,
         repository_write_allowed=False,
-        preferred_executor="local",
+        preferred_executor=None,
         cost_ceiling=0.0,
     )
 

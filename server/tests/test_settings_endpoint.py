@@ -8,6 +8,8 @@ from server.extensions import EXTENSION_API_VERSION
 from server.middleware.rate_limit import get_current_rate_limit_middleware
 from server.settings import (
     ENABLE_BUILTIN_EXTENSIONS_ENV,
+    EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS_ENV,
+    EXECUTION_HEARTBEAT_FRESHNESS_SECONDS_ENV,
     EXTENSION_MODULES_ENV,
     LEASE_SECONDS_ENV,
     RATE_LIMIT_REQUESTS_ENV,
@@ -16,6 +18,7 @@ from server.settings import (
     RATE_LIMIT_WINDOW_ENV,
     get_extension_settings,
     get_settings_bundle,
+    reload_execution_routing_settings,
     reload_extension_settings,
     reload_lease_settings,
     reload_rate_limit_settings,
@@ -26,6 +29,8 @@ HTTP_OK = 200
 DEFAULT_REQUESTS = 120
 DEFAULT_WINDOW_SECONDS = 60
 DEFAULT_LEASE_SECONDS = 300
+DEFAULT_HEARTBEAT_FRESHNESS_SECONDS = 300
+DEFAULT_ACTIVE_POLL_FRESHNESS_SECONDS = 60
 
 
 @pytest.fixture(autouse=True)
@@ -34,6 +39,7 @@ def reset_settings():
 
     reload_rate_limit_settings()
     reload_lease_settings()
+    reload_execution_routing_settings()
     reload_extension_settings()
     reload_settings_bundle()
     yield
@@ -45,9 +51,12 @@ def reset_settings():
         RATE_LIMIT_TRUSTED_PROXIES_ENV,
         EXTENSION_MODULES_ENV,
         ENABLE_BUILTIN_EXTENSIONS_ENV,
+        EXECUTION_HEARTBEAT_FRESHNESS_SECONDS_ENV,
+        EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS_ENV,
     ):
         os.environ.pop(name, None)
     reload_lease_settings()
+    reload_execution_routing_settings()
     reload_rate_limit_settings()
     reload_extension_settings()
     reload_settings_bundle()
@@ -68,6 +77,7 @@ def test_settings_endpoint_returns_defaults():
     rate = payload["rate_limit"]
     lease = payload["lease"]
     extensions = payload["extensions"]
+    routing = payload["execution_routing"]
     bundle = get_settings_bundle()
     registered = extensions["registered"]
 
@@ -92,6 +102,10 @@ def test_settings_endpoint_returns_defaults():
     )
     assert extensions["contract_version"] == EXTENSION_API_VERSION
     assert all(isinstance(note, str) for note in extensions["contract_notes"])
+    assert routing == {
+        "heartbeat_freshness_seconds": DEFAULT_HEARTBEAT_FRESHNESS_SECONDS,
+        "active_poll_freshness_seconds": DEFAULT_ACTIVE_POLL_FRESHNESS_SECONDS,
+    }
 
 
 def test_settings_endpoint_reflects_overrides(monkeypatch):
@@ -102,14 +116,18 @@ def test_settings_endpoint_reflects_overrides(monkeypatch):
     monkeypatch.setenv(LEASE_SECONDS_ENV, "45")
     monkeypatch.setenv(EXTENSION_MODULES_ENV, "custom.module, custom.module")
     monkeypatch.setenv(ENABLE_BUILTIN_EXTENSIONS_ENV, "0")
+    monkeypatch.setenv(EXECUTION_HEARTBEAT_FRESHNESS_SECONDS_ENV, "600")
+    monkeypatch.setenv(EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS_ENV, "30")
     reload_rate_limit_settings()
     reload_lease_settings()
     reload_extension_settings()
+    reload_execution_routing_settings()
 
     payload = _request_settings()
     rate = payload["rate_limit"]
     lease = payload["lease"]
     extensions = payload["extensions"]
+    routing = payload["execution_routing"]
 
     assert rate == {
         "requests": 10,
@@ -124,6 +142,10 @@ def test_settings_endpoint_reflects_overrides(monkeypatch):
     assert extensions["registered"] == []
     assert extensions["contract_version"] == EXTENSION_API_VERSION
     assert extensions["contract_notes"] == []
+    assert routing == {
+        "heartbeat_freshness_seconds": 600,
+        "active_poll_freshness_seconds": 30,
+    }
 
 
 def test_extension_settings_bundle_matches_runtime(monkeypatch):

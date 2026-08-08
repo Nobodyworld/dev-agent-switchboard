@@ -36,6 +36,7 @@ async def test_fresh_database_creates_execution_tables_and_seeds_manifest(
             "execution_command_manifests",
             "execution_work_orders",
             "execution_workers",
+            "execution_worker_routing_profiles",
             "execution_runs",
             "execution_leases",
             "github_validation_requests",
@@ -60,9 +61,7 @@ async def test_existing_core_database_starts_with_additive_execution_tables(
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with engine.begin() as connection:
-            await connection.run_sync(
-                lambda sync_connection: Task.__table__.create(sync_connection)
-            )
+            await connection.run_sync(Task.__table__.create)
         monkeypatch.setattr(lifecycle_module, "engine", engine)
         monkeypatch.setattr(lifecycle_module, "AsyncSessionLocal", factory)
         async with lifecycle_module.lifespan(FastAPI()):
@@ -78,6 +77,101 @@ async def test_existing_core_database_starts_with_additive_execution_tables(
             stored = await repository.get_manifest("validate-switchboard", "1")
             assert stored is not None
             assert stored.digest
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_main_manifest_schema_survives_repeated_startup(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "main-manifest-schema.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database}")
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "CREATE TABLE execution_command_manifests ("
+                    "id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, "
+                    "name VARCHAR(128) NOT NULL, "
+                    "version VARCHAR(64) NOT NULL, "
+                    "schema_version INTEGER NOT NULL, "
+                    "digest VARCHAR(64) NOT NULL UNIQUE, "
+                    "description TEXT NOT NULL, "
+                    "trusted_registry_source VARCHAR(512) NOT NULL, "
+                    "required_capabilities JSON NOT NULL, "
+                    "fixed_step_metadata JSON NOT NULL, "
+                    "environment_policy JSON NOT NULL, "
+                    "network_policy VARCHAR(32) NOT NULL, "
+                    "repository_write_policy VARCHAR(32) NOT NULL, "
+                    "timeout_seconds INTEGER NOT NULL, "
+                    "artifact_declarations JSON NOT NULL, "
+                    "created_at DATETIME NOT NULL, "
+                    "CONSTRAINT uq_execution_manifest_identity "
+                    "UNIQUE (name, version), "
+                    "CONSTRAINT ck_execution_manifest_read_only "
+                    "CHECK (repository_write_policy = 'read_only')"
+                    ")"
+                )
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX ix_execution_command_manifests_name "
+                    "ON execution_command_manifests (name)"
+                )
+            )
+
+        monkeypatch.setattr(lifecycle_module, "engine", engine)
+        monkeypatch.setattr(lifecycle_module, "AsyncSessionLocal", factory)
+
+        async with lifecycle_module.lifespan(FastAPI()):
+            pass
+        async with factory() as session:
+            repository = ExecutionRepository(session)
+            first = await repository.get_manifest("validate-switchboard", "1")
+            first_listing = await repository.list_manifests()
+        assert first is not None
+        assert first in first_listing
+        assert (
+            sum(
+                manifest.name == first.name and manifest.version == first.version
+                for manifest in first_listing
+            )
+            == 1
+        )
+
+        async with lifecycle_module.lifespan(FastAPI()):
+            pass
+        async with factory() as session:
+            repository = ExecutionRepository(session)
+            second = await repository.get_manifest("validate-switchboard", "1")
+            second_listing = await repository.list_manifests()
+        assert second is not None
+        assert second.id == first.id
+        assert second.digest == first.digest
+        assert (
+            sum(
+                manifest.name == second.name and manifest.version == second.version
+                for manifest in second_listing
+            )
+            == 1
+        )
+
+        async with engine.begin() as connection:
+            (
+                tables,
+                manifest_columns,
+                worker_columns,
+                order_columns,
+                run_columns,
+            ) = await connection.run_sync(_routing_schema)
+        assert "updated_at" not in manifest_columns
+        assert "execution_worker_routing_profiles" in tables
+        assert "last_checkout_poll_at" in worker_columns
+        assert {"routing_policy", "route_selected_worker_id"}.issubset(order_columns)
+        assert {"routing_policy", "route_profile_revision"}.issubset(run_columns)
     finally:
         await engine.dispose()
 
@@ -170,6 +264,34 @@ async def test_existing_execution_tables_gain_reuse_columns_and_indexes(
             "ix_execution_runs_reused_from_run_id",
             "ix_execution_runs_evidence_retention_expires_at",
         }.issubset(indexes)
+        assert {
+            "routing_policy",
+            "maximum_cost_units",
+            "required_quota_units",
+            "route_schema_version",
+            "route_selected_worker_id",
+            "route_profile_revision",
+            "route_estimated_cost_units",
+            "route_reserved_quota_units",
+            "route_quota_state",
+            "route_eligible_candidate_count",
+            "route_explicit_pin_applied",
+            "route_reason",
+            "route_decided_at",
+        }.issubset(work_order_columns)
+        assert {
+            "route_schema_version",
+            "routing_policy",
+            "route_profile_revision",
+            "route_estimated_cost_units",
+            "route_required_quota_units",
+            "route_reserved_quota_units",
+            "route_quota_state",
+            "route_eligible_candidate_count",
+            "route_explicit_pin_applied",
+            "route_reason",
+            "route_decided_at",
+        }.issubset(run_columns)
     finally:
         await engine.dispose()
 
@@ -194,4 +316,21 @@ def _reuse_schema(sync_connection) -> tuple[set[str], set[str], set[str]]:
         {column["name"] for column in inspector.get_columns("execution_work_orders")},
         {column["name"] for column in inspector.get_columns("execution_runs")},
         {index["name"] for index in inspector.get_indexes("execution_runs")},
+    )
+
+
+def _routing_schema(
+    sync_connection,
+) -> tuple[set[str], set[str], set[str], set[str], set[str]]:
+    inspector = inspect(sync_connection)
+    tables = set(inspector.get_table_names())
+    return (
+        tables,
+        {
+            column["name"]
+            for column in inspector.get_columns("execution_command_manifests")
+        },
+        {column["name"] for column in inspector.get_columns("execution_workers")},
+        {column["name"] for column in inspector.get_columns("execution_work_orders")},
+        {column["name"] for column in inspector.get_columns("execution_runs")},
     )

@@ -25,6 +25,10 @@ def work_order_payload(
         timeout_seconds=manifest.timeout_seconds,
         network_policy=manifest.network_policy.value,
         repository_write_allowed=False,
+        routing_policy="first_available",
+        maximum_cost_units=None,
+        required_quota_units=0,
+        preferred_executor=None,
     )
     payload: dict[str, Any] = {
         "id": 3,
@@ -47,6 +51,9 @@ def work_order_payload(
         "repository_write_allowed": False,
         "preferred_executor": None,
         "cost_ceiling": None,
+        "routing_policy": "first_available",
+        "maximum_cost_units": None,
+        "required_quota_units": 0,
         "attempt_count": 1,
         "created_at": _TIMESTAMP,
         "updated_at": _TIMESTAMP,
@@ -58,6 +65,20 @@ def work_order_payload(
         "terminal_reason": None,
         "reuse_policy": "never",
         "execution_policy_hash": execution_policy_hash,
+        "route_provenance": {
+            "schema_version": 1,
+            "routing_policy": "first_available",
+            "selected_worker_id": "local-worker",
+            "selected_routing_profile_revision": None,
+            "estimated_cost_units": None,
+            "required_quota_units": 0,
+            "reserved_quota_units": 0,
+            "quota_reservation_state": "not_required",
+            "eligible_candidate_count": 1,
+            "explicit_pin_applied": False,
+            "reason": "routing_selected",
+            "decision_timestamp": _TIMESTAMP,
+        },
     }
     payload.update(overrides)
     return payload

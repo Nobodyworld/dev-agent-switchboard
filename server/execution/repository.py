@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import case, delete, select, update
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,12 +17,16 @@ from server.models import (
     ExecutionRun,
     ExecutionWorker,
     ExecutionWorkOrder,
+    WorkerRoutingProfile,
 )
 
+from .entities import RoutingQuotaReset
 from .enums import (
     ExecutionRunStatus,
+    QuotaReservationState,
     ReuseDecision,
     ReusePolicy,
+    RoutingPolicy,
     WorkerStatus,
     WorkOrderStatus,
 )
@@ -30,6 +34,7 @@ from .exceptions import ManifestIntegrityError
 from .registry import TrustedManifest
 
 _MAX_EXACT_REUSE_CANDIDATES = 32
+_MAX_ROUTING_REVISION = 2_147_483_647
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +45,14 @@ class LeaseSnapshot:
     work_order_id: int
     execution_run_id: int
     worker_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class RunLeaseWindow:
+    """Server-owned assignment and lease-expiry timestamps for one run."""
+
+    assigned_at: dt.datetime
+    expires_at: dt.datetime
 
 
 class ExecutionRepository:
@@ -159,6 +172,22 @@ class ExecutionRepository:
         )
         return list(result.tuples())
 
+    async def list_workers_with_profiles(
+        self,
+    ) -> list[tuple[ExecutionWorker, WorkerRoutingProfile | None]]:
+        """Return every worker and optional operator profile in stable order."""
+
+        result = await self.session.execute(
+            select(ExecutionWorker, WorkerRoutingProfile)
+            .outerjoin(
+                WorkerRoutingProfile,
+                WorkerRoutingProfile.worker_id == ExecutionWorker.worker_id,
+            )
+            .order_by(ExecutionWorker.worker_id)
+            .execution_options(populate_existing=True)
+        )
+        return list(result.tuples())
+
     async def upsert_worker(
         self, values: dict[str, Any], *, now: dt.datetime
     ) -> ExecutionWorker:
@@ -198,6 +227,141 @@ class ExecutionRepository:
                 select(ExecutionWorker).where(ExecutionWorker.worker_id == worker_id)
             )
         ).scalar_one_or_none()
+
+    async def record_checkout_poll(self, worker_id: str, *, now: dt.datetime) -> bool:
+        """Record one authenticated pull attempt using server time only."""
+
+        result = await self.session.execute(
+            update(ExecutionWorker)
+            .where(ExecutionWorker.worker_id == worker_id)
+            .values(last_checkout_poll_at=now, updated_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        return _affected_one(result)
+
+    async def get_routing_profile(
+        self, worker_id: str, *, refresh: bool = False
+    ) -> WorkerRoutingProfile | None:
+        """Return one operator-owned routing profile."""
+
+        statement = select(WorkerRoutingProfile).where(
+            WorkerRoutingProfile.worker_id == worker_id
+        )
+        if refresh:
+            statement = statement.execution_options(populate_existing=True)
+        return (await self.session.execute(statement)).scalar_one_or_none()
+
+    async def list_routing_profiles(self) -> list[WorkerRoutingProfile]:
+        """List profiles in stable worker-ID order."""
+
+        result = await self.session.execute(
+            select(WorkerRoutingProfile).order_by(WorkerRoutingProfile.worker_id)
+        )
+        return list(result.scalars())
+
+    async def create_routing_profile(
+        self, values: dict[str, Any]
+    ) -> WorkerRoutingProfile:
+        """Insert one routing profile without committing it."""
+
+        profile = WorkerRoutingProfile(**values)
+        self.session.add(profile)
+        await self.session.flush()
+        return profile
+
+    async def replace_routing_profile(
+        self,
+        worker_id: str,
+        *,
+        expected_revision: int,
+        values: dict[str, Any],
+        now: dt.datetime,
+    ) -> bool:
+        """Replace a profile only when its optimistic revision still matches."""
+
+        result = await self.session.execute(
+            update(WorkerRoutingProfile)
+            .where(
+                WorkerRoutingProfile.worker_id == worker_id,
+                WorkerRoutingProfile.revision == expected_revision,
+                WorkerRoutingProfile.revision < _MAX_ROUTING_REVISION,
+            )
+            .values(**values, revision=expected_revision + 1, updated_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        return _affected_one(result)
+
+    async def reset_routing_quota(
+        self,
+        worker_id: str,
+        *,
+        reset: RoutingQuotaReset,
+        now: dt.datetime,
+    ) -> bool:
+        """Replace quota state only at the exact current profile revision."""
+
+        result = await self.session.execute(
+            update(WorkerRoutingProfile)
+            .where(
+                WorkerRoutingProfile.worker_id == worker_id,
+                WorkerRoutingProfile.revision == reset.expected_revision,
+                WorkerRoutingProfile.revision < _MAX_ROUTING_REVISION,
+                WorkerRoutingProfile.quota_capacity_units
+                >= reset.quota_remaining_units,
+            )
+            .values(
+                quota_remaining_units=reset.quota_remaining_units,
+                quota_reset_at=reset.quota_reset_at,
+                revision=reset.expected_revision + 1,
+                updated_at=now,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        return _affected_one(result)
+
+    async def count_reserved_quota_runs(self, worker_id: str) -> int:
+        """Count active reserved quota records for fail-closed operator writes."""
+
+        result = await self.session.execute(
+            select(func.count(ExecutionRun.id)).where(
+                ExecutionRun.worker_id == worker_id,
+                ExecutionRun.route_quota_state == QuotaReservationState.RESERVED,
+            )
+        )
+        return int(result.scalar_one())
+
+    async def reserve_routing_quota(
+        self,
+        worker_id: str,
+        *,
+        expected_revision: int,
+        units: int,
+        now: dt.datetime,
+    ) -> int | None:
+        """Conditionally reserve quota and return the resulting profile revision."""
+
+        maximum_expected_revision = _MAX_ROUTING_REVISION - (2 if units else 1)
+        result = await self.session.execute(
+            update(WorkerRoutingProfile)
+            .where(
+                WorkerRoutingProfile.worker_id == worker_id,
+                WorkerRoutingProfile.enabled.is_(True),
+                WorkerRoutingProfile.revision == expected_revision,
+                WorkerRoutingProfile.revision <= maximum_expected_revision,
+                WorkerRoutingProfile.quota_remaining_units >= units,
+                WorkerRoutingProfile.quota_remaining_units
+                <= WorkerRoutingProfile.quota_capacity_units,
+            )
+            .values(
+                quota_remaining_units=(
+                    WorkerRoutingProfile.quota_remaining_units - units
+                ),
+                revision=expected_revision + 1,
+                updated_at=now,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        return expected_revision + 1 if _affected_one(result) else None
 
     async def update_worker_heartbeat(
         self,
@@ -286,7 +450,11 @@ class ExecutionRepository:
         return _affected_one(result)
 
     async def claim_queued_work_order(
-        self, work_order_id: int, *, now: dt.datetime
+        self,
+        work_order_id: int,
+        *,
+        now: dt.datetime,
+        route_values: dict[str, Any] | None = None,
     ) -> bool:
         """Atomically claim a work order only while it remains queued."""
 
@@ -301,6 +469,7 @@ class ExecutionRepository:
                 assigned_at=now,
                 attempt_count=ExecutionWorkOrder.attempt_count + 1,
                 updated_at=now,
+                **(route_values or {}),
             )
             .execution_options(synchronize_session=False)
         )
@@ -312,10 +481,13 @@ class ExecutionRepository:
         *,
         work_order: ExecutionWorkOrder,
         worker_id: str,
-        now: dt.datetime,
-        expires_at: dt.datetime,
+        lease_window: RunLeaseWindow,
+        route_values: dict[str, Any] | None = None,
     ) -> ExecutionRun:
         """Create one historical run and the unique active lease in this transaction."""
+
+        now = lease_window.assigned_at
+        expires_at = lease_window.expires_at
 
         run = ExecutionRun(
             work_order_id=work_order.id,
@@ -337,6 +509,20 @@ class ExecutionRepository:
                 if work_order.reuse_policy == ReusePolicy.NEVER
                 else "exact_candidate_pending"
             ),
+            **(
+                route_values
+                or {
+                    "route_schema_version": 1,
+                    "routing_policy": RoutingPolicy.FIRST_AVAILABLE,
+                    "route_required_quota_units": 0,
+                    "route_reserved_quota_units": 0,
+                    "route_quota_state": QuotaReservationState.NOT_REQUIRED,
+                    "route_eligible_candidate_count": 1,
+                    "route_explicit_pin_applied": False,
+                    "route_reason": "routing_selected",
+                    "route_decided_at": now,
+                }
+            ),
         )
         self.session.add(run)
         await self.session.flush()
@@ -351,6 +537,119 @@ class ExecutionRepository:
         )
         await self.session.flush()
         return run
+
+    async def consume_run_quota_reservation(
+        self,
+        run_id: int,
+        *,
+        work_order_id: int,
+        now: dt.datetime,
+    ) -> bool:
+        """Consume a reserved quota record exactly once on first run heartbeat."""
+
+        run = await self.get_run(run_id, refresh=True)
+        if run is None:
+            return False
+        if run.route_quota_state in {
+            QuotaReservationState.NOT_REQUIRED,
+            QuotaReservationState.CONSUMED,
+        }:
+            return True
+        if run.route_quota_state != QuotaReservationState.RESERVED:
+            return False
+        run_result = await self.session.execute(
+            update(ExecutionRun)
+            .where(
+                ExecutionRun.id == run_id,
+                ExecutionRun.route_quota_state == QuotaReservationState.RESERVED,
+            )
+            .values(
+                route_quota_state=QuotaReservationState.CONSUMED,
+                updated_at=now,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        order_result = await self.session.execute(
+            update(ExecutionWorkOrder)
+            .where(
+                ExecutionWorkOrder.id == work_order_id,
+                ExecutionWorkOrder.route_quota_state == QuotaReservationState.RESERVED,
+            )
+            .values(
+                route_quota_state=QuotaReservationState.CONSUMED,
+                updated_at=now,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        return _affected_one(run_result) and _affected_one(order_result)
+
+    async def release_run_quota_reservation(
+        self,
+        run_id: int,
+        *,
+        work_order_id: int,
+        worker_id: str,
+        now: dt.datetime,
+    ) -> bool:
+        """Release one pre-start reservation without exceeding profile capacity."""
+
+        run = await self.get_run(run_id, refresh=True)
+        if run is None:
+            return False
+        if run.route_quota_state in {
+            QuotaReservationState.NOT_REQUIRED,
+            QuotaReservationState.CONSUMED,
+            QuotaReservationState.RELEASED,
+        }:
+            return True
+        if run.route_quota_state != QuotaReservationState.RESERVED:
+            return False
+        units = run.route_reserved_quota_units
+        if units > 0:
+            profile_result = await self.session.execute(
+                update(WorkerRoutingProfile)
+                .where(
+                    WorkerRoutingProfile.worker_id == worker_id,
+                    WorkerRoutingProfile.revision < _MAX_ROUTING_REVISION,
+                    WorkerRoutingProfile.quota_remaining_units
+                    <= WorkerRoutingProfile.quota_capacity_units - units,
+                )
+                .values(
+                    quota_remaining_units=(
+                        WorkerRoutingProfile.quota_remaining_units + units
+                    ),
+                    revision=WorkerRoutingProfile.revision + 1,
+                    updated_at=now,
+                )
+                .execution_options(synchronize_session=False)
+            )
+            if not _affected_one(profile_result):
+                return False
+        run_result = await self.session.execute(
+            update(ExecutionRun)
+            .where(
+                ExecutionRun.id == run_id,
+                ExecutionRun.route_quota_state == QuotaReservationState.RESERVED,
+            )
+            .values(
+                route_quota_state=QuotaReservationState.RELEASED,
+                updated_at=now,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        order_result = await self.session.execute(
+            update(ExecutionWorkOrder)
+            .where(
+                ExecutionWorkOrder.id == work_order_id,
+                ExecutionWorkOrder.route_quota_state == QuotaReservationState.RESERVED,
+            )
+            .values(
+                route_quota_state=QuotaReservationState.RELEASED,
+                updated_at=now,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        return _affected_one(run_result) and _affected_one(order_result)
 
     async def list_exact_reuse_candidates(
         self,

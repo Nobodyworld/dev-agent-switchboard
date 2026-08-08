@@ -17,7 +17,7 @@ from server.infrastructure import (
     SqlAlchemySystemStateRepository,
     SqlAlchemyTaskRepository,
 )
-from server.settings import get_lease_settings
+from server.settings import get_execution_routing_settings, get_lease_settings
 from server.time_utils import utcnow_naive
 
 __all__ = [
@@ -52,6 +52,10 @@ def build_execution_service(session: AsyncSession) -> ExecutionService:
         repository=ExecutionRepository(session),
         clock=utcnow_naive,
         lease_seconds=lambda: get_lease_settings().duration_seconds,
+        routing_freshness_seconds=lambda: (
+            get_execution_routing_settings().heartbeat_freshness_seconds,
+            get_execution_routing_settings().active_poll_freshness_seconds,
+        ),
     )
 
 

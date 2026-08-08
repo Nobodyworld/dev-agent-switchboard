@@ -4,19 +4,24 @@ import pytest
 
 from server.settings import (
     ENABLE_BUILTIN_EXTENSIONS_ENV,
+    EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS_ENV,
+    EXECUTION_HEARTBEAT_FRESHNESS_SECONDS_ENV,
     EXTENSION_MODULES_ENV,
     LEASE_SECONDS_ENV,
     MAX_LIVE_FILE_BYTES_ENV,
     RATE_LIMIT_REQUESTS_ENV,
     RATE_LIMIT_WINDOW_ENV,
+    ExecutionRoutingConfigurationError,
     ExtensionConfigurationError,
     FileUploadConfigurationError,
     LeaseConfigurationError,
     RateLimitConfigurationError,
+    get_execution_routing_settings,
     get_lease_settings,
     get_max_live_file_bytes,
     get_rate_limit_settings,
     get_settings_bundle,
+    reload_execution_routing_settings,
     reload_extension_settings,
     reload_lease_settings,
     reload_max_live_file_bytes,
@@ -81,6 +86,38 @@ def test_positive_lease_env_updates_setting(monkeypatch):
     monkeypatch.delenv(LEASE_SECONDS_ENV, raising=False)
     restored = reload_lease_settings()
     assert restored.duration_seconds == get_lease_settings().duration_seconds
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        (EXECUTION_HEARTBEAT_FRESHNESS_SECONDS_ENV, "0"),
+        (EXECUTION_HEARTBEAT_FRESHNESS_SECONDS_ENV, "86401"),
+        (EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS_ENV, "0"),
+        (EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS_ENV, "3601"),
+        (EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS_ENV, "not-an-int"),
+    ],
+)
+def test_execution_routing_freshness_is_positive_and_bounded(
+    monkeypatch, name: str, value: str
+) -> None:
+    monkeypatch.setenv(name, value)
+    with pytest.raises(ExecutionRoutingConfigurationError):
+        reload_execution_routing_settings()
+    monkeypatch.delenv(name, raising=False)
+    reload_execution_routing_settings()
+
+
+def test_execution_routing_freshness_overrides_are_cached(monkeypatch) -> None:
+    monkeypatch.setenv(EXECUTION_HEARTBEAT_FRESHNESS_SECONDS_ENV, "720")
+    monkeypatch.setenv(EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS_ENV, "45")
+    settings = reload_execution_routing_settings()
+    assert settings.heartbeat_freshness_seconds == 720
+    assert settings.active_poll_freshness_seconds == 45
+    assert get_execution_routing_settings() == settings
+    monkeypatch.delenv(EXECUTION_HEARTBEAT_FRESHNESS_SECONDS_ENV, raising=False)
+    monkeypatch.delenv(EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS_ENV, raising=False)
+    reload_execution_routing_settings()
 
 
 def test_live_file_limit_requires_positive_integer(monkeypatch):

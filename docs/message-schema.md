@@ -77,7 +77,11 @@ registry.
   "approval_policy": "explicit",
   "timeout_seconds": 3600,
   "network_policy": "worker_restricted",
-  "repository_write": false
+  "repository_write": false,
+  "routing_policy": "cheapest_capable",
+  "maximum_cost_units": 20,
+  "required_quota_units": 4,
+  "preferred_executor": null
 }
 ```
 
@@ -86,6 +90,15 @@ registry.
 - **manifest** – A server-controlled immutable name/version identity. The
   response adds `manifest_digest`; callers cannot submit or override it.
 - **repository_write** – Must be `false` in Phase 1.
+- **routing_policy** – Strictly `first_available` (the omitted default) or
+  `cheapest_capable`. The latter routes only among fully eligible actively
+  polling trusted local workers with operator-owned profiles.
+- **maximum_cost_units / required_quota_units** – Bounded non-negative integers
+  used for abstract local comparison and quota reservation. The legacy
+  floating `cost_ceiling` remains compatible but is not authoritative.
+- **preferred_executor** – Optional hard pin to a known worker. It overrides
+  score ranking but no approval, health, poll, capacity, capability, network,
+  read-only, cost, profile, or quota check and never falls back.
 - **strict fields** – Unknown fields, including `command`, `command_string`,
   `argv`, `script`, and `executable_path`, are rejected with validation errors.
   Those executable-shaped keys are also rejected recursively inside caller
@@ -93,8 +106,12 @@ registry.
   metadata, and result/evidence placeholders.
 
 `WorkOrderOut` persists the full policy snapshot, approval/lifecycle
-timestamps, attempt count, terminal reason, and resolved manifest identity.
-It is separate from `TaskOut` and never changes task-DAG records.
+timestamps, attempt count, terminal reason, resolved manifest identity, and
+optional compact route provenance. Provenance contains only the routing schema
+and policy, selected worker/profile revision, estimated cost, required/reserved
+quota, reservation state, eligible count, pin flag, bounded reason, and
+decision timestamp. It is separate from `TaskOut` and never changes task-DAG
+records.
 
 ## Execution lifecycle
 
@@ -124,7 +141,9 @@ nonterminal work order, so the next checkout receives a higher attempt number.
 `WorkerRegistrationIn` declares a stable `worker_id`, display/platform details,
 tool and browser capabilities, capacity, supported network policy, and a
 required `repository_write_capability: false`. The same Phase 1 admin token
-temporarily protects worker operations.
+temporarily protects worker operations. Registration and heartbeat reject
+routing-profile fields and `last_checkout_poll_at`; every known authenticated
+checkout records that timestamp from server time for the requester only.
 
 `POST /api/execution/checkout` accepts only:
 
@@ -142,6 +161,14 @@ normal `200` payload such as the following when nothing can be assigned:
   "mismatch_reasons": ["docker_not_available"]
 }
 ```
+
+For cheapest-capable work, other bounded empty-checkout reasons include
+`better_candidate_active`, `preferred_executor_unavailable`,
+`routing_profile_missing`, `routing_profile_disabled`,
+`worker_heartbeat_stale`, `worker_checkout_poll_stale`,
+`routing_cost_ceiling_exceeded`, `routing_quota_insufficient`, and
+`routing_reservation_conflict`. Worker capacity, quota, work-order claim, run,
+lease, and route provenance commit or roll back together.
 
 `ExecutionCompletionIn` accepts an owned worker ID and exactly one terminal
 status: `succeeded`, `failed`, `timed_out`, or `cancelled`. It records only

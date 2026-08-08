@@ -6,7 +6,8 @@ Switchboard now exposes a dedicated configuration snapshot across the API, CLI, 
 
 The FastAPI application serves a typed `ConfigurationResponse` at `GET /api/configuration`. The payload includes:
 
-- `settings`: the existing `SettingsResponse` (rate limit, lease, extensions).
+- `settings`: the existing `SettingsResponse` (rate limit, lease, local
+  execution-routing freshness, and extensions).
 - `admin`: whether an administrative token is configured (token values are never returned).
 - `storage`: the live file store root, existence and writeability checks, and disk usage.
 - `database`: a password-free connection URL, driver name, and declared engine options.
@@ -15,6 +16,38 @@ The FastAPI application serves a typed `ConfigurationResponse` at `GET /api/conf
 - `warnings`: actionable notes (for example, unwritable storage or low disk space).
 
 All sensitive fields (such as `DATABASE_URL` credentials or `SWITCHBOARD_ADMIN_TOKEN`) remain redacted.
+
+## Local execution routing
+
+Two server-owned environment settings bound `cheapest_capable` liveness:
+
+- `SWITCHBOARD_EXECUTION_HEARTBEAT_FRESHNESS_SECONDS` defaults to `300` and
+  must be from `1` through `86400`.
+- `SWITCHBOARD_EXECUTION_ACTIVE_POLL_FRESHNESS_SECONDS` defaults to `60` and
+  must be from `1` through `3600`.
+
+They are returned as the non-secret `execution_routing` object by
+`GET /api/settings` and inside the configuration snapshot. Heartbeat freshness
+and active checkout-poll freshness are deliberately separate. Neither a work
+order nor a route-assessment request can override these windows, and assessment
+does not refresh a worker's poll timestamp.
+
+Worker routing profiles are persisted operator state rather than environment
+configuration. Create and change them only through the privileged
+`/api/execution/routing-profiles` APIs. Profile cost, capacity, remaining quota,
+and priority are bounded integers; remaining quota cannot exceed capacity, and
+reset timestamps must be timezone-aware. Replacements and quota resets require
+the current expected revision. An active reserved assignment blocks both
+operations. A repeated reset with the same timestamp and remaining value is an
+idempotent success; an older timestamp or conflicting same-timestamp value is
+rejected.
+
+`first_available` remains the work-order default and does not require a
+profile. `cheapest_capable` uses the profile's abstract
+`estimated_cost_units_per_run`, never the legacy floating `cost_ceiling`.
+These values are local operator comparison units only: Switchboard does not
+interpret them as currency, credits, spend, savings, billing, or a provider
+rate limit. No provider credential or paid-agent configuration is introduced.
 
 ## Outbound GitHub adapter
 

@@ -37,6 +37,9 @@ _WORK_ORDER_FIELDS = frozenset(
         "repository_write_allowed",
         "preferred_executor",
         "cost_ceiling",
+        "routing_policy",
+        "maximum_cost_units",
+        "required_quota_units",
         "attempt_count",
         "created_at",
         "updated_at",
@@ -48,6 +51,7 @@ _WORK_ORDER_FIELDS = frozenset(
         "terminal_reason",
         "reuse_policy",
         "execution_policy_hash",
+        "route_provenance",
     }
 )
 _FORBIDDEN_EXECUTABLE_KEYS = frozenset(
@@ -77,6 +81,7 @@ _MAX_METADATA_NODES = 4096
 _MAX_METADATA_STRING = 4000
 _MAX_METADATA_KEY = 128
 _MAX_SAFE_INTEGER = (1 << 63) - 1
+_MAX_ROUTING_INTEGER = (1 << 31) - 1
 
 
 def _text(
@@ -335,6 +340,9 @@ class AssignedWorkOrder:
     repository_write_allowed: bool
     preferred_executor: str | None
     cost_ceiling: float | None
+    routing_policy: str
+    maximum_cost_units: int | None
+    required_quota_units: int
     attempt_count: int
     created_at: dt.datetime
     updated_at: dt.datetime
@@ -346,6 +354,7 @@ class AssignedWorkOrder:
     terminal_reason: str | None
     reuse_policy: str
     execution_policy_hash: str
+    route_provenance: Mapping[str, Any]
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> AssignedWorkOrder:
@@ -368,6 +377,27 @@ class AssignedWorkOrder:
         reuse_policy = _text(payload.get("reuse_policy"), "reuse policy", 32)
         if reuse_policy not in {"never", "allow_exact", "require_exact"}:
             raise ValueError("invalid reuse policy")
+        routing_policy = _text(payload.get("routing_policy"), "routing policy", 32)
+        if routing_policy not in {"first_available", "cheapest_capable"}:
+            raise ValueError("invalid routing policy")
+        maximum_cost_units_raw = payload.get("maximum_cost_units")
+        maximum_cost_units = (
+            None
+            if maximum_cost_units_raw is None
+            else _integer(
+                maximum_cost_units_raw,
+                "maximum_cost_units",
+                maximum=_MAX_ROUTING_INTEGER,
+            )
+        )
+        required_quota_units = _integer(
+            payload.get("required_quota_units"),
+            "required_quota_units",
+            maximum=_MAX_ROUTING_INTEGER,
+        )
+        route_provenance = _metadata_mapping(
+            payload.get("route_provenance"), field="route_provenance"
+        )
         if payload.get("repository_write_allowed") is not False:
             raise ValueError("repository writes are forbidden")
         network = _text(payload.get("network_policy"), "network policy")
@@ -430,6 +460,9 @@ class AssignedWorkOrder:
                 payload.get("preferred_executor"), "preferred_executor", 128
             ),
             _optional_number(payload.get("cost_ceiling"), "cost_ceiling"),
+            routing_policy,
+            maximum_cost_units,
+            required_quota_units,
             _integer(payload.get("attempt_count"), "attempt_count"),
             _required_datetime(payload.get("created_at"), "created_at"),
             _required_datetime(payload.get("updated_at"), "updated_at"),
@@ -441,6 +474,7 @@ class AssignedWorkOrder:
             _optional_text(payload.get("terminal_reason"), "terminal_reason", 4000),
             reuse_policy,
             execution_policy_hash,
+            route_provenance,
         )
 
 
