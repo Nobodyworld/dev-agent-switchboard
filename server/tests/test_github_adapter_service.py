@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import asdict, replace
 from http import HTTPStatus
 from typing import cast
@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from server.api.dependencies import (
     SessionDependency,
     get_github_adapter_service,
+    get_session,
 )
 from server.app import app as server_app
 from server.application import build_execution_service
@@ -674,9 +675,11 @@ async def test_default_policy_finds_exact_legacy_key_without_mutating_it() -> No
 
 
 @pytest.mark.asyncio
-async def test_routed_github_validation_is_fresh_then_reused_and_projected() -> (  # noqa: PLR0915
+async def test_direct_completion_projects_fresh_then_reused_github_lifecycle() -> (  # noqa: PLR0915
     None
 ):
+    """Exercise projection formulas without representing the local-worker trust path."""
+
     transport = FakeGitHubTransport()
     cheap_worker = "worker-cheap"
     expensive_worker = "worker-expensive"
@@ -829,6 +832,7 @@ async def test_routed_github_validation_is_fresh_then_reused_and_projected() -> 
         history = await projection.list_history(limit=25, offset=0)
         first_page = await projection.list_history(limit=1, offset=0)
         second_page = await projection.list_history(limit=1, offset=1)
+        filter_now = dt.datetime.now(dt.UTC)
         reused_history = await projection.list_history(
             limit=25,
             offset=0,
@@ -839,8 +843,8 @@ async def test_routed_github_validation_is_fresh_then_reused_and_projected() -> 
             reuse_decision=ReuseDecision.REUSED.value,
             routing_policy=RoutingPolicy.CHEAPEST_CAPABLE.value,
             publication_state="published_stale",
-            created_after=dt.datetime(2026, 8, 7, tzinfo=dt.UTC),
-            created_before=dt.datetime(2026, 8, 9, tzinfo=dt.UTC),
+            created_after=filter_now - dt.timedelta(days=1),
+            created_before=filter_now + dt.timedelta(days=1),
         )
         workers = await projection.list_workers(
             limit=25,
@@ -1807,6 +1811,68 @@ async def test_authenticated_api_flow_and_status_response_are_bounded(
         "artifact_locations",
     }
     assert forbidden_keys.isdisjoint(payload)
+
+
+@pytest.mark.asyncio
+async def test_unknown_preferred_executor_is_bounded_and_rolls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SWITCHBOARD_ADMIN_TOKEN", ADMIN_TOKEN)
+    reload_admin_token()
+    transport = FakeGitHubTransport()
+    app = server_app
+    request_session = AsyncSessionLocal()
+
+    async def isolated_session() -> AsyncGenerator[AsyncSession, None]:
+        yield request_session
+
+    def override(session: SessionDependency) -> GitHubAdapterService:
+        return _service(session, transport)
+
+    app.dependency_overrides[get_session] = isolated_session
+    app.dependency_overrides[get_github_adapter_service] = override
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app, raise_app_exceptions=False),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(
+                "/api/execution/github/pull-requests/validate",
+                json={
+                    "repository_full_name": REPOSITORY,
+                    "pull_request_number": 125,
+                    "manifest": {"name": "validate-switchboard", "version": "1"},
+                    "preferred_executor": "worker-not-registered",
+                },
+                headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+            )
+        async with AsyncSessionLocal() as verification:
+            request_count = await verification.scalar(
+                select(func.count()).select_from(GitHubValidationRequest)
+            )
+            work_order_count = await verification.scalar(
+                select(func.count()).select_from(ExecutionWorkOrder)
+            )
+    finally:
+        app.dependency_overrides.clear()
+        await request_session.close()
+        monkeypatch.delenv("SWITCHBOARD_ADMIN_TOKEN", raising=False)
+        reload_admin_token()
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
+    assert response.json() == {"detail": "preferred_executor_not_found"}
+    assert int(request_count or 0) == 0
+    assert int(work_order_count or 0) == 0
+    assert not request_session.in_transaction()
+    for prohibited in (
+        ADMIN_TOKEN,
+        GITHUB_TOKEN,
+        "ExecutionNotFoundError",
+        "Traceback",
+        "response_body",
+        r"C:\\",
+    ):
+        assert prohibited not in response.text
 
 
 @pytest.mark.asyncio

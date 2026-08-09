@@ -19,6 +19,7 @@ from server.execution.enums import (
     RoutingPolicy,
     WorkOrderStatus,
 )
+from server.execution.exceptions import ExecutionDomainError, ExecutionNotFoundError
 from server.execution.operator_projection import (
     MAX_OPERATOR_LIMIT,
     MAX_OPERATOR_OFFSET,
@@ -103,6 +104,16 @@ def _raise_adapter_error(error: GitHubAdapterError) -> NoReturn:
     raise HTTPException(status_code=409, detail="github_adapter_conflict") from error
 
 
+def _raise_execution_error(error: ExecutionDomainError) -> NoReturn:
+    """Keep expected execution validation failures bounded at the adapter route."""
+
+    if isinstance(error, ExecutionNotFoundError):
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    raise HTTPException(
+        status_code=409, detail="execution_lifecycle_conflict"
+    ) from error
+
+
 async def _commit(session: SessionDependency) -> None:
     try:
         await session.commit()
@@ -139,6 +150,9 @@ async def request_pull_request_validation(
     except GitHubAdapterError as error:
         await session.rollback()
         _raise_adapter_error(error)
+    except ExecutionDomainError as error:
+        await session.rollback()
+        _raise_execution_error(error)
     await _commit(session)
     return GitHubValidationRequestOut.from_status(status)
 
