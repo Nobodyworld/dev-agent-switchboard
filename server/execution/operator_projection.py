@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, aliased
@@ -20,12 +20,22 @@ from server.models import (
 )
 from server.time_utils import utcnow_naive
 
-from .enums import ExecutionRunStatus, ReuseDecision, WorkerStatus
+from .enums import ExecutionRunStatus, NetworkPolicy, ReuseDecision, WorkerStatus
 
 MAX_OPERATOR_LIMIT = 100
 MAX_OPERATOR_OFFSET = 10_000
 MAX_OPERATOR_WINDOW_DAYS = 365
+MAX_OPERATOR_BROWSER_COUNT = 8
+MAX_OPERATOR_BROWSER_LENGTH = 64
 SHA256_HEX_LENGTH = 64
+BrowserName = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=MAX_OPERATOR_BROWSER_LENGTH,
+    ),
+]
 
 
 class OperatorProjectionModel(BaseModel):
@@ -76,6 +86,7 @@ class OperatorWorkerMetricsOut(OperatorProjectionModel):
     active: int = Field(ge=0)
     stale: int = Field(ge=0)
     capacity_constrained: int = Field(ge=0)
+    unavailable: int = Field(ge=0)
 
 
 class ExecutionOperatorOverviewOut(OperatorProjectionModel):
@@ -104,6 +115,15 @@ class ExecutionWorkerSummaryOut(OperatorProjectionModel):
     display_name: str = Field(min_length=1, max_length=255)
     operating_system: str = Field(min_length=1, max_length=64)
     architecture: str = Field(min_length=1, max_length=64)
+    python_version: str | None = Field(default=None, max_length=64)
+    node_version: str | None = Field(default=None, max_length=64)
+    docker_available: bool
+    browsers: list[BrowserName] = Field(max_length=MAX_OPERATOR_BROWSER_COUNT)
+    gpu_available: bool
+    unity_available: bool
+    desktop_available: bool
+    network_policy_capability: Literal["disabled", "worker_restricted"]
+    repository_write_capability: Literal[False]
     status: str = Field(min_length=1, max_length=32)
     activity_state: Literal["active", "stale", "capacity_constrained", "unavailable"]
     active_run_count: int = Field(ge=0)
@@ -317,19 +337,19 @@ class ExecutionOperatorProjection:
                 active=worker_states.count("active"),
                 stale=worker_states.count("stale"),
                 capacity_constrained=worker_states.count("capacity_constrained"),
+                unavailable=worker_states.count("unavailable"),
             ),
         )
 
-    async def list_workers(  # noqa: PLR0913
+    async def list_workers(
         self,
         *,
         limit: int,
         offset: int,
         heartbeat_freshness_seconds: int,
         active_poll_freshness_seconds: int,
-        now: dt.datetime | None = None,
     ) -> ExecutionWorkerPageOut:
-        now = _utc_naive(now or utcnow_naive())
+        now = utcnow_naive()
         total = int(
             await self._session.scalar(select(func.count(ExecutionWorker.id))) or 0
         )
@@ -369,6 +389,17 @@ class ExecutionOperatorProjection:
                     display_name=worker.display_name,
                     operating_system=worker.operating_system,
                     architecture=worker.architecture,
+                    python_version=worker.python_version,
+                    node_version=worker.node_version,
+                    docker_available=worker.docker_available,
+                    browsers=_bounded_browsers(worker.browsers),
+                    gpu_available=worker.gpu_available,
+                    unity_available=worker.unity_available,
+                    desktop_available=worker.desktop_available,
+                    network_policy_capability=_network_policy_capability(
+                        worker.network_policy_capability
+                    ),
+                    repository_write_capability=worker.repository_write_capability,
                     status=_enum_value(worker.status),
                     activity_state=_worker_activity_state(
                         status=worker.status,
@@ -531,6 +562,23 @@ class ExecutionOperatorProjection:
         return statement
 
 
+def _bounded_browsers(value: object) -> list[str]:
+    """Return a small safe subset of valid persisted browser identifiers."""
+
+    if not isinstance(value, list):
+        return []
+    browsers: list[str] = []
+    for item in value:
+        if len(browsers) >= MAX_OPERATOR_BROWSER_COUNT:
+            break
+        if not isinstance(item, str):
+            continue
+        browser = item.strip()
+        if 1 <= len(browser) <= MAX_OPERATOR_BROWSER_LENGTH:
+            browsers.append(browser)
+    return browsers
+
+
 def _worker_activity_state(  # noqa: PLR0913
     *,
     status: WorkerStatus,
@@ -542,17 +590,45 @@ def _worker_activity_state(  # noqa: PLR0913
     heartbeat_freshness_seconds: int,
     active_poll_freshness_seconds: int,
 ) -> Literal["active", "stale", "capacity_constrained", "unavailable"]:
-    if status != WorkerStatus.ONLINE:
+    if status in {WorkerStatus.DRAINING, WorkerStatus.OFFLINE}:
         return "unavailable"
-    if active_run_count >= max_concurrency:
-        return "capacity_constrained"
+    if status not in {WorkerStatus.ONLINE, WorkerStatus.BUSY}:
+        return "unavailable"
+    if (
+        not _is_plain_int(active_run_count)
+        or not _is_plain_int(max_concurrency)
+        or not _is_plain_int(heartbeat_freshness_seconds)
+        or not _is_plain_int(active_poll_freshness_seconds)
+        or active_run_count < 0
+        or max_concurrency < 1
+        or active_run_count > max_concurrency
+        or heartbeat_freshness_seconds < 0
+        or active_poll_freshness_seconds < 0
+        or not isinstance(last_heartbeat_at, dt.datetime)
+        or not isinstance(now, dt.datetime)
+    ):
+        return "unavailable"
     if not _fresh(
         last_heartbeat_at, now=now, seconds=heartbeat_freshness_seconds
     ) or not _fresh(
         last_checkout_poll_at, now=now, seconds=active_poll_freshness_seconds
     ):
         return "stale"
+    if status == WorkerStatus.BUSY or active_run_count >= max_concurrency:
+        return "capacity_constrained"
     return "active"
+
+
+def _is_plain_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _network_policy_capability(
+    policy: NetworkPolicy,
+) -> Literal["disabled", "worker_restricted"]:
+    if policy is NetworkPolicy.DISABLED:
+        return "disabled"
+    return "worker_restricted"
 
 
 def _history_item(
