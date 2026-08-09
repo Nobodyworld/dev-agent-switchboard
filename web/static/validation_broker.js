@@ -83,6 +83,19 @@ function formatDate(value) {
   return Number.isNaN(date.valueOf()) ? '—' : date.toLocaleString();
 }
 
+function formatQuotaReset(value) {
+  if (!value) return 'Not scheduled';
+  const formatted = formatDate(value);
+  return formatted === '—' ? 'Not available' : formatted;
+}
+
+function timezoneAwareIso(value) {
+  if (!value) return null;
+  const normalized = /(?:Z|[+-]\d{2}:\d{2})$/i.test(value) ? value : `${value}Z`;
+  const date = new Date(normalized);
+  return Number.isNaN(date.valueOf()) ? null : date.toISOString();
+}
+
 function formatLabel(value) {
   return value ? String(value).replaceAll('_', ' ') : '—';
 }
@@ -186,6 +199,9 @@ function renderWorkers() {
   container.innerHTML = brokerState.workers
     .map((worker) => {
       const profile = worker.profile;
+      const browsers = Array.isArray(worker.browsers) && worker.browsers.length
+        ? worker.browsers.join(', ')
+        : 'Not reported';
       const profileDetails = profile
         ? `
           <dl>
@@ -193,6 +209,7 @@ function renderWorkers() {
             <div><dt>Comparison units</dt><dd>${formatInteger(profile.estimated_cost_units_per_run)}</dd></div>
             <div><dt>Revision</dt><dd>${formatInteger(profile.revision)}</dd></div>
             <div><dt>Quota</dt><dd>${formatInteger(profile.quota_remaining_units)} / ${formatInteger(profile.quota_capacity_units)}</dd></div>
+            <div><dt>Quota reset</dt><dd>${escapeHtml(formatQuotaReset(profile.quota_reset_at))}</dd></div>
             <div><dt>Priority</dt><dd>${formatInteger(profile.routing_priority)}</dd></div>
           </dl>
         `
@@ -211,6 +228,17 @@ function renderWorkers() {
             <div><dt>Capacity</dt><dd>${formatInteger(worker.active_run_count)} active / ${formatInteger(worker.max_concurrency)} maximum</dd></div>
             <div><dt>Last heartbeat</dt><dd>${escapeHtml(formatDate(worker.last_heartbeat_at))}</dd></div>
             <div><dt>Last checkout poll</dt><dd>${escapeHtml(formatDate(worker.last_checkout_poll_at))}</dd></div>
+          </dl>
+          <dl>
+            <div><dt>Python</dt><dd>${escapeHtml(worker.python_version || 'Not reported')}</dd></div>
+            <div><dt>Node</dt><dd>${escapeHtml(worker.node_version || 'Not reported')}</dd></div>
+            <div><dt>Docker</dt><dd>${worker.docker_available ? 'Available' : 'Unavailable'}</dd></div>
+            <div><dt>Browsers</dt><dd>${escapeHtml(browsers)}</dd></div>
+            <div><dt>GPU</dt><dd>${worker.gpu_available ? 'Available' : 'Unavailable'}</dd></div>
+            <div><dt>Unity</dt><dd>${worker.unity_available ? 'Available' : 'Unavailable'}</dd></div>
+            <div><dt>Desktop automation</dt><dd>${worker.desktop_available ? 'Available' : 'Unavailable'}</dd></div>
+            <div><dt>Network</dt><dd>${escapeHtml(formatLabel(worker.network_policy_capability))}</dd></div>
+            <div><dt>Repository writes</dt><dd>${worker.repository_write_capability ? 'Enabled' : 'Disabled'}</dd></div>
           </dl>
           ${profileDetails}
           <button type="button" class="broker-button broker-button--quiet" data-profile-edit="${escapeHtml(worker.worker_id)}">${profile ? 'Edit profile' : 'Create profile'}</button>
@@ -320,20 +348,24 @@ function renderRequestDetail() {
   container.innerHTML = `
     <dl class="broker-detail-list">
       <dt>Request</dt><dd>#${request.request_id}</dd>
+      <dt>Repository</dt><dd>${escapeHtml(request.repository_full_name)}</dd>
+      <dt>Pull request</dt><dd>#${formatInteger(request.pull_request_number)}</dd>
       <dt>Created</dt><dd>${escapeHtml(formatDate(request.created_at))}</dd>
       <dt>Last head resolution</dt><dd>${escapeHtml(formatDate(request.last_resolved_at))}</dd>
       <dt>Exact head</dt><dd><span class="broker-code">${escapeHtml(request.tested_head_sha)}</span> <button type="button" class="copy-button" data-copy-value="${escapeHtml(request.tested_head_sha)}" data-copy-label="Head SHA">Copy SHA</button></dd>
       <dt>Base SHA</dt><dd class="broker-code">${escapeHtml(request.base_sha)}</dd>
       <dt>Manifest</dt><dd>${escapeHtml(`${request.manifest_name}@${request.manifest_version}`)} <span class="broker-code">${escapeHtml(request.manifest_digest)}</span></dd>
       <dt>Work order</dt><dd>#${request.work_order_id} ${badge(status, stateTone(status))}</dd>
-      <dt>Route</dt><dd>${badge(request.routing_policy)} · ${escapeHtml(selectedWorker || 'Not available')}</dd>
+      <dt>Reuse policy</dt><dd>${badge(request.reuse_policy)}</dd>
+      <dt>Routing policy</dt><dd>${badge(request.routing_policy)}</dd>
+      <dt>Selected route</dt><dd>${escapeHtml(selectedWorker || 'Not available')}</dd>
       <dt>Route reason</dt><dd>${escapeHtml(formatLabel(route?.reason))}</dd>
       <dt>Comparison units</dt><dd>${formatInteger(route?.estimated_cost_units ?? projection.estimated_cost_units)}</dd>
       <dt>Eligible candidates</dt><dd>${formatInteger(route?.eligible_candidate_count)}</dd>
       <dt>Explicit pin</dt><dd>${route ? (route.explicit_pin_applied ? 'Applied' : 'Not applied') : 'Not available'}</dd>
       <dt>Profile revision</dt><dd>${formatInteger(route?.selected_routing_profile_revision)}</dd>
       <dt>Quota</dt><dd>${formatInteger(route?.required_quota_units ?? request.required_quota_units)} required / ${formatInteger(route?.reserved_quota_units)} reserved · ${escapeHtml(formatLabel(route?.quota_reservation_state))}</dd>
-      <dt>Reuse</dt><dd>${badge(reuseDecision, stateTone(reuseDecision))}</dd>
+      <dt>Reuse decision</dt><dd>${badge(reuseDecision, stateTone(reuseDecision))}</dd>
       <dt>Source run</dt><dd>${sourceRunId ? `#${formatInteger(sourceRunId)}` : 'Not available'}</dd>
       <dt>Source evidence</dt><dd class="broker-code">${escapeHtml(sourceFingerprint || 'Not available')}</dd>
       <dt>Run</dt><dd>${run ? `#${run.id} ${badge(run.status, stateTone(run.status))}` : 'Not available'}</dd>
@@ -593,7 +625,7 @@ async function handleProfileSubmit(event) {
     estimated_cost_units_per_run: Number(data.get('estimated_cost_units_per_run')),
     quota_capacity_units: Number(data.get('quota_capacity_units')),
     quota_remaining_units: Number(data.get('quota_remaining_units')),
-    quota_reset_at: worker.profile?.quota_reset_at || null,
+    quota_reset_at: timezoneAwareIso(worker.profile?.quota_reset_at),
     routing_priority: Number(data.get('routing_priority')),
   };
   const existing = worker.profile;

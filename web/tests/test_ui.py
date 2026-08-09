@@ -234,8 +234,7 @@ def test_two_agent_dependency_flow_updates_dashboard(
         page.goto(f"{app_server}/", wait_until="domcontentloaded")
         page.wait_for_selector("#tasks")
 
-        task_ids = page.evaluate(
-            """async () => {
+        task_script = """async () => {
                                         const jsonHeaders = {
                                             'Content-Type': 'application/json',
                                         };
@@ -276,7 +275,7 @@ def test_two_agent_dependency_flow_updates_dashboard(
 
                                         return { taskAId: taskA.id, taskBId: taskB.id };
                                 }"""
-        )
+        task_ids = page.evaluate(task_script)
 
         page.wait_for_selector('tr:has-text("Task A")')
         page.wait_for_selector('tr:has-text("Task B")')
@@ -463,6 +462,10 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
                 **worker_base,
                 "worker_id": "ui-worker-cheap",
                 "display_name": "Local small",
+                "browsers": ["chromium"],
+                "capabilities": {
+                    "internal_marker": "not-for-operator-ui",
+                },
             },
         )
         _post_json(
@@ -494,7 +497,11 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
                     "estimated_cost_units_per_run": cost,
                     "quota_capacity_units": 20,
                     "quota_remaining_units": 20,
-                    "quota_reset_at": None,
+                    "quota_reset_at": (
+                        "2026-08-10T12:00:00Z"
+                        if worker_id == "ui-worker-cheap"
+                        else None
+                    ),
                     "routing_priority": 0,
                 },
             )
@@ -526,6 +533,28 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
         expect(page.locator('[data-worker-id="ui-worker-cheap"]')).to_contain_text(
             "enabled"
         )
+        cheap_worker_card = page.locator('[data-worker-id="ui-worker-cheap"]')
+        expect(cheap_worker_card).to_contain_text("Python")
+        expect(cheap_worker_card).to_contain_text("3.11.14")
+        expect(cheap_worker_card).to_contain_text("Node")
+        expect(cheap_worker_card).to_contain_text("Not reported")
+        expect(cheap_worker_card).to_contain_text("Docker")
+        expect(cheap_worker_card).to_contain_text("Unavailable")
+        expect(cheap_worker_card).to_contain_text("Browsers")
+        expect(cheap_worker_card).to_contain_text("chromium")
+        expect(cheap_worker_card).to_contain_text("GPU")
+        expect(cheap_worker_card).to_contain_text("Unity")
+        expect(cheap_worker_card).to_contain_text("Desktop automation")
+        expect(cheap_worker_card).to_contain_text("worker restricted")
+        expect(cheap_worker_card).to_contain_text("Repository writes")
+        expect(cheap_worker_card).to_contain_text("Disabled")
+        expect(cheap_worker_card).to_contain_text("Quota reset")
+        expect(cheap_worker_card).to_contain_text("2026")
+        expensive_worker_card = page.locator('[data-worker-id="ui-worker-expensive"]')
+        expect(expensive_worker_card).to_contain_text("Quota reset")
+        expect(expensive_worker_card).to_contain_text("Not scheduled")
+        assert "internal_marker" not in page.locator("#brokerWorkers").inner_text()
+        assert "not-for-operator-ui" not in page.locator("#brokerWorkers").inner_text()
 
         page.select_option("#profileWorker", "ui-worker-new")
         page.fill("#profileCost", "12")
@@ -589,7 +618,28 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
             "() => document.querySelector('#brokerRequestDetail')?.textContent"
             ".includes('7d3a91c')"
         )
-        expect(page.locator("#brokerRequestDetail")).to_contain_text("pending approval")
+        request_detail = page.locator("#brokerRequestDetail")
+        expect(request_detail).to_contain_text("pending approval")
+        expect(
+            request_detail.locator("dt", has_text="Repository").locator(
+                "xpath=following-sibling::dd[1]"
+            )
+        ).to_have_text("Nobodyworld/dev-agent-switchboard")
+        expect(
+            request_detail.locator("dt", has_text="Pull request").locator(
+                "xpath=following-sibling::dd[1]"
+            )
+        ).to_have_text("#137")
+        expect(
+            request_detail.locator("dt", has_text="Reuse policy").locator(
+                "xpath=following-sibling::dd[1]"
+            )
+        ).to_contain_text("never")
+        expect(
+            request_detail.locator("dt", has_text="Routing policy").locator(
+                "xpath=following-sibling::dd[1]"
+            )
+        ).to_contain_text("cheapest capable")
         page.click('[data-request-action="approve-queue"]')
         page.wait_for_function(
             "() => document.querySelector('#brokerRequestDetail')?.textContent"
@@ -619,6 +669,11 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
         expect(fresh_detail).to_contain_text("7 s")
         expect(fresh_detail).to_contain_text("Cleanup")
         expect(fresh_detail).to_contain_text("succeeded")
+        expect(
+            fresh_detail.locator("dt", has_text="Reuse decision").locator(
+                "xpath=following-sibling::dd[1]"
+            )
+        ).to_contain_text("fresh")
 
         dialogs: list[str] = []
 
@@ -658,6 +713,16 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
         expect(reused_detail).to_contain_text(fresh["evidence_fingerprint"])
         expect(reused_detail).to_contain_text("Executed steps")
         expect(reused_detail).to_contain_text("0")
+        expect(
+            reused_detail.locator("dt", has_text="Reuse policy").locator(
+                "xpath=following-sibling::dd[1]"
+            )
+        ).to_contain_text("allow exact")
+        expect(
+            reused_detail.locator("dt", has_text="Reuse decision").locator(
+                "xpath=following-sibling::dd[1]"
+            )
+        ).to_contain_text("reused")
         page.click('[data-request-action="publish"]')
         page.wait_for_function(
             "() => document.querySelector('#brokerRequestDetail')?.textContent"
@@ -704,8 +769,7 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
 
         page.set_viewport_size({"width": 390, "height": 844})
         expect(page.locator("#validation-broker")).to_be_visible()
-        overflow = page.evaluate(
-            """() => ({
+        overflow_script = """() => ({
                 contained: document.documentElement.scrollWidth <= window.innerWidth,
                 offenders: [...document.querySelectorAll('body *')]
                     .filter(
@@ -720,7 +784,7 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
                         right: node.getBoundingClientRect().right,
                     })),
             })"""
-        )
+        overflow = page.evaluate(overflow_script)
         assert overflow["contained"], overflow["offenders"]
         assert "ui-admin-sentinel" not in page.url
         assert all("ui-admin-sentinel" not in message for message in console_errors)
