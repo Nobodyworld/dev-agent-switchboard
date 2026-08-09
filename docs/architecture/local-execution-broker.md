@@ -270,7 +270,20 @@ run after assignment. This exposes candidate count, reason, hard-pin state,
 profile revision, quota reservation state, timestamps, duration, cleanup, and
 reuse source provenance without broadening list responses or returning worker
 logs. Worker cards render explicit declared status, derived activity,
-OS/architecture, capacity, heartbeat/poll freshness, and profile state.
+OS/architecture, capacity, heartbeat/poll freshness, and profile state. Derived
+activity has deterministic precedence: draining/offline and malformed records
+are unavailable; expired heartbeat or poll freshness is stale even when the
+worker is busy/full; a remaining busy/full worker is capacity constrained; and
+only a fresh valid worker with spare capacity is active. The projection adds
+only typed allowlisted Python/Node, Docker, bounded browser, GPU, Unity, desktop,
+network, and read-only repository declarations. Arbitrary capability documents
+remain redacted. Worker profiles expose the next quota-reset timestamp or an
+explicit unscheduled state.
+
+The selected-request view keeps repository, pull-request number, and configured
+reuse/routing policy beside the exact tested SHA and bounded route/run evidence.
+These are identity fields from the persisted request/work order, not browser-side
+guesses or joins.
 
 The browser acceptance uses synthetic completion only to drive visible lifecycle
 states. It is not a worker trust proof. A separate file-backed acceptance uses

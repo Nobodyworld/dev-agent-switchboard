@@ -206,6 +206,14 @@ linked successful source run's persisted start/finish interval, and comparison
 units come from the reused run's persisted route estimate. Missing values are
 excluded rather than guessed.
 
+`GET /api/execution/workers` derives one activity label using safety-first
+precedence: unavailable, stale, capacity constrained, then active. Its worker
+summary contains only safe typed declarations (OS/architecture, Python/Node,
+Docker, up to eight bounded browser names, GPU, Unity, desktop automation,
+network posture, and the false repository-write capability) plus bounded profile
+and freshness state. It never returns the arbitrary capability document. Profile
+summaries distinguish a missing quota reset from a scheduled timestamp.
+
 The command center combines the exact request status with existing bounded
 `GET /api/execution/work-orders/{id}/route-assessment` and
 `GET /api/execution/runs/{id}` reads. The former supplies a non-mutating queued

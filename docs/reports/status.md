@@ -45,6 +45,13 @@ acceptance, bounded rollback for unknown preferred workers, and complete
 route/quota/source/timing plus worker-state visibility. The browser fixture
 remains UI-only; it is not cited as cryptographic retained-evidence proof.
 
+Connector review `4890873592` required the final presentation and projection
+corrections: deterministic safety-first activity precedence with persisted direct
+and HTTP proof, visible repository/PR plus configured reuse/routing policy, a
+strictly allowlisted worker capability summary, and explicit scheduled versus
+unscheduled quota-reset state. The correction preserves routing, reservation,
+reuse, evidence, execution, and GitHub adapter behavior.
+
 Operator setup, repository allowlisting, evidence retention, and trust limitations are
 documented in the [local worker operations guide](../operations/local-worker.md).
 

@@ -91,9 +91,20 @@ units, eligible count, bounded reason, and hard-pin decision. After assignment i
 displays persisted worker/profile provenance, required and reserved quota,
 reservation state, timestamps, measured duration, reuse source identity,
 evidence fingerprint, cleanup, and terminal state. Missing values are displayed
-as unavailable rather than inferred. Worker cards separately show declared
-status, server-derived activity, safe OS/architecture, active/max capacity,
-heartbeat and checkout-poll timestamps, and operator-owned profile state.
+as unavailable rather than inferred. Repository, pull-request number, and the
+configured reuse and routing policies remain visible beside that evidence so the
+operator does not have to infer request identity from history.
+
+Worker cards separately show declared status, server-derived activity, safe
+OS/architecture, active/max capacity, heartbeat and checkout-poll timestamps,
+and operator-owned profile state including scheduled or unscheduled quota reset.
+Activity precedence is unavailable for draining/offline or malformed records,
+then stale for expired heartbeat or checkout polling, then capacity constrained
+for a fresh busy/full worker, and active otherwise. The capability summary is a
+strict allowlist: Python/Node version, Docker, at most eight bounded browser
+names, GPU, Unity, desktop automation, network posture, and read-only repository
+support. The arbitrary capability document, host identity, paths, commands,
+argv, environments, and credentials are never returned to this surface.
 
 The request idempotency identity includes repository, stable PR identity, exact
 head, trusted manifest, authenticated actor, reuse policy, routing policy,

@@ -59,6 +59,10 @@ PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY
 - [x] Add a real `ExecutionClient`/`LocalWorker` fresh-then-reuse worker-trust acceptance.
 - [x] Complete queued route, terminal quota/timing/source, and worker-state visibility.
 - [x] Run the corrected complete local matrix and repeat public-hygiene validation.
+- [x] Record final connector review `4890873592` and its activity, request-identity, capability-summary, and quota-reset corrections.
+- [x] Implement deterministic worker-activity precedence and direct plus API projection coverage.
+- [x] Complete selected-request identity/policy and bounded worker capability/quota-reset visibility.
+- [x] Run the final corrected complete local matrix and repeat public-hygiene validation.
 - [ ] Push the ultimate head and require the corrected complete hosted matrix.
 - [ ] Complete connector re-review while keeping PR #137 draft and unmerged.
 
@@ -108,6 +112,15 @@ PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY
 
 - Observation: `preferred_executor_not_found` crossed from `ExecutionService.create_work_order` through the GitHub adapter route as an `ExecutionDomainError`, while that route caught only adapter errors.
   Evidence: the corrected boundary maps expected execution not-found failures to a bounded 404, rolls back, and proves zero `GitHubValidationRequest` and `ExecutionWorkOrder` rows plus no open transaction.
+
+- Observation: final connector review `4890873592` found that the worker activity labels did not state or prove precedence when persisted status, freshness, and capacity disagreed.
+  Evidence: `_worker_activity_state` now classifies draining/offline or malformed records as unavailable, stale heartbeat or checkout polling before considering capacity, busy/full workers as capacity constrained, and only the remaining healthy workers as active. A six-worker persisted matrix proves active, genuinely busy, stale, inconsistent, draining, and offline cases in both insertion orders through direct projection and real HTTP reads, with overview buckets summing exactly to total workers.
+
+- Observation: the redacted worker projection already had enough declared, allowlisted capability scalars to support safe operator diagnosis, but returning the arbitrary `capabilities` document would have violated the bounded surface.
+  Evidence: worker cards receive only Python/Node version, Docker, a maximum of eight bounded browser names, GPU, Unity, desktop automation, network posture, and the fixed read-only repository capability. Tests prove arbitrary capability keys and values never enter the projection or rendered page.
+
+- Observation: a persisted quota-reset timestamp is stored without timezone metadata in SQLite and therefore serialized without an offset by the projection response.
+  Evidence: preserving that raw string during profile replacement caused the strict API schema to reject the edit. The browser now normalizes an existing reset timestamp to an explicit UTC ISO value before replacement; the strict browser profile-edit and revision-conflict workflow passes without changing quota semantics.
 
 ## Decision Log
 
@@ -167,6 +180,14 @@ PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY
   Rationale: only the new real `ExecutionClient`/`LocalWorker` test executes the trusted manifest, persists worker-owned evidence, performs local cryptographic verification, and proves the reused run skips the step runner.
   Date/Author: 2026-08-09 / connector correction
 
+- Decision: worker activity uses one deterministic precedence: unavailable, stale, capacity constrained, then active.
+  Rationale: lifecycle and malformed-state safety must win first; stale trust signals must never be hidden behind a busy/full label; only fresh, valid workers may be described as capacity constrained or active.
+  Date/Author: 2026-08-09 / final connector correction
+
+- Decision: expose only small typed capability fields already accepted by worker registration, never the arbitrary capability document.
+  Rationale: operators need bounded runtime compatibility context, while internal markers, paths, host identity, commands, environments, and future capability extensions must remain server-redacted by default.
+  Date/Author: 2026-08-09 / final connector correction
+
 ## Outcomes & Retrospective
 
 The operator can now complete the complete validation workflow in the existing
@@ -210,6 +231,14 @@ disabled-action reasons, keyboard order, zero unexpected console errors, and
 page containment at 1440 and 390 pixels. The approved screenshot was generated
 from that no-network file-backed application with synthetic public data and was
 visually inspected against the generated concept.
+
+The final connector pass makes activity classification deterministic under
+conflicting persisted signals and verifies the same buckets through direct and
+HTTP projection reads. The selected request now keeps repository, pull-request,
+reuse-policy, and routing-policy identity adjacent to route/run evidence. Worker
+cards add only typed allowlisted runtime capabilities plus the next quota-reset
+state; scheduled reset values survive profile replacement as timezone-aware API
+inputs. The synthetic screenshot was recaptured from the corrected bounded UI.
 
 The product remains a public developer preview for trusted local networks. MCP,
 paid-agent/provider execution, billing, browser/desktop/RPA workers, automatic
@@ -677,6 +706,7 @@ Current corrected-head local evidence:
 
 - preflight: `origin/main` and merge base were `223df7752716dd6ad35e75ba7613eeb03cfb2887`; the local and remote implementation branch began at `e905a3d7020c76d940c0938b2617d55d6d57de7e`; the isolated worktree was clean and exclusively owned the branch;
 - correction preflight: local and remote `feat/operator-validation-command-center` both began at `5bb0ec7a696cb512708e3f60e05c2e281b6255b0`; `origin/main` and the merge base remained `223df7752716dd6ad35e75ba7613eeb03cfb2887`; PR #137 remained open, draft, unmerged, and exclusively owned by the clean isolated worktree;
+- final-correction preflight: local and remote `feat/operator-validation-command-center` both began at `4f3613e29cc4aca133b815ec935bbf76f6e89ad9`; `origin/main` and the merge base remained `223df7752716dd6ad35e75ba7613eeb03cfb2887`; PR #137 remained open, draft, unmerged, and exclusively owned by the clean isolated worktree. Connector review `4890873592` and checkpoint comments `5230659404`/`5230660442` define this pass;
 - pre-change backend/adapter baseline: 169 passed, 8 warnings;
 - pre-change worker baseline: 36 passed;
 - pre-change strict browser baseline: 2 passed, zero skips;
@@ -691,6 +721,14 @@ Current corrected-head local evidence:
 - correction-focused backend matrix: 95 passed; the unknown preferred executor returned bounded HTTP 404 `preferred_executor_not_found`, created zero adapter requests and zero work orders, left no open transaction, and returned no internal or transport data;
 - correction-focused worker matrix: 37 passed. The dedicated real-worker acceptance ran all 7 trusted `validate-switchboard@1` steps for fresh run 1, retained `ownership.json`, `result.json`, step logs, and all 14 declared artifacts with verified hashes, then created reused run 2 from run 1 with local retained-evidence verification, the identical immutable source fingerprint, zero runner calls, zero steps, and zero copied artifacts. The source evidence tree remained byte-for-byte unchanged, the mocked publication decisions were current then stale after the head moved, overview/history totals were 1 fresh, 1 reused, 1 avoided execution, 3 comparison units, 50% reuse, 1 current, 1 stale, and 2 history rows, and both the canonical repository and worker worktree roots were clean;
 - corrected strict browser matrix: 3 passed with zero skips in 26.40 seconds. Queued route assessment; fresh route/quota/duration; reused source run/fingerprint/zero steps; current/stale publication; worker status/freshness/capacity/platform; revision-conflict recovery; keyboard order; desktop and 390-pixel containment; exact `Reference execution time avoided` copy; token non-rendering; and zero unexpected console errors all passed;
+- final-correction focused activity projection: 9 passed. Both insertion orders produced 6 total workers partitioned into 1 active, 1 stale, 2 capacity constrained, and 2 unavailable; the genuinely checked-out busy worker persisted `busy` with `1/1` capacity, and direct plus HTTP projections agreed;
+- final-correction in-app browser QA: the live file-backed synthetic workspace rendered repository/PR and configured reuse/routing policy, the allowlisted capability summary, scheduled and unscheduled quota resets, and no arbitrary capability marker. Strict Playwright then passed 3 tests with zero skips after the timezone-aware reset-preservation correction;
+- final-correction public screenshot: `docs/assets/switchboard-validation-command-center.png` was recaptured as a 1232-by-2266 RGB image from the disposable local acceptance app using synthetic public repository, request, worker, routing, and quota data, visually inspected, and contains no token, path, workstation identity, private URL, credential, or financial claim;
+- final-correction focused matrices: backend/adapter/startup/routing/reuse/activity passed 104 tests; worker trust/reuse/strict work-order passed 37 tests; the dedicated real `ExecutionClient`/`LocalWorker` fresh-then-reuse test passed separately. The trust proof retained the previously recorded 7 fresh steps, 0 reused steps, distinct source/reused run IDs, immutable source evidence fingerprint, current/stale publication decisions, 1 fresh + 1 reused + 1 avoided totals, 50% reuse, and clean canonical/worker repositories;
+- final-correction complete pytest: 587 passed, 5 documented platform skips, and 344 warnings in 516.45 seconds;
+- final-correction coverage pytest: the same 587 passed and 5 skipped in 445.40 seconds; aggregate configured coverage was 93%; all 16 gates passed at 95.40%, 94.17%, 100%, 100%, 92.59%, 95%, 87.76%, 100%, 100%, 97.73%, 90.16%, 97.59%, 94.83%, 100%, 90.71%, and 91.30% in workflow order;
+- final-correction strict browser: 3 passed with zero skips in 19.14 seconds after the final formatter-neutral test refactor and timezone-preserving profile-edit correction;
+- final-correction quality/security matrix: clean Python 3.11 `pip check`, pinned pre-commit, TODO policy, Ruff, Black, Mypy over 178 source files, Bandit 1.8.6 under Python 3.11.14, pip-audit, Gitleaks over 259 commits, Lychee, and `git diff --check` passed. The shared Python 3.14 dependency conflicts remain the documented unrelated baseline and no tool, rule, threshold, or scan was weakened;
 - corrected complete pytest: 578 passed, 5 documented platform skips, and 344 warnings in 724.68 seconds;
 - corrected coverage pytest: the same 578 passed and 5 skipped; aggregate configured coverage was 93%; all 16 gates passed at 95.40%, 94.17%, 100%, 100%, 92.59%, 95%, 87.76%, 100%, 100%, 97.73%, 90.16%, 97.59%, 94.83%, 100%, 90.71%, and 91.30% in workflow order;
 - corrected quality/security matrix: clean Python 3.11 `pip check`, pre-commit, TODO policy, repository-pinned Ruff, Black, Mypy over 177 source files, Bandit 1.8.6 on Python 3.11.14, pip-audit, Gitleaks over 255 commits, Lychee, strict Playwright, and `git diff --check` passed. The shared host retains its documented unrelated dependency and newer-Ruff drift, so no repository rule or scanner was weakened;
