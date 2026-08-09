@@ -249,6 +249,63 @@ Provider budgets, external remaining-rate-limit ingestion, and paid-agent
 routing remain later concerns. Deterministic local validation must not invoke a
 paid coding agent.
 
+### Operator validation command center (#136)
+
+The dashboard adds a browser workspace over the accepted execution and GitHub
+adapter boundaries; it does not create a second scheduler or execution path.
+Lifecycle actions still call the explicit approve, queue, cancel, expire, and
+publish routes. Only the selected active request is polled, with one replaceable
+timer that is cleared when selection changes or the page unloads.
+
+Server-owned projections assemble the operator view with bounded, stably ordered
+queries. The browser does not join unbounded request, work-order, run, worker,
+profile, evidence, and publication lists. History selects only the latest run
+per adapter request and returns compact scalar provenance. Worker summaries
+combine the declared worker with its operator-owned profile without exposing
+capability dumps, local roots, or private connectivity data.
+
+The selected-request surface makes two bounded point reads in addition to its
+request/history projection: current route assessment while queued and the exact
+run after assignment. This exposes candidate count, reason, hard-pin state,
+profile revision, quota reservation state, timestamps, duration, cleanup, and
+reuse source provenance without broadening list responses or returning worker
+logs. Worker cards render explicit declared status, derived activity,
+OS/architecture, capacity, heartbeat/poll freshness, and profile state. Derived
+activity has deterministic precedence: draining/offline and malformed records
+are unavailable; expired heartbeat or poll freshness is stale even when the
+worker is busy/full; a remaining busy/full worker is capacity constrained; and
+only a fresh valid worker with spare capacity is active. The projection adds
+only typed allowlisted Python/Node, Docker, bounded browser, GPU, Unity, desktop,
+network, and read-only repository declarations. Arbitrary capability documents
+remain redacted. Worker profiles expose the next quota-reset timestamp or an
+explicit unscheduled state.
+
+The selected-request view keeps repository, pull-request number, and configured
+reuse/routing policy beside the exact tested SHA and bounded route/run evidence.
+These are identity fields from the persisted request/work order, not browser-side
+guesses or joins.
+
+The browser acceptance uses synthetic completion only to drive visible lifecycle
+states. It is not a worker trust proof. A separate file-backed acceptance uses
+the real outbound `ExecutionClient` and `LocalWorker`, executes the trusted
+manifest on the deterministically selected lower-cost worker, verifies retained
+evidence locally on reuse, and proves the step runner is not called a second
+time.
+
+Adapter request identity binds every accepted result-affecting execution policy.
+For compatibility, an all-default request may resolve the exact pre-#136 legacy
+identity; that row and linked work order are returned unchanged. A non-default
+request never uses legacy fallback. The linked work order remains the single
+authoritative persistence location for reuse, routing, cost, quota, and preferred
+executor policy, so no adapter schema migration is required.
+
+Avoided-work metrics are projections, not a mutable savings ledger. One
+successful reused run counts as one deterministic execution avoided. Reference
+seconds are the non-negative persisted duration of its linked successful source
+run, when available. Comparison units are the reused run's persisted route cost,
+when available. These units are local routing comparisons only and are not money,
+credits, provider usage, or verified spend reduction.
+
 ## Execution-Plane Domain
 
 ### WorkOrder

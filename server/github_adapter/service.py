@@ -12,7 +12,12 @@ from dataclasses import dataclass
 from sqlalchemy.exc import IntegrityError
 
 from server.execution.entities import WorkOrderDraft
-from server.execution.enums import ApprovalPolicy, is_terminal_run
+from server.execution.enums import (
+    ApprovalPolicy,
+    ReusePolicy,
+    RoutingPolicy,
+    is_terminal_run,
+)
 from server.execution.evidence import ExecutionEvidence
 from server.execution.exceptions import ExecutionNotFoundError, MalformedEvidenceError
 from server.execution.registry import (
@@ -74,6 +79,11 @@ class GitHubRequestStatus:
     operator_id: str
     work_order_id: int
     work_order_status: str
+    reuse_policy: ReusePolicy
+    routing_policy: RoutingPolicy
+    maximum_cost_units: int | None
+    required_quota_units: int
+    preferred_executor: str | None
     terminal_run_id: int | None
     terminal_run_status: str | None
     evidence_fingerprint: str | None
@@ -115,13 +125,18 @@ class GitHubAdapterService:
         self._settings = settings
         self._clock = clock
 
-    async def request_validation(
+    async def request_validation(  # noqa: PLR0913
         self,
         *,
         repository_full_name: str,
         pull_request_number: int,
         manifest_name: str,
         manifest_version: str,
+        reuse_policy: ReusePolicy = ReusePolicy.NEVER,
+        routing_policy: RoutingPolicy = RoutingPolicy.FIRST_AVAILABLE,
+        maximum_cost_units: int | None = None,
+        required_quota_units: int = 0,
+        preferred_executor: str | None = None,
     ) -> GitHubRequestStatus:
         """Create or return one pending work order for the exact resolved head."""
 
@@ -146,8 +161,27 @@ class GitHubAdapterService:
             actor=actor,
             resolved=resolved,
             manifest=manifest,
+            reuse_policy=reuse_policy,
+            routing_policy=routing_policy,
+            maximum_cost_units=maximum_cost_units,
+            required_quota_units=required_quota_units,
+            preferred_executor=preferred_executor,
         )
         existing = await self._repository.get_by_idempotency_key(idempotency_key)
+        if existing is None and _uses_legacy_default_policy(
+            reuse_policy=reuse_policy,
+            routing_policy=routing_policy,
+            maximum_cost_units=maximum_cost_units,
+            required_quota_units=required_quota_units,
+            preferred_executor=preferred_executor,
+        ):
+            legacy_key = _legacy_idempotency_key(
+                settings=self._settings,
+                actor=actor,
+                resolved=resolved,
+                manifest=manifest,
+            )
+            existing = await self._repository.get_by_idempotency_key(legacy_key)
         if existing is not None:
             return await self._status(existing)
 
@@ -179,8 +213,12 @@ class GitHubAdapterService:
                         resource_metadata={},
                         network_policy=manifest.network_policy,
                         repository_write_allowed=False,
-                        preferred_executor=None,
+                        preferred_executor=preferred_executor,
                         cost_ceiling=0.0,
+                        reuse_policy=reuse_policy,
+                        routing_policy=routing_policy,
+                        maximum_cost_units=maximum_cost_units,
+                        required_quota_units=required_quota_units,
                     )
                 )
                 request = await self._repository.create(
@@ -223,6 +261,22 @@ class GitHubAdapterService:
             recovered = await self._repository.get_by_idempotency_key(
                 idempotency_key, refresh=True
             )
+            if recovered is None and _uses_legacy_default_policy(
+                reuse_policy=reuse_policy,
+                routing_policy=routing_policy,
+                maximum_cost_units=maximum_cost_units,
+                required_quota_units=required_quota_units,
+                preferred_executor=preferred_executor,
+            ):
+                recovered = await self._repository.get_by_idempotency_key(
+                    _legacy_idempotency_key(
+                        settings=self._settings,
+                        actor=actor,
+                        resolved=resolved,
+                        manifest=manifest,
+                    ),
+                    refresh=True,
+                )
             if recovered is None:
                 raise
             request = recovered
@@ -677,6 +731,11 @@ class GitHubAdapterService:
             operator_id=request.operator_id,
             work_order_id=request.work_order_id,
             work_order_status=work_order.status.value,
+            reuse_policy=work_order.reuse_policy,
+            routing_policy=work_order.routing_policy,
+            maximum_cost_units=work_order.maximum_cost_units,
+            required_quota_units=work_order.required_quota_units,
+            preferred_executor=work_order.preferred_executor,
             terminal_run_id=run.id if run is not None else None,
             terminal_run_status=(run.status.value if run is not None else None),
             evidence_fingerprint=fingerprint,
@@ -696,13 +755,55 @@ class GitHubAdapterService:
         )
 
 
-def _idempotency_key(
+def _idempotency_key(  # noqa: PLR0913
+    *,
+    settings: GitHubSettings,
+    actor: GitHubActorIdentity,
+    resolved: ResolvedPullRequest,
+    manifest: TrustedManifest,
+    reuse_policy: ReusePolicy,
+    routing_policy: RoutingPolicy,
+    maximum_cost_units: int | None,
+    required_quota_units: int,
+    preferred_executor: str | None,
+) -> str:
+    if resolved.head_sha is None:  # pragma: no cover - request requires it
+        raise GitHubTransportError("github_head_unavailable")
+    payload = {
+        "github_api_url": settings.api_url,
+        "github_actor_id": actor.actor_id,
+        "github_actor_node_id": actor.node_id,
+        "manifest_digest": manifest.digest,
+        "manifest_name": manifest.name,
+        "manifest_version": manifest.version,
+        "pull_request_id": resolved.pull_request_id,
+        "pull_request_node_id": resolved.pull_request_node_id,
+        "repository_id": resolved.repository_id,
+        "repository_node_id": resolved.repository_node_id,
+        "schema_version": GITHUB_ADAPTER_SCHEMA_VERSION,
+        "tested_head_sha": resolved.head_sha,
+        "execution_policy": {
+            "maximum_cost_units": maximum_cost_units,
+            "preferred_executor": preferred_executor,
+            "required_quota_units": required_quota_units,
+            "reuse_policy": reuse_policy.value,
+            "routing_policy": routing_policy.value,
+            "schema_version": 1,
+        },
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _legacy_idempotency_key(
     *,
     settings: GitHubSettings,
     actor: GitHubActorIdentity,
     resolved: ResolvedPullRequest,
     manifest: TrustedManifest,
 ) -> str:
+    """Return the exact pre-#136 key for immutable all-default fallback only."""
+
     if resolved.head_sha is None:  # pragma: no cover - request requires it
         raise GitHubTransportError("github_head_unavailable")
     payload = {
@@ -721,6 +822,23 @@ def _idempotency_key(
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _uses_legacy_default_policy(
+    *,
+    reuse_policy: ReusePolicy,
+    routing_policy: RoutingPolicy,
+    maximum_cost_units: int | None,
+    required_quota_units: int,
+    preferred_executor: str | None,
+) -> bool:
+    return (
+        reuse_policy == ReusePolicy.NEVER
+        and routing_policy == RoutingPolicy.FIRST_AVAILABLE
+        and maximum_cost_units is None
+        and required_quota_units == 0
+        and preferred_executor is None
+    )
 
 
 def _same_stable_identity(

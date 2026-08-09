@@ -1,6 +1,6 @@
 # Public Developer Preview Status
 
-_Last reviewed: 2026-07-23_
+_Last reviewed: 2026-08-08_
 
 ## Classification
 
@@ -27,7 +27,30 @@ The merged foundation includes:
 - the merged `validate-switchboard@1` workflow with strict compact evidence,
   worker-owned retained artifacts, dependency-lock hashes, parsed validation results,
   deterministic fingerprints, server-side local-path rejection, and the read-only
-  `GET /api/execution/runs/{run_id}/evidence` endpoint.
+  `GET /api/execution/runs/{run_id}/evidence` endpoint;
+- exact GitHub pull-request resolution and explicit current/stale compact-evidence
+  publication;
+- exact same-worker evidence reuse and deterministic cheapest-capable local routing
+  with operator-owned cost/quota profiles.
+
+Draft PR #137 adds the Validation Broker command center over that merged control
+plane: bounded operator projections, policy-aware request identity, explicit
+lifecycle controls, routing-profile management, fresh/reused history, and
+database-derived avoided-work metrics. It remains draft and is not part of the
+merged baseline until review and the protected matrix complete.
+
+Connector review `4890406546` required final correction evidence before that
+review can complete: a real `ExecutionClient`/`LocalWorker` fresh-then-reuse
+acceptance, bounded rollback for unknown preferred workers, and complete
+route/quota/source/timing plus worker-state visibility. The browser fixture
+remains UI-only; it is not cited as cryptographic retained-evidence proof.
+
+Connector review `4890873592` required the final presentation and projection
+corrections: deterministic safety-first activity precedence with persisted direct
+and HTTP proof, visible repository/PR plus configured reuse/routing policy, a
+strictly allowlisted worker capability summary, and explicit scheduled versus
+unscheduled quota-reset state. The correction preserves routing, reservation,
+reuse, evidence, execution, and GitHub adapter behavior.
 
 Operator setup, repository allowlisting, evidence retention, and trust limitations are
 documented in the [local worker operations guide](../operations/local-worker.md).
@@ -89,12 +112,8 @@ not by itself authorize a release, production deployment, or public hosted servi
 The execution-broker roadmap is tracked in issue
 [#111](https://github.com/Nobodyworld/dev-agent-switchboard/issues/111).
 
-The next bounded slices are now unblocked from the Phase 1B merge:
-
-- [#122](https://github.com/Nobodyworld/dev-agent-switchboard/issues/122) — resolve
-  an exact GitHub pull-request head and publish compact validation evidence;
-- [#121](https://github.com/Nobodyworld/dev-agent-switchboard/issues/121) — exact
-  evidence reuse with worker-local availability proof.
-
-Fresh execution remains the baseline. Do not infer that roadmap work is implemented,
-merged, or release-authorized merely because its issue is fully specified.
+Issue [#136](https://github.com/Nobodyworld/dev-agent-switchboard/issues/136)
+tracks the current command-center product slice. Fresh execution remains the
+default and explicit approval/publication remain mandatory. Do not infer that a
+draft pull request is merged or release-authorized merely because its workflow is
+documented.

@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import asdict, replace
 from http import HTTPStatus
 from typing import cast
@@ -20,27 +20,42 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from server.api.dependencies import (
     SessionDependency,
     get_github_adapter_service,
+    get_session,
 )
 from server.app import app as server_app
 from server.application import build_execution_service
 from server.db import AsyncSessionLocal
-from server.execution.entities import ExecutionCompletion, WorkerRegistration
+from server.execution.entities import (
+    ExecutionCompletion,
+    RoutingProfileDraft,
+    WorkerRegistration,
+)
 from server.execution.enums import (
     ExecutionRunStatus,
     NetworkPolicy,
+    ReuseDecision,
+    ReusePolicy,
+    RoutingPolicy,
     WorkerStatus,
     WorkOrderStatus,
 )
 from server.execution.evidence import (
     AuditSummary,
+    DependencyLockHash,
     EnvironmentIdentity,
+    EvidenceReuseIdentity,
+    EvidenceReuseProvenance,
     ExecutionEvidenceDraft,
     ParsedCoverage,
     ParsedResult,
     ParsedTestCounts,
     StepEvidence,
+    compute_result_contract_hash,
+    compute_reuse_identity_hash,
     finalize_evidence,
 )
+from server.execution.operator_projection import ExecutionOperatorProjection
+from server.execution.registry import get_trusted_manifest
 from server.github_adapter.errors import (
     GitHubAmbiguousWriteError,
     GitHubRateLimitedError,
@@ -58,6 +73,7 @@ from server.github_adapter.service import (
     PUBLICATION_CLAIM_TTL,
     GitHubAdapterDependencies,
     GitHubAdapterService,
+    _legacy_idempotency_key,
 )
 from server.github_adapter.transport import (
     GitHubActorIdentity,
@@ -297,6 +313,78 @@ def _step(
     )
 
 
+def _reuse_identity(order: ExecutionWorkOrder) -> EvidenceReuseIdentity:
+    manifest = get_trusted_manifest(order.manifest_name, order.manifest_version)
+    assert manifest is not None
+    return EvidenceReuseIdentity(
+        repository_full_name=order.repository_full_name,
+        tested_sha=order.commit_sha,
+        manifest_name=order.manifest_name,
+        manifest_version=order.manifest_version,
+        manifest_digest=order.manifest_digest,
+        worker_environment_fingerprint="d" * 64,
+        dependency_lock_hashes=[
+            DependencyLockHash(relative_path=path, sha256="e" * 64)
+            for path in sorted(manifest.dependency_lock_paths)
+        ],
+        execution_policy_hash=order.execution_policy_hash,
+        result_contract_hash=compute_result_contract_hash(
+            fixed_step_metadata=manifest.fixed_step_metadata,
+            artifact_declarations=manifest.artifact_declarations,
+            dependency_lock_paths=manifest.dependency_lock_paths,
+        ),
+    )
+
+
+def _reuse_evidence(  # noqa: PLR0913
+    *,
+    order: ExecutionWorkOrder,
+    run_id: int,
+    worker_id: str,
+    identity: EvidenceReuseIdentity,
+    decision: str,
+    source_run_id: int | None = None,
+    source_fingerprint: str | None = None,
+):
+    now = dt.datetime(2026, 8, 8, 12, tzinfo=dt.UTC)
+    return finalize_evidence(
+        ExecutionEvidenceDraft(
+            work_order_id=order.id,
+            run_id=run_id,
+            repository_full_name=order.repository_full_name,
+            tested_sha=order.commit_sha,
+            manifest_name=order.manifest_name,
+            manifest_version=order.manifest_version,
+            manifest_digest=order.manifest_digest,
+            worker_id=worker_id,
+            environment=EnvironmentIdentity(
+                operating_system="windows",
+                architecture="amd64",
+                python_version="3.11.14",
+                fingerprint=identity.worker_environment_fingerprint,
+            ),
+            dependency_lock_hashes=identity.dependency_lock_hashes,
+            started_at=now,
+            finished_at=now + dt.timedelta(seconds=7),
+            duration_seconds=7,
+            terminal_status="succeeded",
+            steps=[],
+            artifacts=[],
+            dependency_lock_status="succeeded",
+            artifact_finalization_status="succeeded",
+            source_cleanup_status="succeeded",
+            local_record_status="succeeded",
+            reuse_provenance=EvidenceReuseProvenance(
+                decision=decision,  # type: ignore[arg-type]
+                reason=("exact_evidence_verified" if decision == "reused" else "fresh"),
+                reuse_identity_hash=compute_reuse_identity_hash(identity),
+                source_run_id=source_run_id,
+                source_evidence_fingerprint=source_fingerprint,
+            ),
+        )
+    )
+
+
 async def _complete_with_compact_evidence(
     service: GitHubAdapterService,
     request_id: int,
@@ -492,6 +580,343 @@ async def test_duplicate_request_reuses_work_order_and_new_head_is_distinct() ->
 
     assert int(adapter_count or 0) == 2
     assert int(work_order_count or 0) == 2
+
+
+@pytest.mark.asyncio
+async def test_every_adapter_policy_dimension_changes_request_identity() -> None:
+    transport = FakeGitHubTransport()
+    variants = (
+        {},
+        {"reuse_policy": ReusePolicy.ALLOW_EXACT},
+        {"routing_policy": RoutingPolicy.CHEAPEST_CAPABLE},
+        {"maximum_cost_units": 17},
+        {"required_quota_units": 3},
+        {"preferred_executor": "worker-preferred"},
+    )
+    async with AsyncSessionLocal() as session:
+        service = _service(session, transport)
+        await service._execution.register_worker(_worker("worker-preferred"))
+        statuses = []
+        for policy in variants:
+            statuses.append(
+                await service.request_validation(
+                    repository_full_name=REPOSITORY,
+                    pull_request_number=125,
+                    manifest_name="validate-switchboard",
+                    manifest_version="1",
+                    **policy,
+                )
+            )
+        records = (
+            (
+                await session.execute(
+                    select(GitHubValidationRequest).order_by(GitHubValidationRequest.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    assert len({status.request_id for status in statuses}) == len(variants)
+    assert len({status.work_order_id for status in statuses}) == len(variants)
+    assert len({record.idempotency_key for record in records}) == len(variants)
+    assert statuses[0].reuse_policy == ReusePolicy.NEVER
+    assert statuses[0].routing_policy == RoutingPolicy.FIRST_AVAILABLE
+    assert statuses[1].reuse_policy == ReusePolicy.ALLOW_EXACT
+    assert statuses[2].routing_policy == RoutingPolicy.CHEAPEST_CAPABLE
+    assert statuses[3].maximum_cost_units == 17
+    assert statuses[4].required_quota_units == 3
+    assert statuses[5].preferred_executor == "worker-preferred"
+
+
+@pytest.mark.asyncio
+async def test_default_policy_finds_exact_legacy_key_without_mutating_it() -> None:
+    transport = FakeGitHubTransport()
+    async with AsyncSessionLocal() as session:
+        service = _service(session, transport)
+        created = await service.request_validation(
+            repository_full_name=REPOSITORY,
+            pull_request_number=125,
+            manifest_name="validate-switchboard",
+            manifest_version="1",
+        )
+        record = await session.get(GitHubValidationRequest, created.request_id)
+        manifest = get_trusted_manifest("validate-switchboard", "1")
+        assert record is not None
+        assert manifest is not None
+        legacy_key = _legacy_idempotency_key(
+            settings=_settings(),
+            actor=CREDENTIAL_ACTOR,
+            resolved=transport.resolved,
+            manifest=manifest,
+        )
+        record.idempotency_key = legacy_key
+        await session.flush()
+
+        recovered = await service.request_validation(
+            repository_full_name=REPOSITORY,
+            pull_request_number=125,
+            manifest_name="validate-switchboard",
+            manifest_version="1",
+        )
+        unchanged = await session.get(GitHubValidationRequest, created.request_id)
+        non_default = await service.request_validation(
+            repository_full_name=REPOSITORY,
+            pull_request_number=125,
+            manifest_name="validate-switchboard",
+            manifest_version="1",
+            reuse_policy=ReusePolicy.ALLOW_EXACT,
+        )
+
+    assert recovered.request_id == created.request_id
+    assert unchanged is not None
+    assert unchanged.idempotency_key == legacy_key
+    assert non_default.request_id != created.request_id
+
+
+@pytest.mark.asyncio
+async def test_direct_completion_projects_fresh_then_reused_github_lifecycle() -> (  # noqa: PLR0915
+    None
+):
+    """Exercise projection formulas without representing the local-worker trust path."""
+
+    transport = FakeGitHubTransport()
+    cheap_worker = "worker-cheap"
+    expensive_worker = "worker-expensive"
+    async with AsyncSessionLocal() as session:
+        adapter = _service(session, transport)
+        execution = adapter._execution
+        await execution.register_worker(_worker(cheap_worker))
+        await execution.register_worker(_worker(expensive_worker))
+        await execution.create_routing_profile(
+            RoutingProfileDraft(
+                schema_version=1,
+                worker_id=cheap_worker,
+                enabled=True,
+                estimated_cost_units_per_run=3,
+                quota_capacity_units=20,
+                quota_remaining_units=20,
+                quota_reset_at=None,
+                routing_priority=0,
+            )
+        )
+        await execution.create_routing_profile(
+            RoutingProfileDraft(
+                schema_version=1,
+                worker_id=expensive_worker,
+                enabled=True,
+                estimated_cost_units_per_run=9,
+                quota_capacity_units=20,
+                quota_remaining_units=20,
+                quota_reset_at=None,
+                routing_priority=0,
+            )
+        )
+
+        fresh_request = await adapter.request_validation(
+            repository_full_name=REPOSITORY,
+            pull_request_number=125,
+            manifest_name="validate-switchboard",
+            manifest_version="1",
+            reuse_policy=ReusePolicy.NEVER,
+            routing_policy=RoutingPolicy.CHEAPEST_CAPABLE,
+            required_quota_units=1,
+        )
+        assert not (await execution.checkout(expensive_worker)).assigned
+        assert not (await execution.checkout(cheap_worker)).assigned
+        await execution.approve_work_order(fresh_request.work_order_id)
+        assert not (await execution.checkout(expensive_worker)).assigned
+        fresh_assignment = await execution.checkout(cheap_worker)
+        assert fresh_assignment.run_id is not None
+        await execution.heartbeat_run(fresh_assignment.run_id, worker_id=cheap_worker)
+        fresh_order = await execution.get_work_order(fresh_request.work_order_id)
+        fresh_identity = _reuse_identity(fresh_order)
+        fresh_evidence = _reuse_evidence(
+            order=fresh_order,
+            run_id=fresh_assignment.run_id,
+            worker_id=cheap_worker,
+            identity=fresh_identity,
+            decision="fresh",
+        )
+        fresh_run = await execution.complete_run(
+            fresh_assignment.run_id,
+            worker_id=cheap_worker,
+            completion=ExecutionCompletion(
+                status=ExecutionRunStatus.SUCCEEDED,
+                evidence_metadata=fresh_evidence,
+                reuse_decision=ReuseDecision.FRESH,
+                reuse_reason="fresh_execution_completed",
+                reuse_identity=fresh_identity,
+                reuse_identity_hash=compute_reuse_identity_hash(fresh_identity),
+                evidence_retention_expires_at=(
+                    fresh_evidence.started_at + dt.timedelta(days=14)
+                ),
+            ),
+        )
+        fresh_run.started_at = dt.datetime(2026, 8, 8, 12, 0, 0, tzinfo=dt.UTC)
+        fresh_run.finished_at = dt.datetime(2026, 8, 8, 12, 0, 7, tzinfo=dt.UTC)
+        await session.flush()
+        published_current = await adapter.publish(fresh_request.request_id)
+        assert published_current.publication_state == "published_current"
+        republished_current = await adapter.publish(fresh_request.request_id)
+        assert republished_current.managed_comment_id == (
+            published_current.managed_comment_id
+        )
+
+        reused_request = await adapter.request_validation(
+            repository_full_name=REPOSITORY,
+            pull_request_number=125,
+            manifest_name="validate-switchboard",
+            manifest_version="1",
+            reuse_policy=ReusePolicy.ALLOW_EXACT,
+            routing_policy=RoutingPolicy.CHEAPEST_CAPABLE,
+            required_quota_units=1,
+        )
+        reused_order = await execution.get_work_order(reused_request.work_order_id)
+        assert reused_request.request_id != fresh_request.request_id
+        assert reused_order.execution_policy_hash == fresh_order.execution_policy_hash
+        assert not (await execution.checkout(expensive_worker)).assigned
+        assert not (await execution.checkout(cheap_worker)).assigned
+        await execution.approve_work_order(reused_request.work_order_id)
+        assert not (await execution.checkout(expensive_worker)).assigned
+        reused_assignment = await execution.checkout(cheap_worker)
+        assert reused_assignment.run_id is not None
+        reused_identity = _reuse_identity(reused_order)
+        assert reused_identity == fresh_identity
+        lookup = await execution.resolve_reuse_candidate(
+            reused_assignment.run_id,
+            worker_id=cheap_worker,
+            reuse_identity=reused_identity,
+            reuse_identity_hash=compute_reuse_identity_hash(reused_identity),
+        )
+        assert lookup.candidate is not None
+        assert lookup.candidate.source_run_id == fresh_run.id
+        reused_evidence = _reuse_evidence(
+            order=reused_order,
+            run_id=reused_assignment.run_id,
+            worker_id=cheap_worker,
+            identity=reused_identity,
+            decision="reused",
+            source_run_id=fresh_run.id,
+            source_fingerprint=fresh_evidence.fingerprint,
+        )
+        reused_run = await execution.complete_run(
+            reused_assignment.run_id,
+            worker_id=cheap_worker,
+            completion=ExecutionCompletion(
+                status=ExecutionRunStatus.SUCCEEDED,
+                evidence_metadata=reused_evidence,
+                reuse_decision=ReuseDecision.REUSED,
+                reuse_reason="exact_evidence_verified",
+                reuse_identity=reused_identity,
+                reuse_identity_hash=compute_reuse_identity_hash(reused_identity),
+                evidence_retention_expires_at=(
+                    reused_evidence.started_at + dt.timedelta(days=14)
+                ),
+            ),
+        )
+        assert reused_run.worker_id == cheap_worker
+        assert reused_run.reused_from_run_id == fresh_run.id
+        assert reused_run.evidence_metadata["steps"] == []
+
+        transport.resolved = _resolved(head_sha=MOVED_SHA)
+        published_stale = await adapter.publish(reused_request.request_id)
+        assert published_stale.publication_state == "published_stale"
+
+        projection = ExecutionOperatorProjection(session)
+        overview = await projection.overview(
+            window_days=30,
+            heartbeat_freshness_seconds=300,
+            active_poll_freshness_seconds=60,
+        )
+        history = await projection.list_history(limit=25, offset=0)
+        first_page = await projection.list_history(limit=1, offset=0)
+        second_page = await projection.list_history(limit=1, offset=1)
+        filter_now = dt.datetime.now(dt.UTC)
+        reused_history = await projection.list_history(
+            limit=25,
+            offset=0,
+            repository_full_name=REPOSITORY,
+            pull_request_number=125,
+            work_order_status=WorkOrderStatus.SUCCEEDED.value,
+            run_status=ExecutionRunStatus.SUCCEEDED.value,
+            reuse_decision=ReuseDecision.REUSED.value,
+            routing_policy=RoutingPolicy.CHEAPEST_CAPABLE.value,
+            publication_state="published_stale",
+            created_after=filter_now - dt.timedelta(days=1),
+            created_before=filter_now + dt.timedelta(days=1),
+        )
+        workers = await projection.list_workers(
+            limit=25,
+            offset=0,
+            heartbeat_freshness_seconds=300,
+            active_poll_freshness_seconds=60,
+        )
+        fresh_run.started_at = None
+        reused_run.route_estimated_cost_units = None
+        await session.flush()
+        missing_estimates = await projection.overview(
+            window_days=30,
+            heartbeat_freshness_seconds=300,
+            active_poll_freshness_seconds=60,
+        )
+
+    assert overview.requests.total == 2
+    assert overview.runs.fresh_successful == 1
+    assert overview.runs.reused_successful == 1
+    assert overview.avoided_work.deterministic_executions_avoided == 1
+    assert overview.avoided_work.reference_seconds_avoided == 7
+    assert overview.avoided_work.comparison_units_avoided == 3
+    assert overview.avoided_work.reuse_rate == 0.5
+    assert overview.publications.current == 1
+    assert overview.publications.stale == 1
+    assert history.total == 2
+    assert history.items[0].request_id == reused_request.request_id
+    assert history.items[0].reuse_decision == "reused"
+    assert history.items[1].reuse_decision == "fresh"
+    assert [item.request_id for item in first_page.items] == [reused_request.request_id]
+    assert [item.request_id for item in second_page.items] == [fresh_request.request_id]
+    assert reused_history.total == 1
+    assert reused_history.items[0].request_id == reused_request.request_id
+    assert {item.worker_id for item in workers.items} == {
+        cheap_worker,
+        expensive_worker,
+    }
+    assert "capabilities" not in workers.items[0].model_dump()
+    assert "repository_full_name" not in workers.items[0].model_dump()
+    assert missing_estimates.avoided_work.deterministic_executions_avoided == 1
+    assert missing_estimates.avoided_work.reference_seconds_avoided == 0
+    assert missing_estimates.avoided_work.comparison_units_avoided == 0
+
+
+@pytest.mark.asyncio
+async def test_operator_projection_routes_enforce_hard_query_bounds() -> None:
+    transport = ASGITransport(
+        app=server_app, client=("operator-projection-test", 12_345)
+    )
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        overview = await client.get("/api/execution/operator/overview")
+        history = await client.get("/api/execution/operator/history")
+        workers = await client.get("/api/execution/workers")
+        requests = await client.get("/api/execution/github/requests")
+        too_wide = await client.get(
+            "/api/execution/operator/overview", params={"window_days": 366}
+        )
+        too_many = await client.get(
+            "/api/execution/operator/history", params={"limit": 101}
+        )
+        too_far = await client.get(
+            "/api/execution/github/requests", params={"offset": 10_001}
+        )
+
+    assert overview.status_code == HTTPStatus.OK
+    assert overview.json()["window"]["days"] == 30
+    assert history.status_code == HTTPStatus.OK
+    assert workers.status_code == HTTPStatus.OK
+    assert requests.status_code == HTTPStatus.OK
+    assert too_wide.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert too_many.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert too_far.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
 
 
 @pytest.mark.asyncio
@@ -1389,6 +1814,68 @@ async def test_authenticated_api_flow_and_status_response_are_bounded(
 
 
 @pytest.mark.asyncio
+async def test_unknown_preferred_executor_is_bounded_and_rolls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SWITCHBOARD_ADMIN_TOKEN", ADMIN_TOKEN)
+    reload_admin_token()
+    transport = FakeGitHubTransport()
+    app = server_app
+    request_session = AsyncSessionLocal()
+
+    async def isolated_session() -> AsyncGenerator[AsyncSession, None]:
+        yield request_session
+
+    def override(session: SessionDependency) -> GitHubAdapterService:
+        return _service(session, transport)
+
+    app.dependency_overrides[get_session] = isolated_session
+    app.dependency_overrides[get_github_adapter_service] = override
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app, raise_app_exceptions=False),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(
+                "/api/execution/github/pull-requests/validate",
+                json={
+                    "repository_full_name": REPOSITORY,
+                    "pull_request_number": 125,
+                    "manifest": {"name": "validate-switchboard", "version": "1"},
+                    "preferred_executor": "worker-not-registered",
+                },
+                headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+            )
+        async with AsyncSessionLocal() as verification:
+            request_count = await verification.scalar(
+                select(func.count()).select_from(GitHubValidationRequest)
+            )
+            work_order_count = await verification.scalar(
+                select(func.count()).select_from(ExecutionWorkOrder)
+            )
+    finally:
+        app.dependency_overrides.clear()
+        await request_session.close()
+        monkeypatch.delenv("SWITCHBOARD_ADMIN_TOKEN", raising=False)
+        reload_admin_token()
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
+    assert response.json() == {"detail": "preferred_executor_not_found"}
+    assert int(request_count or 0) == 0
+    assert int(work_order_count or 0) == 0
+    assert not request_session.in_transaction()
+    for prohibited in (
+        ADMIN_TOKEN,
+        GITHUB_TOKEN,
+        "ExecutionNotFoundError",
+        "Traceback",
+        "response_body",
+        r"C:\\",
+    ):
+        assert prohibited not in response.text
+
+
+@pytest.mark.asyncio
 async def test_missing_server_token_returns_bounded_api_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1431,7 +1918,10 @@ async def test_api_rejects_caller_owned_injection_before_service_call(
     reload_admin_token()
     app = server_app
 
-    app.dependency_overrides[get_github_adapter_service] = lambda: object()
+    def invalid_service() -> object:
+        return object()
+
+    app.dependency_overrides[get_github_adapter_service] = invalid_service
     payload = {
         "repository_full_name": REPOSITORY,
         "pull_request_number": 125,

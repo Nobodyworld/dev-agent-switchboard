@@ -7,6 +7,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from server.execution.enums import ReusePolicy, RoutingPolicy
+from server.execution.routing import MAX_ROUTING_INTEGER
+
 from .service import GitHubRequestStatus
 
 
@@ -33,6 +36,15 @@ class GitHubValidationCreateIn(GitHubAdapterInput):
     )
     pull_request_number: int = Field(ge=1, le=2_147_483_647)
     manifest: GitHubManifestReferenceIn
+    reuse_policy: ReusePolicy = ReusePolicy.NEVER
+    routing_policy: RoutingPolicy = RoutingPolicy.FIRST_AVAILABLE
+    maximum_cost_units: int | None = Field(
+        default=None, strict=True, ge=0, le=MAX_ROUTING_INTEGER
+    )
+    required_quota_units: int = Field(
+        default=0, strict=True, ge=0, le=MAX_ROUTING_INTEGER
+    )
+    preferred_executor: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class GitHubValidationRequestOut(BaseModel):
@@ -60,6 +72,11 @@ class GitHubValidationRequestOut(BaseModel):
     operator_id: str = Field(min_length=1, max_length=128)
     work_order_id: int = Field(ge=1)
     work_order_status: str = Field(min_length=1, max_length=32)
+    reuse_policy: ReusePolicy
+    routing_policy: RoutingPolicy
+    maximum_cost_units: int | None = Field(default=None, ge=0)
+    required_quota_units: int = Field(ge=0)
+    preferred_executor: str | None = Field(default=None, max_length=128)
     terminal_run_id: int | None = Field(default=None, ge=1)
     terminal_run_status: str | None = Field(default=None, max_length=32)
     evidence_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")

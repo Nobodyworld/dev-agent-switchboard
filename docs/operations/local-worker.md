@@ -78,6 +78,12 @@ See
 [GitHub exact pull-request validation](github-exact-pr-validation.md)
 for the operator workflow.
 
+The dashboard's [Validation command center](validation-command-center.md)
+provides the same request, approval, routing-profile, lifecycle, evidence, and
+publication operations through bounded server projections. It does not change
+the worker's outbound-only pull loop, trust model, repository mapping, or local
+evidence retention rules.
+
 ## Runtime behavior and limits
 
 Phase 1 is deliberately single-concurrency. Configuration must set

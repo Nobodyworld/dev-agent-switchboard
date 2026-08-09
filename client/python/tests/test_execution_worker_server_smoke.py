@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from client.python.execution_worker import worker as worker_module
 from client.python.execution_worker.client import ExecutionClient
 from client.python.execution_worker.config import WorkerConfig
 from client.python.execution_worker.evidence import EvidenceStore
@@ -329,6 +330,16 @@ def _request(
             f"content {response.text[:120]!r}"
         )
     return decoded
+
+
+def _retained_hashes(directory: Path) -> dict[str, str]:
+    hashes: dict[str, str] = {}
+    for path in directory.rglob("*"):
+        if path.is_file():
+            hashes[path.relative_to(directory).as_posix()] = hashlib.sha256(
+                path.read_bytes()
+            ).hexdigest()
+    return hashes
 
 
 def test_server_backed_worker_smoke_executes_exact_sha_and_releases_lease(
@@ -802,7 +813,7 @@ def test_mocked_github_request_executes_exact_local_head_and_publishes_once(  # 
             published = _request(
                 app,
                 "POST",
-                ("/api/execution/github/requests/" f"{created['request_id']}/publish"),
+                (f"/api/execution/github/requests/{created['request_id']}/publish"),
                 {},
             )
             assert published["publication_state"] == "published_current"
@@ -816,7 +827,7 @@ def test_mocked_github_request_executes_exact_local_head_and_publishes_once(  # 
             stale = _request(
                 app,
                 "POST",
-                ("/api/execution/github/requests/" f"{created['request_id']}/publish"),
+                (f"/api/execution/github/requests/{created['request_id']}/publish"),
                 {},
             )
             assert stale["publication_state"] == "published_stale"
@@ -843,10 +854,7 @@ def test_mocked_github_request_executes_exact_local_head_and_publishes_once(  # 
             _request(
                 app,
                 "POST",
-                (
-                    "/api/execution/work-orders/"
-                    f"{fork_request['work_order_id']}/approve"
-                ),
+                (f"/api/execution/work-orders/{fork_request['work_order_id']}/approve"),
                 {},
             )
             assert worker.poll_once() is True
@@ -854,7 +862,7 @@ def test_mocked_github_request_executes_exact_local_head_and_publishes_once(  # 
         fork_runs = _request(
             app,
             "GET",
-            ("/api/execution/runs?work_order_id=" f"{fork_request['work_order_id']}"),
+            (f"/api/execution/runs?work_order_id={fork_request['work_order_id']}"),
         )
         assert len(fork_runs) == 1
         assert fork_runs[0]["status"] == "failed"
@@ -896,6 +904,332 @@ def test_mocked_github_request_executes_exact_local_head_and_publishes_once(  # 
         assert "Head decision: `stale` (`github_head_changed`)" in comment_body
         assert _git(canonical, "status", "--porcelain=v1") == status_before
         assert list(config.worker_root.glob("run-*")) == []
+    finally:
+        app.dependency_overrides.clear()
+        asyncio.run(engine.dispose())
+
+
+def test_routed_github_validation_executes_then_reuses_real_local_worker(  # noqa: PLR0915 - complete issue #136 worker trust proof
+    tmp_path: Path,
+) -> None:
+    canonical, tested_shas, status_before = _validation_repository(tmp_path)
+    tested_sha, moved_sha = tested_shas
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{tmp_path / 'operator-worker-acceptance.db'}"
+    )
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    app = create_app(AppConfig(include_ui=False))
+    github = _MockGitHubAcceptanceTransport(_resolved_pull_request(tested_sha))
+
+    async def isolated_session() -> AsyncGenerator[AsyncSession, None]:
+        async with sessions() as session:
+            yield session
+
+    def github_service(session: SessionDependency) -> GitHubAdapterService:
+        return GitHubAdapterService(
+            dependencies=GitHubAdapterDependencies(
+                repository=GitHubAdapterRepository(session),
+                execution=build_execution_service(session),
+                transport=github,
+            ),
+            settings=GitHubSettings(
+                api_url="https://api.github.com",
+                operator_id="operator-worker-acceptance",
+                token=_GITHUB_TEST_TOKEN,
+            ),
+            clock=utcnow_naive,
+        )
+
+    app.dependency_overrides[get_session] = isolated_session
+    app.dependency_overrides[get_github_adapter_service] = github_service
+
+    async def prepare() -> None:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+    asyncio.run(prepare())
+    cheap_config = WorkerConfig(
+        base_url="http://switchboard.test",
+        worker_id="operator-worker-cheap",
+        display_name="Operator worker cheap",
+        admin_token=_TOKEN,
+        worker_root=tmp_path / "operator-cheap-worktrees",
+        evidence_root=tmp_path / "operator-cheap-evidence",
+        repositories={"Nobodyworld/dev-agent-switchboard": canonical},
+        execution_timeout_seconds=3600,
+        heartbeat_interval_seconds=5,
+    )
+    expensive_config = WorkerConfig(
+        base_url="http://switchboard.test",
+        worker_id="operator-worker-expensive",
+        display_name="Operator worker expensive",
+        admin_token=_TOKEN,
+        worker_root=tmp_path / "operator-expensive-worktrees",
+        evidence_root=tmp_path / "operator-expensive-evidence",
+        repositories={"Nobodyworld/dev-agent-switchboard": canonical},
+        execution_timeout_seconds=3600,
+        heartbeat_interval_seconds=5,
+    )
+    try:
+        with (
+            ExecutionClient(
+                cheap_config.base_url,
+                cheap_config.worker_id,
+                cheap_config.admin_token,
+                session=_AsgiSession(app),  # type: ignore[arg-type]
+            ) as cheap_client,
+            ExecutionClient(
+                expensive_config.base_url,
+                expensive_config.worker_id,
+                expensive_config.admin_token,
+                session=_AsgiSession(app),  # type: ignore[arg-type]
+            ) as expensive_client,
+        ):
+            cheap_worker = LocalWorker(cheap_config, cheap_client)
+            expensive_worker = LocalWorker(expensive_config, expensive_client)
+            cheap_worker.start()
+            expensive_worker.start()
+            for worker_id, cost in (
+                (cheap_config.worker_id, 3),
+                (expensive_config.worker_id, 9),
+            ):
+                _request(
+                    app,
+                    "POST",
+                    "/api/execution/routing-profiles",
+                    {
+                        "schema_version": 1,
+                        "worker_id": worker_id,
+                        "enabled": True,
+                        "estimated_cost_units_per_run": cost,
+                        "quota_capacity_units": 20,
+                        "quota_remaining_units": 20,
+                        "quota_reset_at": None,
+                        "routing_priority": 0,
+                    },
+                )
+            cheap_client.heartbeat_worker(status="online")
+            expensive_client.heartbeat_worker(status="online")
+            assert cheap_worker.poll_once() is False
+            assert expensive_worker.poll_once() is False
+
+            request_payload = {
+                "repository_full_name": "Nobodyworld/dev-agent-switchboard",
+                "pull_request_number": 125,
+                "manifest": {"name": "validate-switchboard", "version": "1"},
+                "routing_policy": "cheapest_capable",
+                "reuse_policy": "never",
+                "maximum_cost_units": 10,
+                "required_quota_units": 2,
+            }
+            fresh_request = _request(
+                app,
+                "POST",
+                "/api/execution/github/pull-requests/validate",
+                request_payload,
+            )
+            _request(
+                app,
+                "POST",
+                f"/api/execution/work-orders/{fresh_request['work_order_id']}/approve",
+                {"queue": True},
+            )
+            expensive_client.heartbeat_worker(status="online")
+            assert expensive_worker.poll_once() is False
+
+            original_runner = worker_module.run_step
+            original_verifier = worker_module.verify_reuse_candidate
+            with (
+                patch.object(
+                    worker_module, "run_step", wraps=original_runner
+                ) as runner,
+                patch.object(
+                    worker_module,
+                    "verify_reuse_candidate",
+                    wraps=original_verifier,
+                ) as verifier,
+            ):
+                cheap_client.heartbeat_worker(status="online")
+                assert cheap_worker.poll_once() is True
+                manifest = get_trusted_manifest("validate-switchboard", "1")
+                assert manifest is not None
+                fresh_step_count = len(manifest.execution_steps)
+                assert runner.call_count == fresh_step_count
+                assert verifier.call_count == 0
+
+                fresh_runs = _request(
+                    app,
+                    "GET",
+                    f"/api/execution/runs?work_order_id={fresh_request['work_order_id']}",
+                )
+                assert len(fresh_runs) == 1
+                fresh_run = fresh_runs[0]
+                fresh_evidence = ExecutionEvidence.model_validate(
+                    _request(
+                        app,
+                        "GET",
+                        f"/api/execution/runs/{fresh_run['id']}/evidence",
+                    )
+                )
+                assert fresh_run["status"] == "succeeded"
+                assert fresh_run["worker_id"] == cheap_config.worker_id
+                assert fresh_run["route_provenance"]["estimated_cost_units"] == 3
+                assert fresh_run["route_provenance"]["required_quota_units"] == 2
+                assert fresh_evidence.tested_sha == tested_sha
+                assert fresh_evidence.reuse_provenance.decision == "fresh"
+                assert len(fresh_evidence.steps) == fresh_step_count
+                assert len(fresh_evidence.artifacts) == len(
+                    manifest.artifact_declarations
+                )
+                fresh_directory = cheap_config.evidence_root / f"run-{fresh_run['id']}"
+                assert (fresh_directory / "ownership.json").is_file()
+                assert (fresh_directory / "result.json").is_file()
+                assert list((fresh_directory / "logs").glob("*.log"))
+                for artifact in fresh_evidence.artifacts:
+                    retained = fresh_directory.joinpath(
+                        *artifact.relative_path.split("/")
+                    )
+                    assert retained.is_file()
+                    assert (
+                        hashlib.sha256(retained.read_bytes()).hexdigest()
+                        == artifact.sha256
+                    )
+                source_hashes = _retained_hashes(fresh_directory)
+                assert source_hashes
+
+                published_current = _request(
+                    app,
+                    "POST",
+                    f"/api/execution/github/requests/{fresh_request['request_id']}/publish",
+                    {},
+                )
+                assert published_current["publication_state"] == "published_current"
+                assert published_current["publication_decision"] == "current"
+
+                reused_request = _request(
+                    app,
+                    "POST",
+                    "/api/execution/github/pull-requests/validate",
+                    {**request_payload, "reuse_policy": "allow_exact"},
+                )
+                assert reused_request["request_id"] != fresh_request["request_id"]
+                assert reused_request["work_order_id"] != fresh_request["work_order_id"]
+                _request(
+                    app,
+                    "POST",
+                    f"/api/execution/work-orders/{reused_request['work_order_id']}/approve",
+                    {"queue": True},
+                )
+                expensive_client.heartbeat_worker(status="online")
+                assert expensive_worker.poll_once() is False
+                cheap_client.heartbeat_worker(status="online")
+                assert cheap_worker.poll_once() is True
+                assert runner.call_count == fresh_step_count
+                assert verifier.call_count == 1
+
+            reused_runs = _request(
+                app,
+                "GET",
+                f"/api/execution/runs?work_order_id={reused_request['work_order_id']}",
+            )
+            assert len(reused_runs) == 1
+            reused_run = reused_runs[0]
+            reused_evidence = ExecutionEvidence.model_validate(
+                _request(
+                    app,
+                    "GET",
+                    f"/api/execution/runs/{reused_run['id']}/evidence",
+                )
+            )
+            assert reused_run["id"] != fresh_run["id"]
+            assert reused_run["worker_id"] == cheap_config.worker_id
+            assert reused_run["reuse_decision"] == "reused"
+            assert reused_run["reused_from_run_id"] == fresh_run["id"]
+            assert (
+                reused_run["source_evidence_fingerprint"] == fresh_evidence.fingerprint
+            )
+            assert reused_evidence.steps == []
+            assert reused_evidence.artifacts == []
+            assert reused_evidence.reuse_provenance.source_run_id == fresh_run["id"]
+            assert (
+                reused_evidence.reuse_provenance.source_evidence_fingerprint
+                == fresh_evidence.fingerprint
+            )
+            assert _retained_hashes(fresh_directory) == source_hashes
+            reused_directory = cheap_config.evidence_root / f"run-{reused_run['id']}"
+            assert (reused_directory / "ownership.json").is_file()
+            assert (reused_directory / "result.json").is_file()
+
+            github.resolved = _resolved_pull_request(moved_sha)
+            published_stale = _request(
+                app,
+                "POST",
+                f"/api/execution/github/requests/{reused_request['request_id']}/publish",
+                {},
+            )
+            assert published_stale["publication_state"] == "published_stale"
+            assert published_stale["publication_decision"] == "stale"
+            assert published_stale["tested_head_sha"] == tested_sha
+            assert published_stale["publication_head_sha"] == moved_sha
+
+            overview = _request(
+                app,
+                "GET",
+                "/api/execution/operator/overview?window_days=1",
+            )
+            history = _request(
+                app,
+                "GET",
+                "/api/execution/operator/history?limit=25&offset=0",
+            )
+            assert overview["runs"]["fresh_successful"] == 1
+            assert overview["runs"]["reused_successful"] == 1
+            assert overview["avoided_work"]["deterministic_executions_avoided"] == 1
+            assert overview["avoided_work"]["reference_seconds_avoided"] > 0
+            assert overview["avoided_work"]["comparison_units_avoided"] == 3
+            assert overview["avoided_work"]["reuse_rate"] == 0.5
+            assert overview["publications"] == {"current": 1, "stale": 1}
+            assert history["total"] == 2
+            history_by_request = {item["request_id"]: item for item in history["items"]}
+            assert (
+                history_by_request[fresh_request["request_id"]]["reuse_decision"]
+                == "fresh"
+            )
+            assert (
+                history_by_request[reused_request["request_id"]]["reuse_decision"]
+                == "reused"
+            )
+            assert (
+                history_by_request[reused_request["request_id"]]["reused_from_run_id"]
+                == fresh_run["id"]
+            )
+
+        async def capacity_proof() -> tuple[int, list[int]]:
+            async with sessions() as database:
+                leases = await database.scalar(
+                    select(func.count()).select_from(ExecutionLease)
+                )
+                active_counts = (
+                    (
+                        await database.execute(
+                            select(ExecutionWorker.active_run_count).order_by(
+                                ExecutionWorker.worker_id
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+            return int(leases or 0), [int(value) for value in active_counts]
+
+        leases, active_counts = asyncio.run(capacity_proof())
+        assert leases == 0
+        assert active_counts == [0, 0]
+        assert list(cheap_config.worker_root.glob("run-*")) == []
+        assert list(expensive_config.worker_root.glob("run-*")) == []
+        assert _git(canonical, "status", "--porcelain=v1") == status_before
+        assert _git(canonical, "rev-parse", "HEAD") == moved_sha
+        assert tested_sha != moved_sha
     finally:
         app.dependency_overrides.clear()
         asyncio.run(engine.dispose())

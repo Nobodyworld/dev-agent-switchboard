@@ -6,7 +6,8 @@ modify repositories, create worktrees, or accept executable payloads.
 
 from __future__ import annotations
 
-from typing import NoReturn
+import datetime as dt
+from typing import Literal, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
@@ -24,7 +25,12 @@ from server.execution.entities import (
     WorkerRegistration,
     WorkOrderDraft,
 )
-from server.execution.enums import ExecutionRunStatus
+from server.execution.enums import (
+    ExecutionRunStatus,
+    ReuseDecision,
+    RoutingPolicy,
+    WorkOrderStatus,
+)
 from server.execution.evidence import ExecutionEvidence
 from server.execution.exceptions import (
     ApprovalDeniedError,
@@ -37,6 +43,15 @@ from server.execution.exceptions import (
     OwnershipConflictError,
     RepositoryWritePolicyError,
     UnknownManifestError,
+)
+from server.execution.operator_projection import (
+    MAX_OPERATOR_LIMIT,
+    MAX_OPERATOR_OFFSET,
+    MAX_OPERATOR_WINDOW_DAYS,
+    ExecutionHistoryPageOut,
+    ExecutionOperatorOverviewOut,
+    ExecutionOperatorProjection,
+    ExecutionWorkerPageOut,
 )
 from server.execution.schemas import (
     ApproveWorkOrderIn,
@@ -62,8 +77,90 @@ from server.execution.schemas import (
     WorkOrderCreateIn,
     WorkOrderOut,
 )
+from server.settings import get_execution_routing_settings
 
 router = APIRouter(dependencies=[Depends(require_admin_token)])
+
+
+@router.get(
+    "/api/execution/operator/overview",
+    response_model=ExecutionOperatorOverviewOut,
+)
+async def get_operator_overview(
+    session: SessionDependency,
+    window_days: int = Query(default=30, ge=1, le=MAX_OPERATOR_WINDOW_DAYS),
+) -> ExecutionOperatorOverviewOut:
+    """Return bounded validation, reuse, publication, and worker metrics."""
+
+    freshness = get_execution_routing_settings()
+    return await ExecutionOperatorProjection(session).overview(
+        window_days=window_days,
+        heartbeat_freshness_seconds=freshness.heartbeat_freshness_seconds,
+        active_poll_freshness_seconds=freshness.active_poll_freshness_seconds,
+    )
+
+
+@router.get(
+    "/api/execution/operator/history",
+    response_model=ExecutionHistoryPageOut,
+)
+async def list_operator_history(  # noqa: PLR0913
+    session: SessionDependency,
+    limit: int = Query(default=25, ge=1, le=MAX_OPERATOR_LIMIT),
+    offset: int = Query(default=0, ge=0, le=MAX_OPERATOR_OFFSET),
+    repository_full_name: str | None = Query(
+        default=None, min_length=3, max_length=255
+    ),
+    pull_request_number: int | None = Query(default=None, ge=1),
+    work_order_status: WorkOrderStatus | None = None,
+    run_status: ExecutionRunStatus | None = None,
+    reuse_decision: ReuseDecision | None = None,
+    routing_policy: RoutingPolicy | None = None,
+    publication_state: (
+        Literal[
+            "not_published",
+            "published_current",
+            "published_stale",
+            "retryable_failure",
+            "failed",
+        ]
+        | None
+    ) = None,
+    created_after: dt.datetime | None = None,
+    created_before: dt.datetime | None = None,
+) -> ExecutionHistoryPageOut:
+    """List redacted validation history in stable newest-first order."""
+
+    return await ExecutionOperatorProjection(session).list_history(
+        limit=limit,
+        offset=offset,
+        repository_full_name=repository_full_name,
+        pull_request_number=pull_request_number,
+        work_order_status=(work_order_status.value if work_order_status else None),
+        run_status=(run_status.value if run_status else None),
+        reuse_decision=(reuse_decision.value if reuse_decision else None),
+        routing_policy=(routing_policy.value if routing_policy else None),
+        publication_state=publication_state,
+        created_after=created_after,
+        created_before=created_before,
+    )
+
+
+@router.get("/api/execution/workers", response_model=ExecutionWorkerPageOut)
+async def list_execution_workers(
+    session: SessionDependency,
+    limit: int = Query(default=25, ge=1, le=MAX_OPERATOR_LIMIT),
+    offset: int = Query(default=0, ge=0, le=MAX_OPERATOR_OFFSET),
+) -> ExecutionWorkerPageOut:
+    """List bounded worker and operator-owned routing profile summaries."""
+
+    freshness = get_execution_routing_settings()
+    return await ExecutionOperatorProjection(session).list_workers(
+        limit=limit,
+        offset=offset,
+        heartbeat_freshness_seconds=freshness.heartbeat_freshness_seconds,
+        active_poll_freshness_seconds=freshness.active_poll_freshness_seconds,
+    )
 
 
 def _raise_domain_error(error: ExecutionDomainError) -> NoReturn:

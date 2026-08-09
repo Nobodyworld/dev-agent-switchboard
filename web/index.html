@@ -11,9 +11,14 @@
 </head>
 <body class="bg-gray-50 text-gray-900">
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
-  <div class="max-w-5xl mx-auto p-6">
-    <h1 class="text-3xl font-bold mb-4">Switchboard</h1>
-    <p class="mb-6">Real-time task switchboard & live file host for agents.</p>
+  <div class="max-w-7xl mx-auto p-4 sm:p-6">
+    <header class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold">Switchboard</h1>
+        <p class="text-gray-600">Real-time task switchboard &amp; local validation broker for agents.</p>
+      </div>
+      <span class="preview-badge">Public developer preview — not production ready</span>
+    </header>
 
     <section id="maintenanceBanner" class="mb-4 hidden rounded-xl border border-amber-200 bg-amber-50 p-4" role="status" aria-live="polite">
       <div class="flex gap-3">
@@ -23,6 +28,208 @@
           <p id="maintenanceBannerMessage" class="text-sm text-amber-700"></p>
         </div>
       </div>
+    </section>
+
+    <section id="validation-broker" class="broker-shell mb-8" aria-labelledby="validation-broker-heading">
+      <div class="broker-heading-row">
+        <div>
+          <p class="broker-eyebrow">Local-first execution</p>
+          <h2 id="validation-broker-heading">Validation Broker</h2>
+          <p>Resolve an exact GitHub head, route it to a trusted local worker, and publish compact evidence explicitly.</p>
+        </div>
+        <div class="broker-toolbar">
+          <label for="brokerWindow">Metrics window</label>
+          <select id="brokerWindow">
+            <option value="7">7 days</option>
+            <option value="30" selected>30 days</option>
+            <option value="90">90 days</option>
+            <option value="365">365 days</option>
+          </select>
+          <button type="button" id="refreshBroker" class="broker-button broker-button--secondary">Refresh workspace</button>
+        </div>
+      </div>
+      <p id="brokerStatus" class="broker-inline-status" role="status" aria-live="polite">Loading validation broker…</p>
+
+      <div id="brokerMetrics" class="broker-metrics" aria-label="Validation broker overview metrics"></div>
+
+      <div class="broker-workspace-grid">
+        <article class="broker-panel">
+          <div class="broker-panel-heading">
+            <div>
+              <p class="broker-eyebrow">New request</p>
+              <h3>GitHub PR validation</h3>
+            </div>
+          </div>
+          <form id="validationRequestForm" class="broker-form">
+            <label for="validationRepository">Repository</label>
+            <input id="validationRepository" name="repository_full_name" value="Nobodyworld/dev-agent-switchboard" required pattern="[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+" />
+
+            <div class="broker-form-pair">
+              <div>
+                <label for="validationPullRequest">Pull request</label>
+                <input id="validationPullRequest" name="pull_request_number" type="number" min="1" required placeholder="137" />
+              </div>
+              <div>
+                <label for="validationManifest">Trusted manifest</label>
+                <select id="validationManifest" name="manifest" required></select>
+              </div>
+            </div>
+
+            <div class="broker-form-pair">
+              <div>
+                <label for="validationReusePolicy">Reuse policy</label>
+                <select id="validationReusePolicy" name="reuse_policy">
+                  <option value="never">Never</option>
+                  <option value="allow_exact">Allow exact evidence</option>
+                  <option value="require_exact">Require exact evidence</option>
+                </select>
+              </div>
+              <div>
+                <label for="validationRoutingPolicy">Routing policy</label>
+                <select id="validationRoutingPolicy" name="routing_policy">
+                  <option value="first_available">First available</option>
+                  <option value="cheapest_capable">Cheapest capable</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="broker-form-pair">
+              <div>
+                <label for="validationCostCeiling">Maximum comparison units <span>(optional)</span></label>
+                <input id="validationCostCeiling" name="maximum_cost_units" type="number" min="0" placeholder="No ceiling" />
+              </div>
+              <div>
+                <label for="validationQuotaUnits">Required quota units</label>
+                <input id="validationQuotaUnits" name="required_quota_units" type="number" min="0" value="0" required />
+              </div>
+            </div>
+
+            <label for="validationPreferredExecutor">Preferred executor <span>(optional)</span></label>
+            <select id="validationPreferredExecutor" name="preferred_executor">
+              <option value="">Any capable worker</option>
+            </select>
+            <p class="broker-help">Comparison units are operator-defined routing values, not money or measured paid-agent credits.</p>
+            <button type="submit" class="broker-button broker-button--primary">Request validation</button>
+          </form>
+        </article>
+
+        <article class="broker-panel" aria-labelledby="request-detail-heading">
+          <div class="broker-panel-heading">
+            <div>
+              <p class="broker-eyebrow">Selected request</p>
+              <h3 id="request-detail-heading">Lifecycle &amp; evidence</h3>
+            </div>
+            <button type="button" id="refreshRequest" class="broker-button broker-button--quiet" disabled>Refresh</button>
+          </div>
+          <div id="brokerRequestDetail" class="broker-empty">Select a request from history or submit a new validation.</div>
+        </article>
+      </div>
+
+      <div class="broker-workspace-grid broker-workspace-grid--profiles">
+        <article class="broker-panel">
+          <div class="broker-panel-heading">
+            <div>
+              <p class="broker-eyebrow">Operator-owned configuration</p>
+              <h3>Worker routing profiles</h3>
+            </div>
+          </div>
+          <div id="brokerWorkers" class="broker-worker-list"></div>
+        </article>
+
+        <article class="broker-panel">
+          <div class="broker-panel-heading">
+            <div>
+              <p class="broker-eyebrow">Revision-safe edit</p>
+              <h3>Create or replace profile</h3>
+            </div>
+          </div>
+          <form id="routingProfileForm" class="broker-form">
+            <label for="profileWorker">Worker</label>
+            <select id="profileWorker" name="worker_id" required></select>
+            <div class="broker-form-pair">
+              <div>
+                <label for="profileCost">Estimated comparison units</label>
+                <input id="profileCost" name="estimated_cost_units_per_run" type="number" min="0" required />
+              </div>
+              <div>
+                <label for="profilePriority">Routing priority</label>
+                <input id="profilePriority" name="routing_priority" type="number" min="0" value="0" required />
+              </div>
+            </div>
+            <div class="broker-form-pair">
+              <div>
+                <label for="profileCapacity">Quota capacity</label>
+                <input id="profileCapacity" name="quota_capacity_units" type="number" min="0" required />
+              </div>
+              <div>
+                <label for="profileRemaining">Quota remaining</label>
+                <input id="profileRemaining" name="quota_remaining_units" type="number" min="0" required />
+              </div>
+            </div>
+            <label class="broker-checkbox" for="profileEnabled">
+              <input id="profileEnabled" name="enabled" type="checkbox" checked />
+              Enable this profile for routing
+            </label>
+            <input id="profileRevision" name="expected_revision" type="hidden" />
+            <div class="broker-action-row">
+              <button type="submit" class="broker-button broker-button--primary">Save profile</button>
+              <button type="button" id="resetProfileQuota" class="broker-button broker-button--secondary" disabled>Reset quota</button>
+            </div>
+            <p id="profileStatus" class="broker-help" role="status" aria-live="polite">Choose a worker to author operator-owned cost and quota state.</p>
+          </form>
+        </article>
+      </div>
+
+      <article class="broker-panel broker-history-panel">
+        <div class="broker-panel-heading broker-panel-heading--history">
+          <div>
+            <p class="broker-eyebrow">Bounded newest-first records</p>
+            <h3>Execution history</h3>
+          </div>
+          <form id="brokerHistoryFilters" class="broker-history-filters">
+            <label for="historyRepository" class="sr-only">Repository</label>
+            <input id="historyRepository" name="repository_full_name" placeholder="owner/repository" />
+            <label for="historyWorkOrderStatus" class="sr-only">Work-order status</label>
+            <select id="historyWorkOrderStatus" name="work_order_status">
+              <option value="">All lifecycle states</option>
+              <option value="pending_approval">Pending approval</option>
+              <option value="approved">Approved</option>
+              <option value="queued">Queued</option>
+              <option value="assigned">Assigned</option>
+              <option value="running">Running</option>
+              <option value="succeeded">Succeeded</option>
+              <option value="failed">Failed</option>
+              <option value="cancelled">Cancelled</option>
+              <option value="expired">Expired</option>
+            </select>
+            <label for="historyReuseDecision" class="sr-only">Reuse decision</label>
+            <select id="historyReuseDecision" name="reuse_decision">
+              <option value="">Fresh and reused</option>
+              <option value="fresh">Fresh</option>
+              <option value="reused">Reused</option>
+              <option value="unavailable">Reuse unavailable</option>
+            </select>
+            <label for="historyPublicationState" class="sr-only">Publication state</label>
+            <select id="historyPublicationState" name="publication_state">
+              <option value="">All publication states</option>
+              <option value="not_published">Not published</option>
+              <option value="published_current">Current</option>
+              <option value="published_stale">Stale</option>
+              <option value="retryable_failure">Retryable failure</option>
+              <option value="failed">Failed</option>
+            </select>
+            <button class="broker-button broker-button--secondary" type="submit">Apply filters</button>
+          </form>
+        </div>
+        <div id="brokerHistory" class="broker-table-wrap"></div>
+        <div class="broker-pagination">
+          <p id="brokerHistorySummary">No history loaded.</p>
+          <div>
+            <button type="button" id="historyPrevious" class="broker-button broker-button--quiet" disabled>Previous</button>
+            <button type="button" id="historyNext" class="broker-button broker-button--quiet" disabled>Next</button>
+          </div>
+        </div>
+      </article>
     </section>
 
     <section class="mb-8 p-4 bg-white rounded-xl shadow" aria-labelledby="system-status-heading">
@@ -214,5 +421,6 @@
   </div>
 
   <script type="module" src="/static/app.js"></script>
+  <script type="module" src="/static/validation_broker.js"></script>
 </body>
 </html>
