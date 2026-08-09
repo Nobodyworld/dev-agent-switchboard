@@ -119,7 +119,10 @@ operator `routing_priority`, and finally lexical worker ID. An explicit
 `preferred_executor` is a hard pin to a known worker. It overrides ranking but
 never approval, liveness, polling, status, capacity, capability, network,
 read-only, cost, quota, or profile-enabled checks, and it never falls back to a
-different worker when unavailable.
+different worker when unavailable. An unknown hard pin submitted through the
+GitHub validation route returns bounded `404 preferred_executor_not_found`; the
+request transaction is rolled back before either an adapter request or work
+order exists.
 
 Every checkout by a known authenticated worker records only that requester's
 `last_checkout_poll_at` using server time. Poll freshness and heartbeat
@@ -202,6 +205,14 @@ counts include successful reused runs only; reference seconds come from each
 linked successful source run's persisted start/finish interval, and comparison
 units come from the reused run's persisted route estimate. Missing values are
 excluded rather than guessed.
+
+The command center combines the exact request status with existing bounded
+`GET /api/execution/work-orders/{id}/route-assessment` and
+`GET /api/execution/runs/{id}` reads. The former supplies a non-mutating queued
+candidate decision; the latter supplies persisted route/quota provenance,
+timestamps, cleanup, reuse source run/fingerprint, and compact evidence after a
+run exists. The browser never requests full logs, commands, argv, environment
+values, local paths, or unbounded candidate data.
 
 Publication requires terminal compact evidence and re-resolves the PR
 immediately before its managed comment is written. A moved or unavailable head

@@ -53,8 +53,14 @@ PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY
 - [x] Add strict browser and accessibility acceptance.
 - [x] Add public-safe screenshot and operator documentation.
 - [x] Run the complete protected local matrix and public-hygiene audit.
-- [ ] Push focused commits to the existing branch and require the complete hosted matrix.
-- [ ] Complete connector review while keeping PR #137 draft and unmerged.
+- [x] Push the initial implementation commits and require its complete hosted matrix.
+- [x] Record final connector review `4890406546` and isolate its three correction clusters.
+- [x] Bound unknown preferred-executor failures with rollback and no created records.
+- [x] Add a real `ExecutionClient`/`LocalWorker` fresh-then-reuse worker-trust acceptance.
+- [x] Complete queued route, terminal quota/timing/source, and worker-state visibility.
+- [x] Run the corrected complete local matrix and repeat public-hygiene validation.
+- [ ] Push the ultimate head and require the corrected complete hosted matrix.
+- [ ] Complete connector re-review while keeping PR #137 draft and unmerged.
 
 ## Surprises & Discoveries
 
@@ -96,6 +102,12 @@ PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY
 
 - Observation: the first implementation-head Linux matrix ran fast enough for the new hard-bounds ASGI requests to consume the shared default-client rate-limit bucket before a later live-file authentication test.
   Evidence: CI workflow `31279411403` returned `429` instead of the later test's expected `401`, while slower Windows runs remained green. Giving the endpoint test a distinct synthetic ASGI client identity isolates its request accounting without changing production limits, bypass rules, or authentication behavior. The same workflow also confirmed that `list_workers` needs the focused `PLR0913` annotation already used for other typed projection boundaries.
+
+- Observation: final connector review `4890406546` found that the direct-completion projection fixture and synthetic browser completion exercised lifecycle math and UI states but bypassed the worker trust boundary.
+  Evidence: neither fixture invoked `LocalWorker.poll_once()`, the trusted step runner, `EvidenceStore`, nor worker-local retained-evidence verification. The correction adds a separate file-backed real-worker acceptance and keeps the direct fixtures explicitly scoped to projection and UI behavior.
+
+- Observation: `preferred_executor_not_found` crossed from `ExecutionService.create_work_order` through the GitHub adapter route as an `ExecutionDomainError`, while that route caught only adapter errors.
+  Evidence: the corrected boundary maps expected execution not-found failures to a bounded 404, rolls back, and proves zero `GitHubValidationRequest` and `ExecutionWorkOrder` rows plus no open transaction.
 
 ## Decision Log
 
@@ -147,6 +159,14 @@ PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY
   Rationale: the final implementation carries the concept's dense scan-friendly metrics and two-column control surface without replacing the existing task, maintenance, configuration, diagnostics, analytics, live-document, or WebSocket UI.
   Date/Author: 2026-08-08 / implementation
 
+- Decision: use existing bounded route-assessment and run-detail point reads for the selected request instead of widening the history list.
+  Rationale: queued assessment and exact run responses already contain the required scalar route, quota, timing, cleanup, and reuse-source state without exposing candidate lists, logs, commands, paths, or environments.
+  Date/Author: 2026-08-09 / connector correction
+
+- Decision: treat the direct-completion adapter test as a focused projection fixture and the synthetic browser app as UI acceptance only.
+  Rationale: only the new real `ExecutionClient`/`LocalWorker` test executes the trusted manifest, persists worker-owned evidence, performs local cryptographic verification, and proves the reused run skips the step runner.
+  Date/Author: 2026-08-09 / connector correction
+
 ## Outcomes & Retrospective
 
 The operator can now complete the complete validation workflow in the existing
@@ -171,13 +191,16 @@ fallback. Policy is authoritative on the linked work order, so this slice adds
 no table column, schema-version change, or migration. The existing merged-main
 manifest-shape regression ran lifespan startup twice and remained green.
 
-The offline server-backed proof created a fresh successful run and a distinct
-same-worker reused run whose compact evidence contained no validation steps. It
-reported one fresh and one reused success, one avoided execution, 7 historical
-reference seconds, 3 operator comparison units, and a 50% reuse rate without
-double-counting repeat publication. Missing source timing and route cost were
-separately proven to contribute zero rather than a guess. Publication was current
-before the mocked head moved and stale afterward while preserving the tested SHA.
+The focused direct-completion fixture still proves projection formulas and
+lifecycle joins, but is no longer represented as the worker trust proof. The
+file-backed real-worker acceptance registers and actively polls two real outbound
+workers, rejects the higher-cost claimant twice, runs the trusted manifest on the
+lower-cost worker, retains marker/result/log/artifact evidence, publishes current,
+then performs same-worker exact retained-evidence verification for a distinct
+reused run without a second step-runner call. Moving the mocked head produces a
+stale second publication while preserving the tested SHA. Overview/history prove
+one fresh success, one reused success, one avoided execution, nonzero source time,
+3 comparison units, 50% reuse, and one current plus one stale publication.
 
 Strict Playwright passed all three tests with zero skips. The command-center test
 proved native malformed-input rejection, server-loaded selectors, UI profile
@@ -650,20 +673,27 @@ Record during implementation:
 - final local/remote SHA equality;
 - final hosted Commitlint and CI IDs in PR #137's external review record.
 
-Current evidence before the complete validation pass:
+Current corrected-head local evidence:
 
 - preflight: `origin/main` and merge base were `223df7752716dd6ad35e75ba7613eeb03cfb2887`; the local and remote implementation branch began at `e905a3d7020c76d940c0938b2617d55d6d57de7e`; the isolated worktree was clean and exclusively owned the branch;
+- correction preflight: local and remote `feat/operator-validation-command-center` both began at `5bb0ec7a696cb512708e3f60e05c2e281b6255b0`; `origin/main` and the merge base remained `223df7752716dd6ad35e75ba7613eeb03cfb2887`; PR #137 remained open, draft, unmerged, and exclusively owned by the clean isolated worktree;
 - pre-change backend/adapter baseline: 169 passed, 8 warnings;
 - pre-change worker baseline: 36 passed;
 - pre-change strict browser baseline: 2 passed, zero skips;
 - implemented server-backed proof: request/work-order/run IDs are database-local synthetic IDs; request 1 completed fresh on the lower-cost worker, request 2 completed as a distinct reused run on the same worker with an empty step list, reference duration 7 seconds, route comparison units 3, one avoided execution, and a 50% reuse rate; publication was current before the mocked head moved and stale afterward;
 - focused implementation checks before documentation: the new policy/operator tests passed 4 tests, the adapter/startup target passed 44 tests, and the new strict command-center browser test passed 1 test;
-- public screenshot: `docs/assets/switchboard-validation-command-center.png`, captured from the offline file-backed browser application with synthetic public-repository data and inspected against the generated command-center concept; no token, authorization value, path, machine identity, private URL, credential-shaped value, environment value, or financial-savings claim is present;
+- corrected public screenshot: `docs/assets/switchboard-validation-command-center.png` is a 1232-by-2276 RGB capture from the offline file-backed UI acceptance application with synthetic public-repository data. It shows queued/terminal route, quota, duration, reuse-source, publication, and bounded worker state and was visually inspected; no token, authorization value, path, machine identity, private URL, credential-shaped value, environment value, or financial-savings claim is present;
 - final focused backend/adapter/startup matrix: 173 passed with 8 existing SQLAlchemy deprecation warnings;
 - final focused worker matrix: 36 passed;
 - final strict browser matrix: 3 passed with zero skips in 21.55 seconds;
 - complete pytest: 576 passed, 5 documented platform skips, and 344 warnings in 404.09 seconds;
 - coverage pytest: the same 576 passed and 5 skipped; aggregate configured coverage was 93%; all 16 gates passed at 95.40%, 94.17%, 100%, 100%, 92.59%, 95%, 87.76%, 100%, 100%, 97.73%, 90.16%, 97.59%, 94.83%, 100%, 90.71%, and 91.30% in workflow order;
+- correction-focused backend matrix: 95 passed; the unknown preferred executor returned bounded HTTP 404 `preferred_executor_not_found`, created zero adapter requests and zero work orders, left no open transaction, and returned no internal or transport data;
+- correction-focused worker matrix: 37 passed. The dedicated real-worker acceptance ran all 7 trusted `validate-switchboard@1` steps for fresh run 1, retained `ownership.json`, `result.json`, step logs, and all 14 declared artifacts with verified hashes, then created reused run 2 from run 1 with local retained-evidence verification, the identical immutable source fingerprint, zero runner calls, zero steps, and zero copied artifacts. The source evidence tree remained byte-for-byte unchanged, the mocked publication decisions were current then stale after the head moved, overview/history totals were 1 fresh, 1 reused, 1 avoided execution, 3 comparison units, 50% reuse, 1 current, 1 stale, and 2 history rows, and both the canonical repository and worker worktree roots were clean;
+- corrected strict browser matrix: 3 passed with zero skips in 26.40 seconds. Queued route assessment; fresh route/quota/duration; reused source run/fingerprint/zero steps; current/stale publication; worker status/freshness/capacity/platform; revision-conflict recovery; keyboard order; desktop and 390-pixel containment; exact `Reference execution time avoided` copy; token non-rendering; and zero unexpected console errors all passed;
+- corrected complete pytest: 578 passed, 5 documented platform skips, and 344 warnings in 724.68 seconds;
+- corrected coverage pytest: the same 578 passed and 5 skipped; aggregate configured coverage was 93%; all 16 gates passed at 95.40%, 94.17%, 100%, 100%, 92.59%, 95%, 87.76%, 100%, 100%, 97.73%, 90.16%, 97.59%, 94.83%, 100%, 90.71%, and 91.30% in workflow order;
+- corrected quality/security matrix: clean Python 3.11 `pip check`, pre-commit, TODO policy, repository-pinned Ruff, Black, Mypy over 177 source files, Bandit 1.8.6 on Python 3.11.14, pip-audit, Gitleaks over 255 commits, Lychee, strict Playwright, and `git diff --check` passed. The shared host retains its documented unrelated dependency and newer-Ruff drift, so no repository rule or scanner was weakened;
 - clean Python 3.11 `pip check`, pre-commit, TODO policy, Ruff, Black, Mypy, compatible-interpreter Bandit, pip-audit, Gitleaks over 250 commits, Lychee, and `git diff --check` passed;
 - the shared Python 3.14 environment retains the unrelated baseline OpenCV/NumPy and Streamlit/Pillow conflicts. A clean external Python 3.11 environment proved dependency consistency and direct gates. The fixed worker argv `python` resolves the base Astral interpreter ahead of a Windows venv under its intentionally sanitized environment, so the established host interpreter was retained for worker/full pytest while direct Python 3.11 gates used the clean environment; no worker command or trust boundary was weakened;
 - generated reports, coverage data, databases, caches, bytecode, link output, and temporary environments are removed before commit. The final public-hygiene audit, local/remote equality, and hosted ultimate-head workflow IDs are recorded during delivery; ultimate-head IDs belong in PR #137's external review record rather than a self-referential plan commit.

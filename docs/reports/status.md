@@ -39,6 +39,12 @@ lifecycle controls, routing-profile management, fresh/reused history, and
 database-derived avoided-work metrics. It remains draft and is not part of the
 merged baseline until review and the protected matrix complete.
 
+Connector review `4890406546` required final correction evidence before that
+review can complete: a real `ExecutionClient`/`LocalWorker` fresh-then-reuse
+acceptance, bounded rollback for unknown preferred workers, and complete
+route/quota/source/timing plus worker-state visibility. The browser fixture
+remains UI-only; it is not cited as cryptographic retained-evidence proof.
+
 Operator setup, repository allowlisting, evidence retention, and trust limitations are
 documented in the [local worker operations guide](../operations/local-worker.md).
 

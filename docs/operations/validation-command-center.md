@@ -19,7 +19,8 @@ identity, private URL, or claim of actual financial savings.
    windows.
 2. Open the dashboard and, when configured, enter the existing admin token in
    the dashboard's settings. The browser keeps it in local storage and attaches
-   it to protected requests; the server never returns it to the workspace.
+   it to protected requests using the accepted `Authorization: Bearer` form;
+   the server never returns it to the workspace.
 3. Create or edit an operator-owned worker routing profile. Profile replacement
    and quota reset require the latest revision. A `409` refreshes visible state
    and leaves a persistent recovery message instead of overwriting newer data.
@@ -33,8 +34,10 @@ identity, private URL, or claim of actual financial savings.
    is never implied by request creation.
 7. Allow the outbound worker to claim the job. The selected request is polled
    while active; selecting another request replaces the timer.
-8. Inspect the persisted route, fresh/reused decision, terminal run, compact
-   evidence fingerprint, and publication state.
+8. Inspect the queued route assessment or persisted terminal route, quota state,
+   candidate count, profile revision, run timestamps and duration, fresh/reused
+   decision, reused source provenance, cleanup, compact evidence fingerprint,
+   and publication decision.
 9. Explicitly publish evidence. Switchboard re-resolves the PR head immediately;
    a moved head is labelled stale without rewriting the tested SHA.
 10. Use bounded history and filters to review prior requests. Copy actions expose
@@ -58,7 +61,13 @@ SHA remains unchanged. Finally, filter history to reused rows, force one stale
 profile revision, tab through the request form, and verify both a desktop and a
 390-pixel viewport have no page-level horizontal overflow. The automated strict
 browser regression performs this procedure with a file-backed database and no
-network or real GitHub credential.
+network or real GitHub credential. Its completion endpoint is deliberately a
+synthetic UI fixture; it does not claim to prove worker-local execution or
+cryptographic reuse verification. That trust path is separately exercised by
+the file-backed `ExecutionClient`/`LocalWorker` acceptance in
+`client/python/tests/test_execution_worker_server_smoke.py`, which runs the
+trusted manifest once, retains evidence, verifies the exact retained source on
+the worker, and skips the step runner only for the reused run.
 
 ## Projection and identity contract
 
@@ -76,6 +85,16 @@ publication state. Projection responses exclude commands, argv, full logs,
 environment dumps, credentials, local paths, candidate lists, and complete
 worker capabilities.
 
+The selected request uses the existing bounded route-assessment and run-detail
+APIs. Before assignment it displays the selected candidate, abstract comparison
+units, eligible count, bounded reason, and hard-pin decision. After assignment it
+displays persisted worker/profile provenance, required and reserved quota,
+reservation state, timestamps, measured duration, reuse source identity,
+evidence fingerprint, cleanup, and terminal state. Missing values are displayed
+as unavailable rather than inferred. Worker cards separately show declared
+status, server-derived activity, safe OS/architecture, active/max capacity,
+heartbeat and checkout-poll timestamps, and operator-owned profile state.
+
 The request idempotency identity includes repository, stable PR identity, exact
 head, trusted manifest, authenticated actor, reuse policy, routing policy,
 maximum comparison units, required quota, and preferred executor. Requests with
@@ -90,7 +109,7 @@ columns or migration.
 The overview is derived from persisted database records for the selected window:
 
 - **Deterministic executions avoided** counts successful reused runs only.
-- **Reference time avoided** sums the persisted `finished_at - started_at`
+- **Reference execution time avoided** sums the persisted `finished_at - started_at`
   duration of each linked successful source run when both timestamps are valid.
 - **Comparison units avoided** sums the reused run's persisted route estimate
   when present.

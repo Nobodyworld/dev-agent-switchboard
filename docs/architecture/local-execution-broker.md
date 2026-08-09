@@ -264,6 +264,21 @@ per adapter request and returns compact scalar provenance. Worker summaries
 combine the declared worker with its operator-owned profile without exposing
 capability dumps, local roots, or private connectivity data.
 
+The selected-request surface makes two bounded point reads in addition to its
+request/history projection: current route assessment while queued and the exact
+run after assignment. This exposes candidate count, reason, hard-pin state,
+profile revision, quota reservation state, timestamps, duration, cleanup, and
+reuse source provenance without broadening list responses or returning worker
+logs. Worker cards render explicit declared status, derived activity,
+OS/architecture, capacity, heartbeat/poll freshness, and profile state.
+
+The browser acceptance uses synthetic completion only to drive visible lifecycle
+states. It is not a worker trust proof. A separate file-backed acceptance uses
+the real outbound `ExecutionClient` and `LocalWorker`, executes the trusted
+manifest on the deterministically selected lower-cost worker, verifies retained
+evidence locally on reuse, and proves the step runner is not called a second
+time.
+
 Adapter request identity binds every accepted result-affecting execution policy.
 For compatibility, an all-default request may resolve the exact pre-#136 legacy
 identity; that row and linked work order are returned unchanged. A non-default
