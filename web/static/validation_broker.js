@@ -32,6 +32,8 @@ const brokerState = {
   historyOffset: 0,
   selectedRequest: null,
   selectedProjection: null,
+  selectedRoute: null,
+  selectedRun: null,
   pollTimer: null,
 };
 
@@ -60,6 +62,7 @@ function setProfileStatus(message, tone = '') {
 }
 
 function formatInteger(value) {
+  if (value === null || value === undefined || value === '') return '—';
   return Number.isFinite(Number(value)) ? Number(value).toLocaleString() : '—';
 }
 
@@ -116,7 +119,7 @@ function renderMetrics() {
   }
   const cards = [
     ['Deterministic executions avoided', overview.avoided_work.deterministic_executions_avoided],
-    ['Reference time avoided', formatSeconds(overview.avoided_work.reference_seconds_avoided)],
+    ['Reference execution time avoided', formatSeconds(overview.avoided_work.reference_seconds_avoided)],
     ['Comparison units avoided', overview.avoided_work.comparison_units_avoided],
     ['Fresh successful runs', overview.runs.fresh_successful],
     ['Reused successful runs', overview.runs.reused_successful],
@@ -186,6 +189,7 @@ function renderWorkers() {
       const profileDetails = profile
         ? `
           <dl>
+            <div><dt>Profile</dt><dd>${badge(profile.enabled ? 'enabled' : 'disabled', profile.enabled ? 'success' : 'warning')}</dd></div>
             <div><dt>Comparison units</dt><dd>${formatInteger(profile.estimated_cost_units_per_run)}</dd></div>
             <div><dt>Revision</dt><dd>${formatInteger(profile.revision)}</dd></div>
             <div><dt>Quota</dt><dd>${formatInteger(profile.quota_remaining_units)} / ${formatInteger(profile.quota_capacity_units)}</dd></div>
@@ -200,8 +204,14 @@ function renderWorkers() {
               <strong>${escapeHtml(worker.display_name)}</strong>
               <p class="broker-code">${escapeHtml(worker.worker_id)}</p>
             </div>
-            <div>${badge(worker.activity_state, stateTone(worker.activity_state))}</div>
+            <div>${badge(worker.status, stateTone(worker.status))} ${badge(worker.activity_state, stateTone(worker.activity_state))}</div>
           </header>
+          <dl>
+            <div><dt>Platform</dt><dd>${escapeHtml(worker.operating_system)} / ${escapeHtml(worker.architecture)}</dd></div>
+            <div><dt>Capacity</dt><dd>${formatInteger(worker.active_run_count)} active / ${formatInteger(worker.max_concurrency)} maximum</dd></div>
+            <div><dt>Last heartbeat</dt><dd>${escapeHtml(formatDate(worker.last_heartbeat_at))}</dd></div>
+            <div><dt>Last checkout poll</dt><dd>${escapeHtml(formatDate(worker.last_checkout_poll_at))}</dd></div>
+          </dl>
           ${profileDetails}
           <button type="button" class="broker-button broker-button--quiet" data-profile-edit="${escapeHtml(worker.worker_id)}">${profile ? 'Edit profile' : 'Create profile'}</button>
         </section>
@@ -235,6 +245,46 @@ function currentProjectionForRequest(requestId) {
   return brokerState.history.find((item) => item.request_id === requestId) || null;
 }
 
+async function optionalDetail(url) {
+  try {
+    return await apiFetchJson(url, {
+      headers: authorizedHeaders({ json: false }),
+    });
+  } catch (error) {
+    if ([404, 409].includes(error?.response?.status)) return null;
+    throw error;
+  }
+}
+
+async function refreshSelectedDetails() {
+  const request = brokerState.selectedRequest;
+  brokerState.selectedRoute = null;
+  brokerState.selectedRun = null;
+  if (!request) return;
+  const runId = brokerState.selectedProjection?.run_id || request.terminal_run_id;
+  if (runId) {
+    brokerState.selectedRun = await optionalDetail(`/api/execution/runs/${runId}`);
+    brokerState.selectedRoute = brokerState.selectedRun?.route_provenance || null;
+    return;
+  }
+  if (request.work_order_status === 'queued') {
+    brokerState.selectedRoute = await optionalDetail(
+      `/api/execution/work-orders/${request.work_order_id}/route-assessment`
+    );
+  }
+}
+
+function measuredDuration(run, projection) {
+  if (run?.started_at && run?.finished_at) {
+    const started = new Date(run.started_at);
+    const finished = new Date(run.finished_at);
+    if (!Number.isNaN(started.valueOf()) && !Number.isNaN(finished.valueOf())) {
+      return Math.max(0, (finished.valueOf() - started.valueOf()) / 1000);
+    }
+  }
+  return projection?.run_duration_seconds ?? null;
+}
+
 function renderRequestDetail() {
   const container = document.getElementById('brokerRequestDetail');
   const refresh = document.getElementById('refreshRequest');
@@ -250,28 +300,52 @@ function renderRequestDetail() {
   refresh.disabled = false;
   container.className = '';
   const projection = brokerState.selectedProjection || {};
+  const run = brokerState.selectedRun;
+  const route = brokerState.selectedRoute || run?.route_provenance || null;
+  const evidence = run?.evidence_metadata || null;
   const status = request.work_order_status;
   const canApprove = status === 'pending_approval';
   const canQueue = status === 'approved';
   const canCancel = !TERMINAL_WORK_ORDER_STATUSES.has(status);
   const canExpire = ['approved', 'queued'].includes(status);
   const canPublish = Boolean(request.evidence_fingerprint);
-  const selectedWorker = projection.selected_worker_id || 'Not selected';
-  const reuseDecision = projection.reuse_decision || 'pending';
+  const selectedWorker = route?.selected_worker_id || run?.worker_id || projection.selected_worker_id;
+  const reuseDecision = run?.reuse_decision || projection.reuse_decision || 'pending';
+  const sourceRunId = run?.reused_from_run_id || evidence?.reuse_provenance?.source_run_id;
+  const sourceFingerprint =
+    run?.source_evidence_fingerprint || evidence?.reuse_provenance?.source_evidence_fingerprint;
+  const evidenceFingerprint = evidence?.fingerprint || request.evidence_fingerprint;
+  const duration = measuredDuration(run, projection);
+  const executedSteps = Array.isArray(evidence?.steps) ? evidence.steps.length : null;
   container.innerHTML = `
     <dl class="broker-detail-list">
       <dt>Request</dt><dd>#${request.request_id}</dd>
+      <dt>Created</dt><dd>${escapeHtml(formatDate(request.created_at))}</dd>
+      <dt>Last head resolution</dt><dd>${escapeHtml(formatDate(request.last_resolved_at))}</dd>
       <dt>Exact head</dt><dd><span class="broker-code">${escapeHtml(request.tested_head_sha)}</span> <button type="button" class="copy-button" data-copy-value="${escapeHtml(request.tested_head_sha)}" data-copy-label="Head SHA">Copy SHA</button></dd>
       <dt>Base SHA</dt><dd class="broker-code">${escapeHtml(request.base_sha)}</dd>
       <dt>Manifest</dt><dd>${escapeHtml(`${request.manifest_name}@${request.manifest_version}`)} <span class="broker-code">${escapeHtml(request.manifest_digest)}</span></dd>
       <dt>Work order</dt><dd>#${request.work_order_id} ${badge(status, stateTone(status))}</dd>
-      <dt>Route</dt><dd>${badge(request.routing_policy)} · ${escapeHtml(selectedWorker)}</dd>
-      <dt>Comparison units</dt><dd>${formatInteger(projection.estimated_cost_units)}</dd>
-      <dt>Quota requested</dt><dd>${formatInteger(request.required_quota_units)}</dd>
+      <dt>Route</dt><dd>${badge(request.routing_policy)} · ${escapeHtml(selectedWorker || 'Not available')}</dd>
+      <dt>Route reason</dt><dd>${escapeHtml(formatLabel(route?.reason))}</dd>
+      <dt>Comparison units</dt><dd>${formatInteger(route?.estimated_cost_units ?? projection.estimated_cost_units)}</dd>
+      <dt>Eligible candidates</dt><dd>${formatInteger(route?.eligible_candidate_count)}</dd>
+      <dt>Explicit pin</dt><dd>${route ? (route.explicit_pin_applied ? 'Applied' : 'Not applied') : 'Not available'}</dd>
+      <dt>Profile revision</dt><dd>${formatInteger(route?.selected_routing_profile_revision)}</dd>
+      <dt>Quota</dt><dd>${formatInteger(route?.required_quota_units ?? request.required_quota_units)} required / ${formatInteger(route?.reserved_quota_units)} reserved · ${escapeHtml(formatLabel(route?.quota_reservation_state))}</dd>
       <dt>Reuse</dt><dd>${badge(reuseDecision, stateTone(reuseDecision))}</dd>
-      <dt>Run</dt><dd>${request.terminal_run_id ? `#${request.terminal_run_id} ${badge(request.terminal_run_status, stateTone(request.terminal_run_status))}` : 'Not started'}</dd>
-      <dt>Evidence</dt><dd class="broker-code">${escapeHtml(request.evidence_fingerprint || 'Not available')}</dd>
-      <dt>Publication</dt><dd>${badge(request.publication_state, stateTone(request.publication_state))}</dd>
+      <dt>Source run</dt><dd>${sourceRunId ? `#${formatInteger(sourceRunId)}` : 'Not available'}</dd>
+      <dt>Source evidence</dt><dd class="broker-code">${escapeHtml(sourceFingerprint || 'Not available')}</dd>
+      <dt>Run</dt><dd>${run ? `#${run.id} ${badge(run.status, stateTone(run.status))}` : 'Not available'}</dd>
+      <dt>Assigned</dt><dd>${escapeHtml(formatDate(run?.assigned_at))}</dd>
+      <dt>Started</dt><dd>${escapeHtml(formatDate(run?.started_at))}</dd>
+      <dt>Finished</dt><dd>${escapeHtml(formatDate(run?.finished_at))}</dd>
+      <dt>Measured duration</dt><dd>${duration === null ? 'Not available' : escapeHtml(formatSeconds(duration))}</dd>
+      <dt>Executed steps</dt><dd>${executedSteps === null ? 'Not available' : formatInteger(executedSteps)}</dd>
+      <dt>Cleanup</dt><dd>${escapeHtml(formatLabel(run?.cleanup_status))}</dd>
+      <dt>Terminal reason</dt><dd>${escapeHtml(formatLabel(run?.terminal_reason))}</dd>
+      <dt>Evidence</dt><dd class="broker-code">${escapeHtml(evidenceFingerprint || 'Not available')}</dd>
+      <dt>Publication</dt><dd>${badge(request.publication_state, stateTone(request.publication_state))} · ${escapeHtml(formatLabel(request.publication_decision))}</dd>
       <dt>Updated</dt><dd>${escapeHtml(formatDate(request.updated_at))}</dd>
     </dl>
     <div class="broker-action-row" data-request-actions>
@@ -382,6 +456,7 @@ async function refreshHistory() {
     brokerState.selectedProjection = currentProjectionForRequest(
       brokerState.selectedRequest.request_id
     );
+    await refreshSelectedDetails();
     renderRequestDetail();
   }
   renderHistory();
@@ -396,6 +471,7 @@ async function refreshSelectedRequest({ silent = false } = {}) {
       { headers: authorizedHeaders({ json: false }) }
     );
     brokerState.selectedProjection = currentProjectionForRequest(requestId);
+    await refreshSelectedDetails();
     renderRequestDetail();
   } catch (error) {
     console.error('Failed to refresh selected validation request', error);
@@ -409,6 +485,7 @@ async function selectRequest(requestId) {
     `/api/execution/github/requests/${requestId}`,
     { headers: authorizedHeaders({ json: false }) }
   );
+  await refreshSelectedDetails();
   renderRequestDetail();
   document.getElementById('brokerRequestDetail')?.scrollIntoView({
     behavior: 'smooth',

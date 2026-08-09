@@ -1,4 +1,8 @@
-"""Real Switchboard app with an offline GitHub transport for browser acceptance."""
+"""Real Switchboard app with synthetic completion for UI-only browser acceptance.
+
+Worker-local execution and cryptographic reuse verification are intentionally proved by
+the real ``ExecutionClient``/``LocalWorker`` acceptance in the Python client suite.
+"""
 
 from __future__ import annotations
 

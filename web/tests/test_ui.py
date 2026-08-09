@@ -505,6 +505,27 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
         page.wait_for_selector('[data-worker-id="ui-worker-cheap"]')
         expect(page.locator("#brokerWorkers")).to_contain_text("Local small")
         expect(page.locator("#brokerWorkers")).to_contain_text("3")
+        expect(page.locator('[data-worker-id="ui-worker-cheap"]')).to_contain_text(
+            "online"
+        )
+        expect(page.locator('[data-worker-id="ui-worker-cheap"]')).to_contain_text(
+            "active"
+        )
+        expect(page.locator('[data-worker-id="ui-worker-cheap"]')).to_contain_text(
+            "linux / x86_64"
+        )
+        expect(page.locator('[data-worker-id="ui-worker-cheap"]')).to_contain_text(
+            "0 active / 1 maximum"
+        )
+        expect(page.locator('[data-worker-id="ui-worker-cheap"]')).to_contain_text(
+            "Last heartbeat"
+        )
+        expect(page.locator('[data-worker-id="ui-worker-cheap"]')).to_contain_text(
+            "Last checkout poll"
+        )
+        expect(page.locator('[data-worker-id="ui-worker-cheap"]')).to_contain_text(
+            "enabled"
+        )
 
         page.select_option("#profileWorker", "ui-worker-new")
         page.fill("#profileCost", "12")
@@ -574,6 +595,12 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
             "() => document.querySelector('#brokerRequestDetail')?.textContent"
             ".includes('queued')"
         )
+        expect(page.locator("#brokerRequestDetail")).to_contain_text("ui-worker-cheap")
+        expect(page.locator("#brokerRequestDetail")).to_contain_text("routing selected")
+        expect(page.locator("#brokerRequestDetail")).to_contain_text(
+            "Eligible candidates"
+        )
+        expect(page.locator("#brokerRequestDetail")).to_contain_text("Not applied")
         first_request_id = page.evaluate(
             "() => Number(document.querySelector('[data-history-request]')"
             "?.dataset.historyRequest)"
@@ -585,6 +612,13 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
             "() => document.querySelector('#brokerRequestDetail')?.textContent"
             ".includes('succeeded')"
         )
+        fresh_detail = page.locator("#brokerRequestDetail")
+        expect(fresh_detail).to_contain_text("1 required / 1 reserved")
+        expect(fresh_detail).to_contain_text("consumed")
+        expect(fresh_detail).to_contain_text("Measured duration")
+        expect(fresh_detail).to_contain_text("7 s")
+        expect(fresh_detail).to_contain_text("Cleanup")
+        expect(fresh_detail).to_contain_text("succeeded")
 
         dialogs: list[str] = []
 
@@ -598,6 +632,7 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
             "() => document.querySelector('#brokerRequestDetail')?.textContent"
             ".includes('published current')"
         )
+        expect(page.locator("#brokerRequestDetail")).to_contain_text("current")
 
         page.select_option("#validationReusePolicy", "allow_exact")
         page.click('#validationRequestForm button[type="submit"]')
@@ -617,6 +652,12 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
         page.wait_for_function(
             "() => !document.querySelector('[data-request-action=publish]')?.disabled"
         )
+        reused_detail = page.locator("#brokerRequestDetail")
+        expect(reused_detail).to_contain_text("reused")
+        expect(reused_detail).to_contain_text(f"#{fresh['run_id']}")
+        expect(reused_detail).to_contain_text(fresh["evidence_fingerprint"])
+        expect(reused_detail).to_contain_text("Executed steps")
+        expect(reused_detail).to_contain_text("0")
         page.click('[data-request-action="publish"]')
         page.wait_for_function(
             "() => document.querySelector('#brokerRequestDetail')?.textContent"
@@ -635,6 +676,9 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
         expect(page.locator("#brokerHistory")).to_contain_text("published stale")
         expect(page.locator("#brokerMetrics")).to_contain_text(
             "Deterministic executions avoided"
+        )
+        expect(page.locator("#brokerMetrics")).to_contain_text(
+            "Reference execution time avoided"
         )
         expect(
             page.locator("#brokerMetrics .broker-metric").first.locator("dd")
@@ -678,6 +722,8 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
             })"""
         )
         assert overflow["contained"], overflow["offenders"]
+        assert "ui-admin-sentinel" not in page.url
+        assert all("ui-admin-sentinel" not in message for message in console_errors)
         page.evaluate(
             "() => document.querySelectorAll('.toast.is-visible')"
             ".forEach((toast) => toast.click())"
