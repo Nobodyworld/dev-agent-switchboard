@@ -39,8 +39,10 @@ _SHA256_LENGTH = 64
 _EXPECTED_MANIFEST_STEPS = 11
 _EXPECTED_REPOSITORIES = 2
 _ACCOUNTING_MANIFEST_DIGEST = (
+    # pragma: allowlist nextline secret
     "892f1269cdf2a6f4e0df4d86879e5dae980374d598faeadee77c2c32f33aa612"
 )
+# pragma: allowlist nextline secret
 _CATALOG_DIGEST = "3e8fe68e917d1afa5615e158f3ef69ac78193f356502c8e6fb071799edad5436"
 
 _ACCOUNTING_COMMANDS = (
@@ -154,9 +156,11 @@ def test_catalog_is_canonical_strict_and_preserves_existing_manifest_identities(
     assert len(trusted_catalog_digest()) == _SHA256_LENGTH
     assert trusted_catalog_digest() == _CATALOG_DIGEST
     assert get_trusted_manifest("worker-smoke", "1").digest == (
+        # pragma: allowlist nextline secret
         "63e645f19d8c60ae442e1800aaecc1a18a719d53f22ba8e85ec62bf745ed55d1"
     )
     assert get_trusted_manifest("validate-switchboard", "1").digest == (
+        # pragma: allowlist nextline secret
         "10e99418e4e6f0e9f4a6e95fb5b9a267dab4eeac4671cf58533c8b9afe1fed98"
     )
     accounting = get_trusted_manifest("validate-accounting-modular", "1")
