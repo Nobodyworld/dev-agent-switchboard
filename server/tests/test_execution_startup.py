@@ -296,6 +296,69 @@ async def test_existing_execution_tables_gain_reuse_columns_and_indexes(
         await engine.dispose()
 
 
+@pytest.mark.asyncio
+async def test_prior_worker_schema_gains_switchboard_only_repository_list_once(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "prior-worker-repositories.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database}")
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "CREATE TABLE execution_workers ("
+                    "id INTEGER PRIMARY KEY, worker_id VARCHAR(128) NOT NULL, "
+                    "last_checkout_poll_at DATETIME)"
+                )
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO execution_workers (id, worker_id) "
+                    "VALUES (1, 'legacy-worker')"
+                )
+            )
+        monkeypatch.setattr(lifecycle_module, "engine", engine)
+        monkeypatch.setattr(lifecycle_module, "AsyncSessionLocal", factory)
+
+        async with lifecycle_module.lifespan(FastAPI()):
+            pass
+        async with engine.begin() as connection:
+            first = (
+                await connection.execute(
+                    text(
+                        "SELECT repository_full_names FROM execution_workers "
+                        "WHERE id = 1"
+                    )
+                )
+            ).scalar_one()
+        async with lifecycle_module.lifespan(FastAPI()):
+            pass
+        async with engine.begin() as connection:
+            columns = await connection.run_sync(
+                lambda sync_connection: {
+                    column["name"]
+                    for column in inspect(sync_connection).get_columns(
+                        "execution_workers"
+                    )
+                }
+            )
+            second = (
+                await connection.execute(
+                    text(
+                        "SELECT repository_full_names FROM execution_workers "
+                        "WHERE id = 1"
+                    )
+                )
+            ).scalar_one()
+        assert "repository_full_names" in columns
+        assert first == '["Nobodyworld/dev-agent-switchboard"]'
+        assert second == first
+    finally:
+        await engine.dispose()
+
+
 def test_execution_models_are_new_tables_not_task_columns() -> None:
     assert "repository_full_name" not in Task.__table__.columns
     assert "commit_sha" not in Task.__table__.columns

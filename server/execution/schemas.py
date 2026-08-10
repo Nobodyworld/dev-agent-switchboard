@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .catalog import TRUSTED_REPOSITORIES
 from .enums import (
     ApprovalPolicy,
     ExecutionRunStatus,
@@ -167,6 +168,11 @@ class WorkerRegistrationIn(ExecutionInput):
     unity_available: bool = False
     desktop_available: bool = False
     capabilities: dict[str, Any] = Field(default_factory=dict)
+    repository_full_names: list[str] = Field(
+        default_factory=lambda: ["Nobodyworld/dev-agent-switchboard"],
+        min_length=1,
+        max_length=32,
+    )
     max_concurrency: int = Field(default=1, ge=1, le=64)
     network_policy_capability: NetworkPolicy = NetworkPolicy.WORKER_RESTRICTED
     repository_write_capability: Literal[False] = False
@@ -178,6 +184,15 @@ class WorkerRegistrationIn(ExecutionInput):
 
         _reject_executable_keys(self.capabilities, field_name="capabilities")
         return self
+
+    @field_validator("repository_full_names")
+    @classmethod
+    def validate_repository_full_names(cls, value: list[str]) -> list[str]:
+        if value != sorted(value) or len(value) != len(set(value)):
+            raise ValueError("repository_full_names must be sorted and unique")
+        if any(item not in TRUSTED_REPOSITORIES for item in value):
+            raise ValueError("repository_full_names contains an unknown repository")
+        return value
 
 
 class WorkerHeartbeatIn(ExecutionInput):
@@ -395,6 +410,7 @@ class WorkerOut(BaseModel):
     unity_available: bool
     desktop_available: bool
     capabilities: dict[str, Any]
+    repository_full_names: list[str]
     max_concurrency: int
     active_run_count: int
     network_policy_capability: NetworkPolicy
@@ -406,6 +422,72 @@ class WorkerOut(BaseModel):
     updated_at: dt.datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class TrustedManifestReferenceOut(BaseModel):
+    """API-safe trusted manifest identity and display metadata."""
+
+    name: str = Field(min_length=1, max_length=128)
+    version: str = Field(min_length=1, max_length=64)
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    description: str = Field(min_length=1, max_length=1000)
+
+
+class TrustedRepositoryOut(BaseModel):
+    """Bounded source-controlled repository catalog entry."""
+
+    full_name: str = Field(min_length=3, max_length=201)
+    display_name: str = Field(min_length=1, max_length=120)
+    description: str = Field(min_length=1, max_length=500)
+    support_status: Literal["developer_preview"]
+    documentation_reference: str = Field(
+        min_length=8, max_length=255, pattern=r"^docs/[A-Za-z0-9_./-]+\.md$"
+    )
+    manifests: list[TrustedManifestReferenceOut] = Field(min_length=1, max_length=32)
+    default_manifest: dict[str, str] | None
+
+
+class TrustedCatalogOut(BaseModel):
+    """Canonical catalog digest and sorted safe entries."""
+
+    schema_version: Literal[1] = 1
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    repositories: list[TrustedRepositoryOut] = Field(min_length=1, max_length=32)
+
+
+class RepositoryWorkerReadinessOut(BaseModel):
+    """Safe repository-specific worker readiness without local paths."""
+
+    worker_id: str = Field(min_length=1, max_length=128)
+    display_name: str = Field(min_length=1, max_length=255)
+    advertises_repository: bool
+    activity_state: Literal["active", "stale", "capacity_constrained", "unavailable"]
+    routing_profile_enabled: bool
+    estimated_comparison_units: int | None = Field(default=None, ge=0)
+    quota_remaining_units: int | None = Field(default=None, ge=0)
+    quota_capacity_units: int | None = Field(default=None, ge=0)
+    active_run_count: int = Field(ge=0)
+    max_concurrency: int = Field(ge=1)
+    readiness_reason: Literal[
+        "ready",
+        "repository_unavailable",
+        "profile_missing",
+        "profile_disabled",
+        "stale",
+        "capacity_constrained",
+        "worker_unavailable",
+        "insufficient_quota",
+    ]
+    ready: bool
+
+
+class TrustedRepositoryReadinessOut(BaseModel):
+    """Bounded read-only worker readiness for one trusted repository."""
+
+    repository_full_name: str = Field(min_length=3, max_length=201)
+    required_quota_units: int = Field(ge=0)
+    ready_worker_count: int = Field(ge=0)
+    workers: list[RepositoryWorkerReadinessOut] = Field(max_length=100)
 
 
 class ExecutionRunOut(BaseModel):

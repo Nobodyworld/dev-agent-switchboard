@@ -17,6 +17,7 @@ from server.models import (
 )
 
 from .capabilities import match_worker_capabilities
+from .catalog import TRUSTED_REPOSITORIES, repository_allows_manifest
 from .entities import (
     CheckoutResult,
     ExecutionCompletion,
@@ -61,11 +62,7 @@ from .exceptions import (
     RepositoryWritePolicyError,
     UnknownManifestError,
 )
-from .registry import (
-    TRUSTED_REPOSITORIES,
-    get_trusted_manifest,
-    iter_trusted_manifests,
-)
+from .registry import get_trusted_manifest, iter_trusted_manifests
 from .repository import ExecutionRepository, LeaseSnapshot, RunLeaseWindow
 from .routing import (
     MAX_ROUTING_INTEGER,
@@ -125,9 +122,15 @@ class ExecutionService:
         """Create a pending, deny-by-default work order from safe request data."""
 
         self._validate_work_order_draft(draft)
+        if draft.repository_full_name not in TRUSTED_REPOSITORIES:
+            raise UnknownManifestError("trusted_repository_not_found")
         definition = get_trusted_manifest(draft.manifest_name, draft.manifest_version)
         if definition is None:
             raise UnknownManifestError("trusted_manifest_not_found")
+        if not repository_allows_manifest(
+            draft.repository_full_name, draft.manifest_name, draft.manifest_version
+        ):
+            raise UnknownManifestError("repository_manifest_not_allowed")
         unsupported = set(draft.manifest_parameters) - definition.allowed_parameters
         if unsupported:
             names = ",".join(sorted(unsupported))
@@ -356,6 +359,7 @@ class ExecutionService:
                 "unity_available": registration.unity_available,
                 "desktop_available": registration.desktop_available,
                 "capabilities": dict(registration.capabilities),
+                "repository_full_names": list(registration.repository_full_names),
                 "max_concurrency": registration.max_concurrency,
                 "network_policy_capability": registration.network_policy_capability,
                 "repository_write_capability": False,
@@ -590,6 +594,12 @@ class ExecutionService:
                 work_order.routing_policy == RoutingPolicy.FIRST_AVAILABLE
                 and not explicit_pin
             ):
+                if work_order.repository_full_name not in (
+                    worker.repository_full_names
+                    or ["Nobodyworld/dev-agent-switchboard"]
+                ):
+                    mismatch_reasons.append("worker_repository_unavailable")
+                    continue
                 capability_match = match_worker_capabilities(
                     worker,
                     manifest_requirements=manifest.required_capabilities,
@@ -647,11 +657,16 @@ class ExecutionService:
                 tuple(dict.fromkeys(mismatch_reasons)),
             )
         if mismatch_reasons:
+            unique_mismatches = tuple(dict.fromkeys(mismatch_reasons))
             return CheckoutResult(
                 None,
                 None,
-                "capability_mismatch",
-                tuple(dict.fromkeys(mismatch_reasons)),
+                (
+                    "worker_repository_unavailable"
+                    if "worker_repository_unavailable" in unique_mismatches
+                    else "capability_mismatch"
+                ),
+                unique_mismatches,
             )
         return CheckoutResult(None, None, "no_queued_work_orders")
 
@@ -788,6 +803,11 @@ class ExecutionService:
             if (
                 worker.status != WorkerStatus.ONLINE
                 or worker.active_run_count >= worker.max_concurrency
+                or work_order.repository_full_name
+                not in (
+                    worker.repository_full_names
+                    or ["Nobodyworld/dev-agent-switchboard"]
+                )
             ):
                 continue
             match = match_worker_capabilities(
@@ -1176,6 +1196,11 @@ class ExecutionService:
             provenance = evidence.reuse_provenance
             if (
                 worker is None
+                or source_order.repository_full_name
+                not in (
+                    worker.repository_full_names
+                    or ["Nobodyworld/dev-agent-switchboard"]
+                )
                 or source_order.status != WorkOrderStatus.SUCCEEDED
                 or source_order.finished_at is None
                 or source_run.status != ExecutionRunStatus.SUCCEEDED
@@ -1235,6 +1260,12 @@ class ExecutionService:
         )
         if definition is None:
             raise ApprovalDeniedError("trusted_manifest_not_found")
+        if not repository_allows_manifest(
+            work_order.repository_full_name,
+            work_order.manifest_name,
+            work_order.manifest_version,
+        ):
+            raise ApprovalDeniedError("repository_manifest_not_allowed")
         if definition.digest != work_order.manifest_digest:
             raise ManifestIntegrityError("trusted_manifest_digest_conflict")
 

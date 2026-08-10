@@ -42,7 +42,7 @@ class RoutingEligibility:
     reasons: tuple[str, ...]
 
 
-def evaluate_routing_candidate(  # noqa: PLR0913
+def evaluate_routing_candidate(  # noqa: PLR0912,PLR0913
     worker: ExecutionWorker,
     profile: WorkerRoutingProfile | None,
     *,
@@ -55,6 +55,14 @@ def evaluate_routing_candidate(  # noqa: PLR0913
     """Evaluate every routed-worker safety and policy requirement."""
 
     reasons: list[str] = []
+    repository_full_names = worker.repository_full_names or [
+        "Nobodyworld/dev-agent-switchboard"
+    ]
+    repository_full_name = (
+        work_order.repository_full_name or "Nobodyworld/dev-agent-switchboard"
+    )
+    if repository_full_name not in repository_full_names:
+        reasons.append("worker_repository_unavailable")
     if work_order.preferred_executor is not None and (
         worker.worker_id != work_order.preferred_executor
     ):
@@ -156,6 +164,7 @@ def unavailable_route_reason(mismatch_reasons: list[str], *, explicit_pin: bool)
     if explicit_pin:
         return "preferred_executor_unavailable"
     precedence = (
+        "worker_repository_unavailable",
         "routing_profile_missing",
         "routing_profile_invalid",
         "routing_profile_disabled",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Literal, cast
 
 from server.execution.evidence import (
     AuditSummary,
@@ -22,7 +23,6 @@ _PYTEST_COUNTS = {
     "xfailed": re.compile(r"(?P<count>\d+) xfailed\b"),
     "xpassed": re.compile(r"(?P<count>\d+) xpassed\b"),
 }
-_COVERAGE_PERCENT = re.compile(r"(?P<percent>\d+(?:\.\d+)?)%\s*$")
 
 
 def _bounded_text(path: Path) -> str:
@@ -48,9 +48,13 @@ def _pytest_counts(text: str) -> ParsedTestCounts | None:
 
 def _coverage(text: str) -> ParsedCoverage | None:
     for line in reversed(text.splitlines()):
-        if not line.strip().startswith("TOTAL"):
+        normalized = line.strip()
+        if not (
+            normalized.startswith("TOTAL") or "line coverage" in normalized.lower()
+        ):
             continue
-        match = _COVERAGE_PERCENT.search(line.strip())
+        matches = list(re.finditer(r"(?P<percent>\d+(?:\.\d+)?)%", normalized))
+        match = matches[0] if matches else None
         if match:
             return ParsedCoverage(measured_percent=float(match.group("percent")))
     return None
@@ -83,18 +87,39 @@ def parse_result(
             if coverage is None:
                 raise ValueError("declared coverage result was not found")
             return ParsedResult(parser=parser_kind, status="parsed", coverage=coverage)
-        if parser_kind in {"security-audit", "dependency-audit"}:
+        if parser_kind in {
+            "security-audit",
+            "dependency-audit",
+            "dependency-health",
+            "critical-coverage",
+            "secret-scan",
+        }:
             issue_count = text.count(">> Issue:")
             findings = 0 if command_succeeded else max(1, issue_count)
+            audit_kind = cast(
+                Literal["security", "dependency", "quality"],
+                {
+                    "security-audit": "security",
+                    "secret-scan": "security",
+                    "dependency-audit": "dependency",
+                    "dependency-health": "dependency",
+                    "critical-coverage": "quality",
+                }[parser_kind],
+            )
+            tool = {
+                "security-audit": "bandit",
+                "secret-scan": "secret-scan",
+                "dependency-audit": "pip-audit",
+                "dependency-health": "pip",
+                "critical-coverage": "critical-coverage",
+            }[parser_kind]
             return ParsedResult(
                 parser=parser_kind,
                 status="parsed",
                 audit=AuditSummary(
-                    kind=(
-                        "security" if parser_kind == "security-audit" else "dependency"
-                    ),
+                    kind=audit_kind,
                     status="passed" if command_succeeded else "failed",
-                    tool="bandit" if parser_kind == "security-audit" else "pip",
+                    tool=tool,
                     findings=findings,
                 ),
             )

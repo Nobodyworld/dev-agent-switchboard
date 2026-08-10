@@ -82,6 +82,7 @@ def discover_worker_registration(config: WorkerConfig) -> dict[str, Any]:
             "repository_registry_count": len(config.repositories),
             "worker_root_configured": True,
         },
+        "repository_full_names": sorted(config.repositories),
         "max_concurrency": config.max_concurrency,
         "network_policy_capability": config.network_policy_capability,
         "repository_write_capability": False,

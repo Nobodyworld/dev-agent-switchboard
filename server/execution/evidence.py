@@ -20,6 +20,9 @@ ParserKind = Literal[
     "pytest-coverage",
     "security-audit",
     "dependency-audit",
+    "dependency-health",
+    "critical-coverage",
+    "secret-scan",
 ]
 TerminalStatus = Literal["succeeded", "failed", "timed_out", "cancelled"]
 RedactionState = Literal["none", "redacted"]
@@ -154,7 +157,7 @@ class ParsedCoverage(EvidenceModel):
 class AuditSummary(EvidenceModel):
     """Normalized security or dependency-audit result."""
 
-    kind: Literal["security", "dependency"]
+    kind: Literal["security", "dependency", "quality"]
     status: Literal["passed", "failed"]
     tool: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.+-]+$")
     findings: int = Field(ge=0, le=10_000_000)
@@ -192,7 +195,13 @@ class ParsedResult(EvidenceModel):
             self.tests is None or self.coverage is None or self.audit is not None
         ):
             raise ValueError("pytest-coverage parser result shape is invalid")
-        if self.parser in {"security-audit", "dependency-audit"} and (
+        if self.parser in {
+            "security-audit",
+            "dependency-audit",
+            "dependency-health",
+            "critical-coverage",
+            "secret-scan",
+        } and (
             self.audit is None or self.tests is not None or self.coverage is not None
         ):
             raise ValueError("audit parser result shape is invalid")

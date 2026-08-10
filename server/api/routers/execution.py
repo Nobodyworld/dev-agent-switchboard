@@ -17,6 +17,11 @@ from server.api.dependencies import (
     SessionDependency,
     require_admin_token,
 )
+from server.execution.catalog import (
+    get_trusted_repository,
+    iter_trusted_repositories,
+    trusted_catalog_digest,
+)
 from server.execution.entities import (
     ExecutionCompletion,
     RoutingProfileDraft,
@@ -53,6 +58,7 @@ from server.execution.operator_projection import (
     ExecutionOperatorProjection,
     ExecutionWorkerPageOut,
 )
+from server.execution.registry import get_trusted_manifest
 from server.execution.schemas import (
     ApproveWorkOrderIn,
     CheckoutIn,
@@ -62,12 +68,17 @@ from server.execution.schemas import (
     ExecutionRunOut,
     ExpireLeasesOut,
     ReasonIn,
+    RepositoryWorkerReadinessOut,
     ReuseCandidateOut,
     ReuseCandidateRequestIn,
     RouteAssessmentOut,
     RouteProvenanceOut,
     RoutingQuotaResetIn,
     RunHeartbeatIn,
+    TrustedCatalogOut,
+    TrustedManifestReferenceOut,
+    TrustedRepositoryOut,
+    TrustedRepositoryReadinessOut,
     WorkerHeartbeatIn,
     WorkerOut,
     WorkerRegistrationIn,
@@ -80,6 +91,171 @@ from server.execution.schemas import (
 from server.settings import get_execution_routing_settings
 
 router = APIRouter(dependencies=[Depends(require_admin_token)])
+
+
+@router.get("/api/execution/catalog", response_model=TrustedCatalogOut)
+async def get_trusted_catalog() -> TrustedCatalogOut:
+    """Return safe source-controlled repository and manifest associations."""
+
+    repositories = []
+    for repository in iter_trusted_repositories():
+        manifests = []
+        for reference in repository.manifests:
+            manifest = get_trusted_manifest(reference.name, reference.version)
+            if manifest is None:  # Import-time catalog validation makes this defensive.
+                continue
+            manifests.append(
+                TrustedManifestReferenceOut(
+                    name=manifest.name,
+                    version=manifest.version,
+                    digest=manifest.digest,
+                    description=manifest.description,
+                )
+            )
+        repositories.append(
+            TrustedRepositoryOut(
+                full_name=repository.full_name,
+                display_name=repository.display_name,
+                description=repository.description,
+                support_status=repository.support_status,
+                documentation_reference=repository.documentation_reference,
+                manifests=manifests,
+                default_manifest=(
+                    repository.default_manifest.safe_metadata()
+                    if repository.default_manifest is not None
+                    else None
+                ),
+            )
+        )
+    return TrustedCatalogOut(
+        schema_version=1,
+        digest=trusted_catalog_digest(),
+        repositories=repositories,
+    )
+
+
+@router.get(
+    "/api/execution/trusted-repositories",
+    response_model=TrustedCatalogOut,
+)
+async def list_trusted_repositories() -> TrustedCatalogOut:
+    """Return the canonical bounded trusted-workload catalog."""
+
+    return await get_trusted_catalog()
+
+
+@router.get(
+    "/api/execution/trusted-repositories/{owner}/{repository}",
+    response_model=TrustedRepositoryOut,
+)
+async def get_trusted_repository_detail(
+    owner: str,
+    repository: str,
+) -> TrustedRepositoryOut:
+    """Return one bounded trusted repository definition."""
+
+    catalog = await get_trusted_catalog()
+    full_name = f"{owner}/{repository}"
+    detail = next(
+        (item for item in catalog.repositories if item.full_name == full_name), None
+    )
+    if detail is None:
+        raise HTTPException(status_code=404, detail="trusted_repository_not_found")
+    return detail
+
+
+@router.get(
+    "/api/execution/trusted-repositories/{owner}/{repository}/readiness",
+    response_model=TrustedRepositoryReadinessOut,
+)
+async def get_named_trusted_repository_readiness(
+    owner: str,
+    repository: str,
+    session: SessionDependency,
+    required_quota_units: int = Query(default=0, ge=0),
+) -> TrustedRepositoryReadinessOut:
+    """Return read-only readiness at the canonical catalog route."""
+
+    return await get_trusted_repository_readiness(
+        f"{owner}/{repository}", session, required_quota_units
+    )
+
+
+@router.get(
+    "/api/execution/catalog/{repository_full_name:path}/readiness",
+    response_model=TrustedRepositoryReadinessOut,
+)
+async def get_trusted_repository_readiness(
+    repository_full_name: str,
+    session: SessionDependency,
+    required_quota_units: int = Query(default=0, ge=0),
+) -> TrustedRepositoryReadinessOut:
+    """Return bounded read-only worker readiness for one catalog entry."""
+
+    if get_trusted_repository(repository_full_name) is None:
+        raise HTTPException(status_code=404, detail="trusted_repository_not_found")
+    freshness = get_execution_routing_settings()
+    page = await ExecutionOperatorProjection(session).list_workers(
+        limit=100,
+        offset=0,
+        heartbeat_freshness_seconds=freshness.heartbeat_freshness_seconds,
+        active_poll_freshness_seconds=freshness.active_poll_freshness_seconds,
+    )
+    workers = []
+    for worker in page.items:
+        advertised = repository_full_name in worker.repository_full_names
+        profile_enabled = worker.profile is not None and worker.profile.enabled
+        if not advertised:
+            reason = "repository_unavailable"
+        elif worker.profile is None:
+            reason = "profile_missing"
+        elif not worker.profile.enabled:
+            reason = "profile_disabled"
+        elif worker.activity_state == "stale":
+            reason = "stale"
+        elif worker.activity_state == "capacity_constrained":
+            reason = "capacity_constrained"
+        elif worker.activity_state == "unavailable":
+            reason = "worker_unavailable"
+        elif worker.profile.quota_remaining_units < required_quota_units:
+            reason = "insufficient_quota"
+        else:
+            reason = "ready"
+        ready = reason == "ready"
+        workers.append(
+            RepositoryWorkerReadinessOut(
+                worker_id=worker.worker_id,
+                display_name=worker.display_name,
+                advertises_repository=advertised,
+                activity_state=worker.activity_state,
+                routing_profile_enabled=profile_enabled,
+                estimated_comparison_units=(
+                    worker.profile.estimated_cost_units_per_run
+                    if worker.profile is not None
+                    else None
+                ),
+                quota_remaining_units=(
+                    worker.profile.quota_remaining_units
+                    if worker.profile is not None
+                    else None
+                ),
+                quota_capacity_units=(
+                    worker.profile.quota_capacity_units
+                    if worker.profile is not None
+                    else None
+                ),
+                active_run_count=worker.active_run_count,
+                max_concurrency=worker.max_concurrency,
+                readiness_reason=reason,
+                ready=ready,
+            )
+        )
+    return TrustedRepositoryReadinessOut(
+        repository_full_name=repository_full_name,
+        required_quota_units=required_quota_units,
+        ready_worker_count=sum(item.ready for item in workers),
+        workers=workers,
+    )
 
 
 @router.get(
@@ -604,6 +780,7 @@ async def register_worker(
         unity_available=body.unity_available,
         desktop_available=body.desktop_available,
         capabilities=body.capabilities,
+        repository_full_names=tuple(body.repository_full_names),
         max_concurrency=body.max_concurrency,
         network_policy_capability=body.network_policy_capability,
         repository_write_capability=body.repository_write_capability,

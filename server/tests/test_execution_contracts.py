@@ -10,7 +10,7 @@ from http import HTTPStatus
 import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from server.app import app
 from server.application import build_execution_service
@@ -39,16 +39,16 @@ from server.execution.evidence import (
     finalize_evidence,
 )
 from server.execution.exceptions import (
-    ApprovalDeniedError,
     LifecycleConflictError,
     ManifestIntegrityError,
     OwnershipConflictError,
+    UnknownManifestError,
 )
 from server.execution.registry import get_trusted_manifest
 from server.execution.repository import ExecutionRepository
 from server.execution.schemas import WorkOrderCreateIn
 from server.execution.service import ExecutionService
-from server.models import ExecutionLease, ExecutionRun, Lease, Task
+from server.models import ExecutionLease, ExecutionRun, ExecutionWorkOrder, Lease, Task
 from server.settings import reload_admin_token
 from server.task_status import TaskStatus
 from server.time_utils import utcnow_naive
@@ -302,15 +302,20 @@ async def test_trusted_manifest_metadata_snapshot_is_immutable() -> None:
 
 
 @pytest.mark.asyncio
-async def test_approval_is_deny_by_default_for_non_allowlisted_repository() -> None:
+async def test_non_catalog_repository_is_rejected_before_persistence() -> None:
     async with AsyncSessionLocal() as session:
         service = build_execution_service(session)
-        work_order = await service.create_work_order(
-            _work_order_draft(repository_full_name="untrusted/example")
+        before = int(
+            await session.scalar(select(func.count(ExecutionWorkOrder.id))) or 0
         )
-        with pytest.raises(ApprovalDeniedError, match="repository_not_allowlisted"):
-            await service.approve_work_order(work_order.id)
-        assert work_order.status == WorkOrderStatus.PENDING_APPROVAL
+        with pytest.raises(UnknownManifestError, match="trusted_repository_not_found"):
+            await service.create_work_order(
+                _work_order_draft(repository_full_name="untrusted/example")
+            )
+        assert (
+            int(await session.scalar(select(func.count(ExecutionWorkOrder.id))) or 0)
+            == before
+        )
 
 
 @pytest.mark.asyncio

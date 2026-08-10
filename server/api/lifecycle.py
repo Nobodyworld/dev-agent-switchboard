@@ -148,6 +148,21 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915
                             "ADD COLUMN last_checkout_poll_at DATETIME"
                         )
                     )
+                if "repository_full_names" not in worker_columns:
+                    sync_conn.execute(
+                        text(
+                            "ALTER TABLE execution_workers ADD COLUMN "
+                            "repository_full_names JSON NOT NULL DEFAULT "
+                            "'[\"Nobodyworld/dev-agent-switchboard\"]'"
+                        )
+                    )
+                sync_conn.execute(
+                    text(
+                        "UPDATE execution_workers SET repository_full_names = "
+                        "'[\"Nobodyworld/dev-agent-switchboard\"]' "
+                        "WHERE repository_full_names IS NULL"
+                    )
+                )
                 sync_conn.execute(
                     text(
                         "CREATE INDEX IF NOT EXISTS "
