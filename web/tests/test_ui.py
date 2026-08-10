@@ -450,6 +450,7 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
             "unity_available": False,
             "desktop_available": False,
             "capabilities": {},
+            "repository_full_names": ["Nobodyworld/dev-agent-switchboard"],
             "max_concurrency": 1,
             "network_policy_capability": "worker_restricted",
             "repository_write_capability": False,
@@ -466,6 +467,10 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
                 "capabilities": {
                     "internal_marker": "not-for-operator-ui",
                 },
+                "repository_full_names": [
+                    "Nobodyworld/app-accounting-modular",
+                    "Nobodyworld/dev-agent-switchboard",
+                ],
             },
         )
         _post_json(
@@ -548,6 +553,7 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
         expect(cheap_worker_card).to_contain_text("worker restricted")
         expect(cheap_worker_card).to_contain_text("Repository writes")
         expect(cheap_worker_card).to_contain_text("Disabled")
+        expect(cheap_worker_card).to_contain_text("Nobodyworld/app-accounting-modular")
         expect(cheap_worker_card).to_contain_text("Quota reset")
         expect(cheap_worker_card).to_contain_text("2026")
         expensive_worker_card = page.locator('[data-worker-id="ui-worker-expensive"]')
@@ -593,7 +599,25 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
         expect(page.locator("#profileStatus")).to_contain_text("conflicted")
         expect(page.locator("#profileRevision")).to_have_value("3")
 
-        page.fill("#validationRepository", "missing-owner")
+        assert page.locator("#validationRepository option").evaluate_all(
+            "options => options.map(option => option.value)"
+        ) == [
+            "Nobodyworld/app-accounting-modular",
+            "Nobodyworld/dev-agent-switchboard",
+        ]
+        page.select_option(
+            "#validationRepository", "Nobodyworld/app-accounting-modular"
+        )
+        expect(page.locator("#validationManifest")).to_have_value(
+            "validate-accounting-modular@1"
+        )
+        expect(page.locator("#validationRepositoryReadiness")).to_contain_text(
+            "1 ready worker"
+        )
+        page.select_option("#validationRepository", "Nobodyworld/dev-agent-switchboard")
+        expect(page.locator("#validationManifest")).to_have_value(
+            "validate-switchboard@1"
+        )
         page.fill("#validationPullRequest", "0")
         page.fill("#validationCostCeiling", "-1")
         page.fill("#validationQuotaUnits", "-1")
@@ -607,7 +631,7 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
             "options => options.map(option => option.value)"
         ) == ["first_available", "cheapest_capable"]
 
-        page.fill("#validationRepository", "Nobodyworld/dev-agent-switchboard")
+        page.select_option("#validationRepository", "Nobodyworld/dev-agent-switchboard")
         page.fill("#validationPullRequest", "137")
         page.fill("#validationCostCeiling", "")
         page.select_option("#validationReusePolicy", "never")
@@ -766,6 +790,17 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
             page.locator('[data-request-action="approve-queue"]').get_attribute("title")
             or ""
         )
+
+        if os.getenv("SWITCHBOARD_UPDATE_PUBLIC_SCREENSHOT") == "1":
+            page.set_viewport_size({"width": 1232, "height": 1000})
+            page.locator("#validation-broker").screenshot(
+                path=str(
+                    ROOT
+                    / "docs"
+                    / "assets"
+                    / "switchboard-validation-command-center.png"
+                )
+            )
 
         page.set_viewport_size({"width": 390, "height": 844})
         expect(page.locator("#validation-broker")).to_be_visible()

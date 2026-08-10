@@ -25,6 +25,8 @@ const TERMINAL_WORK_ORDER_STATUSES = new Set([
 
 const brokerState = {
   overview: null,
+  catalog: null,
+  repositoryReadiness: null,
   manifests: [],
   workers: [],
   history: [],
@@ -156,8 +158,13 @@ function renderManifestChoices() {
   const select = document.getElementById('validationManifest');
   if (!select) return;
   const previous = select.value;
-  select.innerHTML = brokerState.manifests.length
-    ? brokerState.manifests
+  const repositoryName = document.getElementById('validationRepository')?.value;
+  const repository = brokerState.catalog?.repositories?.find(
+    (item) => item.full_name === repositoryName
+  );
+  const manifests = Array.isArray(repository?.manifests) ? repository.manifests : [];
+  select.innerHTML = manifests.length
+    ? manifests
         .map(
           (manifest) =>
             `<option value="${escapeHtml(`${manifest.name}@${manifest.version}`)}">${escapeHtml(manifest.name)} v${escapeHtml(manifest.version)}</option>`
@@ -166,7 +173,44 @@ function renderManifestChoices() {
     : '<option value="">No trusted manifests available</option>';
   if (previous && Array.from(select.options).some((option) => option.value === previous)) {
     select.value = previous;
+  } else if (repository?.default_manifest) {
+    select.value = `${repository.default_manifest.name}@${repository.default_manifest.version}`;
   }
+}
+
+function renderRepositoryChoices() {
+  const select = document.getElementById('validationRepository');
+  if (!select) return;
+  const previous = select.value;
+  const repositories = brokerState.catalog?.repositories || [];
+  select.innerHTML = repositories.length
+    ? repositories
+        .map(
+          (repository) =>
+            `<option value="${escapeHtml(repository.full_name)}">${escapeHtml(repository.display_name)} · ${escapeHtml(repository.full_name)}</option>`
+        )
+        .join('')
+    : '<option value="">No trusted repositories available</option>';
+  const preferred = previous || 'Nobodyworld/dev-agent-switchboard';
+  if (Array.from(select.options).some((option) => option.value === preferred)) {
+    select.value = preferred;
+  }
+  renderManifestChoices();
+}
+
+function renderRepositoryReadiness() {
+  const element = document.getElementById('validationRepositoryReadiness');
+  if (!element) return;
+  const readiness = brokerState.repositoryReadiness;
+  if (!readiness) {
+    element.textContent = 'Repository readiness is not available.';
+    return;
+  }
+  const advertised = readiness.workers.filter((worker) => worker.advertises_repository);
+  const dispositions = readiness.workers
+    .map((worker) => `${worker.display_name}: ${formatLabel(worker.readiness_reason)}`)
+    .join('; ');
+  element.textContent = `${readiness.ready_worker_count} ready worker${readiness.ready_worker_count === 1 ? '' : 's'}; ${advertised.length} advertise this repository.${dispositions ? ` ${dispositions}.` : ''}`;
 }
 
 function renderWorkerChoices() {
@@ -239,6 +283,7 @@ function renderWorkers() {
             <div><dt>Desktop automation</dt><dd>${worker.desktop_available ? 'Available' : 'Unavailable'}</dd></div>
             <div><dt>Network</dt><dd>${escapeHtml(formatLabel(worker.network_policy_capability))}</dd></div>
             <div><dt>Repository writes</dt><dd>${worker.repository_write_capability ? 'Enabled' : 'Disabled'}</dd></div>
+            <div><dt>Trusted repositories</dt><dd>${escapeHtml((worker.repository_full_names || []).join(', ') || 'Not reported')}</dd></div>
           </dl>
           ${profileDetails}
           <button type="button" class="broker-button broker-button--quiet" data-profile-edit="${escapeHtml(worker.worker_id)}">${profile ? 'Edit profile' : 'Create profile'}</button>
@@ -452,6 +497,38 @@ async function refreshManifests() {
   renderManifestChoices();
 }
 
+async function refreshCatalog() {
+  brokerState.catalog = await apiFetchJson('/api/execution/trusted-repositories', {
+    headers: authorizedHeaders({ json: false }),
+  });
+  renderRepositoryChoices();
+  await refreshRepositoryReadiness();
+}
+
+async function refreshRepositoryReadiness() {
+  const repository = document.getElementById('validationRepository')?.value;
+  const quotaInput = document.getElementById('validationQuotaUnits');
+  const requiredQuota = Number(quotaInput?.value || 0);
+  if (!repository) {
+    brokerState.repositoryReadiness = null;
+    renderRepositoryReadiness();
+    return;
+  }
+  if (!Number.isSafeInteger(requiredQuota) || requiredQuota < 0) {
+    brokerState.repositoryReadiness = null;
+    renderRepositoryReadiness();
+    return;
+  }
+  brokerState.repositoryReadiness = await apiFetchJson(
+    `/api/execution/trusted-repositories/${repository
+      .split('/')
+      .map((part) => encodeURIComponent(part))
+      .join('/')}/readiness?required_quota_units=${encodeURIComponent(requiredQuota)}`,
+    { headers: authorizedHeaders({ json: false }) }
+  );
+  renderRepositoryReadiness();
+}
+
 async function refreshWorkers() {
   const page = await apiFetchJson('/api/execution/workers?limit=100&offset=0', {
     headers: authorizedHeaders({ json: false }),
@@ -547,6 +624,7 @@ async function refreshBrokerWorkspace({ announce = false } = {}) {
   setBrokerStatus('Refreshing bounded operator projections…');
   const results = await Promise.allSettled([
     refreshOverview(),
+    refreshCatalog(),
     refreshManifests(),
     refreshWorkers(),
     refreshHistory(),
@@ -742,6 +820,23 @@ function initBrokerEvents() {
     'submit',
     handleValidationRequest
   );
+  document.getElementById('validationRepository')?.addEventListener('change', async () => {
+    renderManifestChoices();
+    try {
+      await refreshRepositoryReadiness();
+    } catch (error) {
+      console.error('Failed to refresh repository readiness', error);
+      brokerState.repositoryReadiness = null;
+      renderRepositoryReadiness();
+    }
+  });
+  document.getElementById('validationQuotaUnits')?.addEventListener('change', async () => {
+    try {
+      await refreshRepositoryReadiness();
+    } catch (error) {
+      console.error('Failed to refresh repository readiness', error);
+    }
+  });
   document.getElementById('routingProfileForm')?.addEventListener(
     'submit',
     handleProfileSubmit
