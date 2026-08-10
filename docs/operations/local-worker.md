@@ -36,6 +36,7 @@ is:
   "worker_root": "C:\\switchboard-worker",
   "evidence_root": "C:\\switchboard-evidence",
   "repositories": {
+    "Nobodyworld/app-accounting-modular": "C:\\src\\app-accounting-modular",
     "Nobodyworld/dev-agent-switchboard": "C:\\src\\dev-agent-switchboard"
   },
   "max_concurrency": 1,
@@ -67,6 +68,14 @@ directory. Evidence policy accepts retention from 1 through 3,650 days, at most
 128 artifacts, and bounded per-artifact and total byte limits; the total must
 cover the per-artifact limit.
 
+At registration the worker sends only the sorted logical keys as
+`repository_full_names`. Switchboard rejects unknown, duplicate, unsorted,
+empty, or oversized declarations. Paths remain workstation-local. A worker is
+ineligible for either routing policy, hard pins, assessment, fresh execution,
+and exact reuse unless it advertises the exact work-order repository. This is
+only an early eligibility signal: exact local-object and containment checks
+remain authoritative on the worker.
+
 For GitHub exact-PR requests, the adapter resolves identity but does not fetch
 source. The exact resolved head commit object must already exist in this
 configured canonical repository. The worker runs a local `git cat-file` check
@@ -93,11 +102,19 @@ will not take new work while draining or after shutdown begins.
 Before creating a worktree, the worker checks the exact local trusted manifest,
 name/version/digest, server-safe metadata, required capabilities, read-only
 policy, network policy, timeout, and output limits. The reviewed executable
-profiles are `worker-smoke@1` and `validate-switchboard@1`. The validation
+profiles are `worker-smoke@1`, `validate-switchboard@1`, and
+`validate-accounting-modular@1`. The Switchboard validation
 profile runs fixed, shell-free Python version, dependency consistency, Ruff,
 Black, Mypy, pytest-with-coverage, and Bandit steps. Dependency consistency is
 diagnostic-only because it describes the operator's shared environment; all
 other validation steps are required.
+
+The accounting profile mirrors eleven reviewed Python quality steps: Ruff
+lint/format, bounded Mypy, full pytest branch coverage, aggregate and critical
+coverage gates, focused accounting controls, `pip check`, locked runtime and
+development dependency audits, and the repository secret scanner. It requires
+Python 3.12+, Git, a read-only worker, and three reviewed dependency inputs.
+Docker and attended browser gates remain separate worker types.
 
 For each owned run, the worker creates a detached exact-SHA checkout underneath
 the worker root. Its generated `ownership.json` binds the worker, server run,
@@ -176,6 +193,8 @@ non-assignment reasons include `better_candidate_active`,
 `routing_profile_disabled`, `worker_heartbeat_stale`,
 `worker_checkout_poll_stale`, `routing_cost_ceiling_exceeded`,
 `routing_quota_insufficient`, and `routing_reservation_conflict`.
+Repository mismatches include `worker_repository_unavailable` and occur before
+capacity or quota reservation.
 
 Use `GET /api/execution/work-orders/{id}/route-assessment` before assignment to
 inspect the current bounded decision without reserving or refreshing polls.
@@ -199,6 +218,12 @@ creation time, and deterministic retention expiry. Full stdout/stderr logs and
 are accepted only from trusted manifest declarations, must be contained regular
 non-reparse files, are streamed through size limits and SHA-256 hashing, and are
 recorded with relative POSIX paths.
+
+Declared files produced in the disposable checkout are copied into the marked
+worker-owned evidence directory before hashing. Existing evidence logs are
+reused. Missing, oversized, non-regular, symlink/reparse, or escaping sources
+fail artifact finalization; the canonical repository is never the artifact
+target.
 
 The worker checks expired evidence at startup and before idle checkout. It
 deletes only direct child directories whose valid ownership marker names the

@@ -17,20 +17,35 @@ The product remains a trusted execution broker, not a remote shell. Repository a
 - [x] Issue #138 created from exact `main` `33a5836496fa933dd6aae65ec71238d1b5ac9772`.
 - [x] Branch `feat/trusted-workload-catalog-dogfood` created from the exact base.
 - [x] Current registry, worker configuration, routing, command center, and target accounting quality gate inspected.
-- [ ] Record baseline local validation before production edits.
-- [ ] Implement a strict trusted repository/workload catalog while preserving existing manifest digests.
-- [ ] Add `validate-accounting-modular@1` with fixed reviewed argv and bounded evidence.
-- [ ] Add bounded worker logical-repository availability and restart-safe persistence.
-- [ ] Make both routing policies, hard pins, assessment, and exact reuse repository-aware.
-- [ ] Add catalog/readiness APIs and repository-aware command-center onboarding.
-- [ ] Add focused catalog, migration, routing, adapter, worker, evidence, and browser regressions.
-- [ ] Complete a production-path synthetic fresh-then-reuse proof for the external workload contract.
-- [ ] Complete controlled local dogfood against the exact current head of `Nobodyworld/app-accounting-modular` PR #126, or record a precise environment blocker.
-- [ ] Update authoritative docs and the public-safe screenshot where needed.
-- [ ] Run the complete protected local matrix, cleanup, and public-hygiene audit.
+- [x] Record baseline local validation before production edits.
+- [x] Implement a strict trusted repository/workload catalog while preserving existing manifest digests.
+- [x] Add `validate-accounting-modular@1` with fixed reviewed argv and bounded evidence.
+- [x] Add bounded worker logical-repository availability and restart-safe persistence.
+- [x] Make both routing policies, hard pins, assessment, and exact reuse repository-aware.
+- [x] Add catalog/readiness APIs and repository-aware command-center onboarding.
+- [x] Add focused catalog, migration, routing, adapter, worker, evidence, and browser regressions.
+- [x] Complete a production-path synthetic fresh-then-reuse proof for the external workload contract.
+- [x] Complete controlled local dogfood against the exact current head of `Nobodyworld/app-accounting-modular` PR #126, or record a precise environment blocker.
+- [x] Update authoritative docs and the public-safe screenshot where needed.
+- [x] Run the complete protected local matrix, cleanup, and public-hygiene audit.
 - [ ] Push focused commits, record ultimate-head hosted evidence externally, and keep PR #139 draft and unmerged.
 
 ## Surprises & Discoveries
+
+- Observation: Planning review `4892665741`, PR checkpoint `5237014283`, and issue checkpoint `5237016607` were reconciled before editing; the existing branch and draft PR remained exact, open, draft, and unmerged at preflight.
+  Evidence: local and remote branch head `dc33806e57edd8d0255b3f17c8379a482cf8ab31`; `origin/main` and merge base `33a5836496fa933dd6aae65ec71238d1b5ac9772`.
+
+- Observation: The configured local Switchboard coordination endpoint was unavailable before editing, so no task state was invented or mirrored.
+  Evidence: `http://127.0.0.1:8000/api/plan` did not accept the coordination request; Git and this living plan remain the authoritative local record.
+
+- Observation: The external target changed after planning: `Nobodyworld/app-accounting-modular` PR #126 is now merged rather than an open current PR.
+  Evidence: final head `a7af5766a4e83a95c64a40bfdc606ee7b280cbf5`, base `445241b4514baa42feef0541b677233920540114`, merge commit `4266ea43ed40201388df82bb53f757df45afe204`, merged 2026-08-10 19:36:36Z. This blocks truthful current-PR dogfood and publication; the production-path synthetic real-worker proof remains required.
+
+- Observation: The untouched focused baseline passed all repository tests: backend `117 passed`, worker `37 passed`, and strict Playwright `3 passed` with zero skips.
+  Evidence: Python 3.14.0 baseline commands completed in 70.75s, 44.71s, and 29.87s respectively. Existing identities were `worker-smoke@1` digest `63e645f19d8c60ae442e1800aaecc1a18a719d53f22ba8e85ec62bf745ed55d1` and `validate-switchboard@1` digest `10e99418e4e6f0e9f4a6e95fb5b9a267dab4eeac4671cf58533c8b9afe1fed98`.
+
+- Observation: The workstation-global Python 3.14 environment fails `pip check` on unrelated `opencv-python`/NumPy and Streamlit/Pillow version conflicts, while Python 3.13 reports no broken requirements but lacks `aiosqlite` for repository tests.
+  Evidence: recorded before edits; no global environment was modified to mask the baseline condition.
 
 - Observation: `server/execution/registry.py` exports `TRUSTED_REPOSITORIES` as a literal one-item frozenset and defines only `worker-smoke@1` and `validate-switchboard@1`.
   Evidence: current `main` at `33a5836496fa933dd6aae65ec71238d1b5ac9772`.
@@ -46,6 +61,15 @@ The product remains a trusted execution broker, not a remote shell. Repository a
 
 - Observation: the target also has Docker and attended Edge gates, but those require separate worker capabilities and remain outside this generic Python workload profile.
   Evidence: target `.github/workflows/ci.yml` and PR #126.
+
+- Observation: declared coverage files are produced in the disposable checkout, while retained evidence is a separate marker-owned tree.
+  Evidence: the first real accounting run executed all eleven commands but initially could not finalize `coverage.xml` and `coverage.json`; `EvidenceStore.capture_declared_artifact()` now copies only reviewed regular contained artifacts under size bounds before hashing/finalization, and focused missing-file/regular-copy tests pass.
+
+- Observation: Windows child-process resolution for the trusted fixed token `python` does not preserve a venv when the parent executable is a Python launcher, and the accounting contract truthfully requires Python 3.12+.
+  Evidence: hosted quality/test setup was raised from Python 3.11 to 3.12 rather than faking registration data or skipping the real-worker proof. Local real-worker validation used the established Python 3.14 worker runtime; pinned static/security checks used an isolated compatible Python 3.13 toolchain.
+
+- Observation: invalid negative quota form state briefly issued readiness requests that FastAPI correctly rejected with 422, creating strict-browser console errors.
+  Evidence: readiness now stays locally unavailable until the input is a non-negative safe integer; strict Playwright then passed `3 passed` with zero skips and zero unexpected console errors.
 
 ## Decision Log
 
@@ -73,9 +97,31 @@ The product remains a trusted execution broker, not a remote shell. Repository a
   Rationale: Validation and remote publication are distinct side effects.
   Date/Author: 2026-08-09 / connector planning
 
+- Decision: Treat merged target PR #126 as an exact target-state blocker and do not represent synthetic execution as current-PR dogfood.
+  Rationale: A merged PR cannot truthfully demonstrate current/stale publication for an open target, and issue #138 explicitly forbids fabricated remote evidence or mutation of the external repository.
+  Date/Author: 2026-08-10 / implementation
+
+- Decision: Keep the catalog API executable-data-free and expose support status, documentation reference, allowed/default manifest identities, and non-mutating per-worker readiness only.
+  Rationale: operators need onboarding and eligibility state, not argv, environment values, paths, or arbitrary capabilities.
+  Date/Author: 2026-08-10 / implementation
+
+- Decision: Preserve the target's Python 3.12+ constraint and move the hosted quality matrix to Python 3.12.
+  Rationale: the real LocalWorker acceptance must execute under a truthful supported runtime; capability fabrication or a conditional skip would invalidate the proof.
+  Date/Author: 2026-08-10 / implementation
+
 ## Outcomes & Retrospective
 
-Pending implementation. At completion, summarize catalog compatibility, preserved manifest identities, the external manifest digest, migration behavior, repository-aware routing, onboarding UX, synthetic and real dogfood results, exact target SHA, fresh/reused evidence linkage, canonical-source integrity, deferred worker types, validation totals, and any environment blocker.
+The source-controlled catalog now contains Switchboard and modular accounting with canonical digest `3e8fe68e917d1afa5615e158f3ef69ac78193f356502c8e6fb071799edad5436`. Historical `worker-smoke@1` and `validate-switchboard@1` digests remain unchanged. The new `validate-accounting-modular@1` digest is `892f1269cdf2a6f4e0df4d86879e5dae980374d598faeadee77c2c32f33aa612`; its eleven fixed, shell-free steps bind three dependency inputs, read-only policy, Python 3.12+, bounded parsers, command logs, and retained coverage XML/JSON.
+
+Workers now persist sorted logical repository identities only. The additive SQLite compatibility upgrade defaults prior rows to Switchboard, survives a second startup, and preserves valid values. Direct and GitHub creation reject unknown repositories and cross-repository manifest pairs before persistence. First-available, cheapest-capable, hard pins, assessment, checkout, and exact reuse exclude unmapped workers before route/capacity/quota/lease mutation.
+
+The command center loads the bounded catalog, filters defaults, shows read-only readiness and logical worker availability, and retains approval/publication, keyboard, token, desktop, and 390-pixel safety. The 2026-08-10 public screenshot was recaptured from the offline synthetic UI acceptance fixture and contains no local identity or secret.
+
+The real server-backed accounting acceptance used `ExecutionClient`, `LocalWorker`, `WorkerConfig`, `EvidenceStore`, mocked GitHub transport, file-backed SQLite, and a committed disposable canonical repository. The mapped worker executed 11 fresh steps; the cheaper unmapped worker could not claim. Retained ownership, result, logs, `coverage.xml`, and `coverage.json` were verified. A distinct second run reused after one worker-local verification with zero executed steps and preserved the source fingerprint. The mocked publications were explicitly invoked and resolved current then stale after a head move; before explicit publication the transport had zero comments. Overview/history reported one fresh success, one reused success, one deterministic execution avoided, 50% reuse, and two history rows. No lease, active capacity, disposable worktree, or canonical Git change remained. One captured proof produced fresh run `1`, reused run `2`, and source fingerprint `330a5f3aaec98c76f8bd92807369c42901def2a6b7fc8f4709b46b2429ed385c`.
+
+Live current-PR dogfood was not performed because target PR #126 had already merged at exact head `a7af5766a4e83a95c64a40bfdc606ee7b280cbf5`; no external repository or publication was mutated. Docker and attended Edge workloads remain deferred as separate capability/threat profiles.
+
+Focused validation passed: dependency health clean; backend `127 passed`; worker/evidence `59 passed, 2` mutually exclusive OS skips; accounting acceptance separately `1 passed`; strict Playwright `3 passed`, zero skips. Complete pytest passed `604 passed, 5 skipped, 344 warnings`. Coverage passed at 93% aggregate and all 16 thresholds: contracts 95.40%, interfaces 94.17%, loader 100%, runtime 100%, task metrics 92.59%, plan metrics 95%, plan latency 87.76%, plan snapshot 100%, activity feed 100%, extension observability 97.73%, diagnostics 90.16%, health 97.59%, activity 94.83%, overview 100%, task service 90.71%, and configuration service 91.30%. Pre-commit, TODO policy, repository-pinned Ruff, Black, Mypy (180 files), pinned Bandit 1.8.6, pip-audit, Gitleaks (266 commits), and Lychee all passed. Generated reports, databases, caches, bytecode, Lychee state, and temporary environments were removed; the changed-file public-hygiene scan found no local worktree path, workstation identity, credential, private URL, or generated evidence. Commits, push, and hosted workflow evidence remain external delivery steps.
 
 ## Context and Orientation
 
@@ -259,7 +305,9 @@ Acceptance requires:
 - Branch: `feat/trusted-workload-catalog-dogfood`.
 - Draft PR: #139.
 - Initial target: `Nobodyworld/app-accounting-modular` PR #126.
-- Observed target head: `613cf89396c41a0ee3c3aa5886a55c264a38daf0`.
+- Planning-time target head: `613cf89396c41a0ee3c3aa5886a55c264a38daf0`.
+- Final merged target head re-resolved before editing: `a7af5766a4e83a95c64a40bfdc606ee7b280cbf5`.
+- Target merge commit: `4266ea43ed40201388df82bb53f757df45afe204`.
 - Observed quality entry point: `python -m src.tools.quality_gate`.
 
 Ultimate workflow IDs belong in external PR evidence after the final head exists; do not create a self-referential evidence commit.

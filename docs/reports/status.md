@@ -1,6 +1,6 @@
 # Public Developer Preview Status
 
-_Last reviewed: 2026-08-09_
+_Last reviewed: 2026-08-10_
 
 ## Classification
 
@@ -42,11 +42,22 @@ The merged baseline includes:
 
 The Validation Broker merged through issue #136 and PR #137. Its exact accepted head was `ba9d0a8184448a1ae0c30357a18a7b5962dea94d`, squash-merged as the current baseline above. Full local and hosted evidence remains in the PR, issue, and living ExecPlan.
 
-## Current limitation
+## Current draft slice
 
-The version-controlled execution registry still trusts only `Nobodyworld/dev-agent-switchboard`. Local worker configuration can map more than one logical repository, but the server does not yet expose bounded repository availability, enforce repository-to-manifest compatibility, or prevent assignment to a worker that lacks a target repository before checkout.
+Draft PR #139 now contains a strict two-repository source-controlled catalog,
+explicit repository-to-manifest compatibility, bounded logical worker
+availability, restart-safe Switchboard-only legacy defaults, repository-aware
+routing/reuse, catalog-driven command-center onboarding, and the external
+`validate-accounting-modular@1` fixed contract. Existing Switchboard manifest
+digests remain unchanged.
 
-That means the command center is operational but still largely self-validating. The active slice must prove practical value against a real approved external workload before MCP, paid-provider handoff, browser-worker, or desktop/RPA expansion.
+The file-backed production-path acceptance uses real FastAPI execution/GitHub
+routes, `ExecutionClient`, `LocalWorker`, worker-owned evidence storage, and a
+mocked GitHub transport. It proves an unmapped cheaper worker cannot claim the
+accounting request, all eleven trusted steps run freshly on the mapped worker,
+declared coverage/log/result/ownership evidence is retained, and the second
+same-identity request reuses after worker-local verification with zero executed
+steps. The canonical Git repository remains clean.
 
 ## Active large slice
 
@@ -63,6 +74,13 @@ Issue [#138](https://github.com/Nobodyworld/dev-agent-switchboard/issues/138) an
 - controlled real fresh-then-reused dogfood against the exact current head of public `Nobodyworld/app-accounting-modular` PR #126, or a precise environment blocker.
 
 The target PR must not be modified, published to, merged, closed, retargeted, or marked ready automatically. Approval and publication remain explicit.
+
+Target state changed after planning: PR #126 merged before implementation could
+perform truthful current-PR dogfood. Its final head is
+`a7af5766a4e83a95c64a40bfdc606ee7b280cbf5` and merge commit is
+`4266ea43ed40201388df82bb53f757df45afe204`. No target mutation or publication
+was attempted, and synthetic real-worker evidence is not represented as live
+target-PR dogfood.
 
 ## Validation posture
 
@@ -91,7 +109,7 @@ The execution-broker roadmap is tracked in issue [#111](https://github.com/Nobod
 
 The current sequence is:
 
-1. complete trusted multi-repository onboarding and real external local dogfood in issue #138 / PR #139;
+1. complete review and hosted validation of issue #138 / draft PR #139 while retaining the merged-target blocker truthfully;
 2. onboard additional deterministic workloads only through reviewed fixed profiles;
 3. define a separate typed MCP/Secure MCP Tunnel architecture after local-first utility is proven;
 4. keep paid-provider handoff behind local profile coverage and truthful evidence;

@@ -19,6 +19,9 @@ Use this page as the concise endpoint index; use [ai-interface.md](ai-interface.
 | `/api/tasks/analytics` | `GET` | Return aggregated task analytics including ready and blocked counts. |
 | `/api/execution/manifests` | `GET` | List trusted, server-controlled manifest identities and non-executable metadata. |
 | `/api/execution/manifests/{name}/{version}` | `GET` | Read one immutable trusted manifest snapshot. |
+| `/api/execution/trusted-repositories` | `GET` | List the canonical trusted repository-to-manifest catalog with its deterministic digest and safe display metadata. |
+| `/api/execution/trusted-repositories/{owner}/{repository}` | `GET` | Read one bounded catalog repository and its allowed/default manifests. |
+| `/api/execution/trusted-repositories/{owner}/{repository}/readiness` | `GET` | Read bounded worker advertisement, activity, profile, quota, and capacity readiness without paths or mutation. |
 | `/api/execution/work-orders` | `GET`, `POST` | List or create separately persisted work orders. Creation accepts only a manifest identity and safe policy metadata. |
 | `/api/execution/work-orders/{id}` | `GET` | Read a work order and its lifecycle timestamps. |
 | `/api/execution/work-orders/{id}/approve` | `POST` | Explicitly approve an allowlisted, read-only work order; it queues by default. |
@@ -86,12 +89,21 @@ configured, including worker registration, checkout, heartbeat, and completion.
 This is a deliberate Phase 1 credential limitation, not a worker identity
 system. A scoped worker credential belongs to the later worker work.
 
-Creation is deny-by-default: approval requires an allowlisted repository, an
+Creation is deny-by-default: approval requires a catalog repository, a manifest
+explicitly associated with that repository, an
 exact 40-character SHA, an immutable trusted manifest identity/digest, explicit
 approval, read-only repository policy, and an eligible worker. Request payloads
 are strict and recursively reject executable-shaped keys in caller-controlled
 metadata, so callers cannot submit a command string, argv array, shell,
 script, executable path, or manifest digest at any nesting depth.
+
+Catalog definitions are immutable reviewed source. Their public projection
+contains repository display metadata, allowed manifest identities, manifest
+digests/descriptions, and an optional default only. It excludes commands, argv,
+environment values, local paths, credentials, and arbitrary capability
+documents. Cross-repository manifest pairs fail before work-order or GitHub
+request persistence. The compatibility repository set is derived from this
+catalog rather than maintained independently.
 
 Expected request errors are explicit: missing credentials return `401`, missing
 records return `404`, invalid lifecycle/ownership/approval conflicts return
@@ -105,7 +117,8 @@ omit it keep the original capability-aware first-poller behavior and do not
 need a routing profile. `cheapest_capable` considers only trusted outbound
 local workers with a valid enabled operator-owned profile, fresh heartbeat,
 fresh checkout poll, online capacity, matching manifest and work-order
-capabilities, matching network posture, read-only repository capability,
+capabilities, an advertised exact logical repository name, matching network
+posture, read-only repository capability,
 sufficient integer quota, and an estimated integer cost no greater than
 `maximum_cost_units` when supplied. Legacy floating-point `cost_ceiling`
 remains accepted and stored for compatibility but never controls the new
@@ -211,6 +224,11 @@ precedence: unavailable, stale, capacity constrained, then active. Its worker
 summary contains only safe typed declarations (OS/architecture, Python/Node,
 Docker, up to eight bounded browser names, GPU, Unity, desktop automation,
 network posture, and the false repository-write capability) plus bounded profile
+state. Each worker also returns a sorted bounded `repository_full_names` list.
+Those names come only from the worker's operator-owned local configuration;
+canonical paths never cross the API. Omitted legacy registration fields and
+prior rows default only to `Nobodyworld/dev-agent-switchboard`. Unknown,
+duplicate, unsorted, empty, and oversized lists are rejected.
 and freshness state. It never returns the arbitrary capability document. Profile
 summaries distinguish a missing quota reset from a scheduled timestamp.
 

@@ -59,7 +59,7 @@ security, retry, and evidence requirements differ.
 
 A work order is executable only when all of the following are true:
 
-1. The repository is allowlisted.
+1. The repository exists in the reviewed catalog and allows the manifest.
 2. The commit identity is an exact SHA.
 3. The manifest name and version exist in the trusted registry.
 4. The work order is approved under its policy.
@@ -69,6 +69,22 @@ A work order is executable only when all of the following are true:
    policies.
 
 A mismatch is a rejection, not an instruction for the worker to improvise.
+
+Repository trust is a strict version-controlled catalog rather than an
+independent global allowlist. Each immutable entry has one canonical
+`owner/repository`, bounded display metadata, explicit allowed manifest
+name/version references, and an optional allowed default. Import-time
+validation rejects unknown fields, duplicates, missing manifests, or an invalid
+default. Canonical safe JSON gives the complete catalog a deterministic SHA-256
+digest. Catalog metadata does not participate in existing manifest digests, so
+prior evidence identities remain stable.
+
+Workers advertise only sorted catalog repository names derived from local
+configuration keys. Existing rows and omitted legacy payloads mean Switchboard
+only. Routing excludes a worker that lacks the exact repository before
+capability, capacity, cost, or quota mutation; same-worker reuse rechecks the
+source worker's current advertisement. Exact commit/object and path checks
+remain worker-local and authoritative.
 
 ### Execute approved manifests only
 
@@ -128,7 +144,10 @@ Issue #114 replaces the #112 placeholders with strict versioned evidence and
 artifact records. Full files remain beneath a separate worker-configured,
 run-owned evidence root. The worker verifies containment, regular-file status,
 declared paths, byte limits, SHA-256 hashes, and deterministic expiry before it
-reports metadata. Marker-verified pruning removes only expired owned children.
+reports metadata. A missing declared file is copied from the disposable
+checkout into that owned directory only after regular-file and containment
+checks; existing logs remain in place. Marker-verified pruning removes only
+expired owned children.
 
 The evidence API returns bounded summaries and safe relative references rather
 than full logs. It applies the explicit environment allowlist, configured

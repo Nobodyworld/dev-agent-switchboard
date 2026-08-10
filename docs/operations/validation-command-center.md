@@ -7,10 +7,11 @@ shell, provider router, or billing dashboard.
 
 ![Validation Broker command center with synthetic data](../assets/switchboard-validation-command-center.png)
 
-The screenshot was captured from the offline browser acceptance application
-using synthetic repository, SHA, worker, route, quota, evidence, and publication
-data. It contains no admin token, credential-shaped value, local path, machine
-identity, private URL, or claim of actual financial savings.
+The screenshot was recaptured on 2026-08-10 from the offline browser acceptance
+application after catalog/readiness onboarding was added, using synthetic
+repository, SHA, worker, route, quota, evidence, and publication data. It
+contains no admin token, credential-shaped value, local path, machine identity,
+private URL, or claim of actual financial savings.
 
 ## Operator workflow
 
@@ -24,9 +25,11 @@ identity, private URL, or claim of actual financial savings.
 3. Create or edit an operator-owned worker routing profile. Profile replacement
    and quota reset require the latest revision. A `409` refreshes visible state
    and leaves a persistent recovery message instead of overwriting newer data.
-4. Enter an allowlisted `owner/repository`, pull-request number, trusted manifest,
-   reuse policy, routing policy, optional maximum comparison units, required
-   quota, and optional hard worker pin.
+4. Select a source-controlled trusted repository. The manifest list narrows to
+   its reviewed contracts, selects its explicit default, and shows how many
+   workers advertise it and are currently ready. Then enter the pull-request
+   number, reuse policy, routing policy, optional maximum comparison units,
+   required quota, and optional hard worker pin.
 5. Request validation. Switchboard resolves the authenticated actor and the
    exact current PR head, then creates or returns one pending work order whose
    complete execution policy participates in adapter idempotency.
@@ -77,6 +80,8 @@ The workspace reads four authenticated projections:
 - `GET /api/execution/operator/history?limit=25&offset=0`
 - `GET /api/execution/workers?limit=100&offset=0`
 - `GET /api/execution/github/requests?limit=25&offset=0`
+- `GET /api/execution/trusted-repositories`
+- `GET /api/execution/trusted-repositories/{owner}/{repository}/readiness`
 
 Limits are at most `100`, offsets at most `10000`, and metric windows at most
 `365` days. History is newest-first with stable ID tie-breaking and one latest
@@ -98,6 +103,10 @@ operator does not have to infer request identity from history.
 Worker cards separately show declared status, server-derived activity, safe
 OS/architecture, active/max capacity, heartbeat and checkout-poll timestamps,
 and operator-owned profile state including scheduled or unscheduled quota reset.
+Cards also show the bounded sorted logical repository names reported by each
+worker; local paths are never returned. The readiness projection is read-only:
+it does not resolve GitHub, fetch source, refresh checkout polls, reserve
+capacity/quota, or claim the commit exists locally.
 Activity precedence is unavailable for draining/offline or malformed records,
 then stale for expired heartbeat or checkout polling, then capacity constrained
 for a fresh busy/full worker, and active otherwise. The capability summary is a
