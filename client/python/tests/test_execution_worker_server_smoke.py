@@ -128,6 +128,89 @@ def _validation_repository(tmp_path: Path) -> tuple[Path, tuple[str, str], str]:
     return repository, (first, second), _git(repository, "status", "--porcelain=v1")
 
 
+def _accounting_repository(tmp_path: Path) -> tuple[Path, tuple[str, str], str]:
+    """Create a tiny committed repository compatible with the fixed manifest argv."""
+
+    repository = tmp_path / "accounting-canonical"
+    subprocess.run(["git", "init", str(repository)], check=True, shell=False)
+    _git(repository, "config", "user.email", "worker@example.test")
+    _git(repository, "config", "user.name", "Worker Test")
+    modules = {
+        "ruff": "print('ruff synthetic fixture passed')\n",
+        "mypy": "print('mypy synthetic fixture passed')\n",
+        "pip": "print('No broken requirements found.')\n",
+        "pip_audit": "print('No known vulnerabilities found')\n",
+    }
+    for name, body in modules.items():
+        package = repository / name
+        package.mkdir(parents=True)
+        (package / "__init__.py").write_text("", encoding="utf-8")
+        (package / "__main__.py").write_text(body, encoding="utf-8")
+    pytest_package = repository / "pytest"
+    pytest_package.mkdir()
+    (pytest_package / "__init__.py").write_text("", encoding="utf-8")
+    (pytest_package / "__main__.py").write_text(
+        """from pathlib import Path
+import sys
+
+if any(item.startswith('--cov=') for item in sys.argv):
+    Path('coverage.xml').write_text('<coverage line-rate="1"/>', encoding='utf-8')
+    Path('coverage.json').write_text(
+        '{"totals":{"percent_covered":100}}', encoding='utf-8'
+    )
+print('1 passed in 0.01s')
+print('TOTAL 10 0 100%')
+""",
+        encoding="utf-8",
+    )
+    for path in (
+        "src/apps/modular_accounting/application",
+        "src/apps/api",
+        "src/apps/extensions",
+        "src/cli",
+        "src/tools",
+        "tests",
+    ):
+        directory = repository / path
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "__init__.py").write_text("", encoding="utf-8")
+    for module, output in (
+        ("coverage_gate", "Aggregate line coverage: 100%"),
+        ("critical_coverage", "Critical coverage thresholds passed"),
+        ("secret_scan", "No secrets found"),
+    ):
+        (repository / "src" / "tools" / f"{module}.py").write_text(
+            f"print({output!r})\n", encoding="utf-8"
+        )
+    for test_name in (
+        "test_ledger_service.py",
+        "test_data_snapshot_service.py",
+        "test_modular_accounting_snapshot.py",
+        "test_modular_accounting_controls.py",
+    ):
+        (repository / "tests" / test_name).write_text(
+            "def test_fixture() -> None:\n    assert True\n", encoding="utf-8"
+        )
+    (repository / "config").mkdir()
+    (repository / "config" / "critical-coverage.toml").write_text(
+        "[coverage]\n", encoding="utf-8"
+    )
+    for requirement in (
+        "requirements.txt",
+        "requirements-dev.txt",
+        "requirements-container.lock",
+    ):
+        (repository / requirement).write_text("", encoding="utf-8")
+    (repository / "README.md").write_text("fixture one\n", encoding="utf-8")
+    _git(repository, "add", ".")
+    _git(repository, "commit", "-m", "accounting fixture one")
+    first = _git(repository, "rev-parse", "HEAD")
+    (repository / "README.md").write_text("fixture two\n", encoding="utf-8")
+    _git(repository, "commit", "-am", "accounting fixture two")
+    second = _git(repository, "rev-parse", "HEAD")
+    return repository, (first, second), _git(repository, "status", "--porcelain=v1")
+
+
 class _AsgiSession:
     """Minimal synchronous requests-session adapter over the real FastAPI API."""
 
@@ -216,16 +299,16 @@ class _MockGitHubAcceptanceTransport(GitHubTransport):
         *,
         require_head: bool = True,
     ) -> ResolvedPullRequest:
-        assert repository_full_name == "Nobodyworld/dev-agent-switchboard"
-        assert pull_request_number == 125
+        assert repository_full_name == self.resolved.repository_full_name
+        assert pull_request_number == self.resolved.pull_request_number
         assert not require_head or self.resolved.head_sha is not None
         return self.resolved
 
     async def list_comments(
         self, repository_full_name: str, pull_request_number: int
     ) -> GitHubCommentListing:
-        assert repository_full_name == "Nobodyworld/dev-agent-switchboard"
-        assert pull_request_number == 125
+        assert repository_full_name == self.resolved.repository_full_name
+        assert pull_request_number == self.resolved.pull_request_number
         return GitHubCommentListing(comments=tuple(self.comments), complete=True)
 
     async def resolve_authenticated_actor(self) -> GitHubActorIdentity:
@@ -236,7 +319,7 @@ class _MockGitHubAcceptanceTransport(GitHubTransport):
         repository_full_name: str,
         comment_id: int,
     ) -> GitHubComment:
-        assert repository_full_name == "Nobodyworld/dev-agent-switchboard"
+        assert repository_full_name == self.resolved.repository_full_name
         for comment in self.comments:
             if comment.comment_id == comment_id:
                 return comment
@@ -248,8 +331,8 @@ class _MockGitHubAcceptanceTransport(GitHubTransport):
         pull_request_number: int,
         body: str,
     ) -> GitHubComment:
-        assert repository_full_name == "Nobodyworld/dev-agent-switchboard"
-        assert pull_request_number == 125
+        assert repository_full_name == self.resolved.repository_full_name
+        assert pull_request_number == self.resolved.pull_request_number
         self.create_calls += 1
         comment = GitHubComment(
             comment_id=900,
@@ -267,7 +350,7 @@ class _MockGitHubAcceptanceTransport(GitHubTransport):
         comment_id: int,
         body: str,
     ) -> GitHubComment:
-        assert repository_full_name == "Nobodyworld/dev-agent-switchboard"
+        assert repository_full_name == self.resolved.repository_full_name
         self.update_calls += 1
         for index, comment in enumerate(self.comments):
             if comment.comment_id == comment_id:
@@ -288,12 +371,14 @@ def _resolved_pull_request(
     *,
     head_repository_full_name: str = "Nobodyworld/dev-agent-switchboard",
     head_repository_id: int = 100,
+    repository_full_name: str = "Nobodyworld/dev-agent-switchboard",
+    pull_request_number: int = 125,
 ) -> ResolvedPullRequest:
     return ResolvedPullRequest(
-        repository_full_name="Nobodyworld/dev-agent-switchboard",
+        repository_full_name=repository_full_name,
         repository_id=100,
         repository_node_id="R_acceptance",
-        pull_request_number=125,
+        pull_request_number=pull_request_number,
         pull_request_id=200,
         pull_request_node_id="PR_acceptance",
         state="open",
@@ -1071,7 +1156,15 @@ def test_routed_github_validation_executes_then_reuses_real_local_worker(  # noq
                         f"/api/execution/runs/{fresh_run['id']}/evidence",
                     )
                 )
-                assert fresh_run["status"] == "succeeded"
+                assert fresh_run["status"] == "succeeded", {
+                    "result_summary": fresh_run["result_summary"],
+                    "terminal_reason": fresh_run["terminal_reason"],
+                    "cleanup_status": fresh_run["cleanup_status"],
+                    "steps": [
+                        (item.step_id, item.status, item.summary)
+                        for item in fresh_evidence.steps
+                    ],
+                }
                 assert fresh_run["worker_id"] == cheap_config.worker_id
                 assert fresh_run["route_provenance"]["estimated_cost_units"] == 3
                 assert fresh_run["route_provenance"]["required_quota_units"] == 2
@@ -1230,6 +1323,330 @@ def test_routed_github_validation_executes_then_reuses_real_local_worker(  # noq
         assert _git(canonical, "status", "--porcelain=v1") == status_before
         assert _git(canonical, "rev-parse", "HEAD") == moved_sha
         assert tested_sha != moved_sha
+    finally:
+        app.dependency_overrides.clear()
+        asyncio.run(engine.dispose())
+
+
+def test_accounting_catalog_routes_real_worker_then_reuses_exact_evidence(  # noqa: PLR0915 - complete issue #138 production-path proof
+    tmp_path: Path,
+) -> None:
+    repository_name = "Nobodyworld/app-accounting-modular"
+    canonical, tested_shas, status_before = _accounting_repository(tmp_path)
+    tested_sha, moved_sha = tested_shas
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{tmp_path / 'accounting-worker-acceptance.db'}"
+    )
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    app = create_app(AppConfig(include_ui=False))
+    github = _MockGitHubAcceptanceTransport(
+        _resolved_pull_request(
+            tested_sha,
+            repository_full_name=repository_name,
+            head_repository_full_name=repository_name,
+            pull_request_number=126,
+        )
+    )
+
+    async def isolated_session() -> AsyncGenerator[AsyncSession, None]:
+        async with sessions() as session:
+            yield session
+
+    def github_service(session: SessionDependency) -> GitHubAdapterService:
+        return GitHubAdapterService(
+            dependencies=GitHubAdapterDependencies(
+                repository=GitHubAdapterRepository(session),
+                execution=build_execution_service(session),
+                transport=github,
+            ),
+            settings=GitHubSettings(
+                api_url="https://api.github.com",
+                operator_id="accounting-worker-acceptance",
+                token=_GITHUB_TEST_TOKEN,
+            ),
+            clock=utcnow_naive,
+        )
+
+    app.dependency_overrides[get_session] = isolated_session
+    app.dependency_overrides[get_github_adapter_service] = github_service
+
+    async def prepare() -> None:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+    asyncio.run(prepare())
+    mapped_config = WorkerConfig(
+        base_url="http://switchboard.test",
+        worker_id="accounting-mapped-worker",
+        display_name="Accounting mapped worker",
+        admin_token=_TOKEN,
+        worker_root=tmp_path / "accounting-mapped-worktrees",
+        evidence_root=tmp_path / "accounting-mapped-evidence",
+        repositories={repository_name: canonical},
+        execution_timeout_seconds=5400,
+        heartbeat_interval_seconds=5,
+    )
+    unmapped_config = WorkerConfig(
+        base_url="http://switchboard.test",
+        worker_id="accounting-unmapped-worker",
+        display_name="Accounting unmapped worker",
+        admin_token=_TOKEN,
+        worker_root=tmp_path / "accounting-unmapped-worktrees",
+        evidence_root=tmp_path / "accounting-unmapped-evidence",
+        repositories={"Nobodyworld/dev-agent-switchboard": canonical},
+        execution_timeout_seconds=5400,
+        heartbeat_interval_seconds=5,
+    )
+    try:
+        with (
+            ExecutionClient(
+                mapped_config.base_url,
+                mapped_config.worker_id,
+                mapped_config.admin_token,
+                session=_AsgiSession(app),  # type: ignore[arg-type]
+            ) as mapped_client,
+            ExecutionClient(
+                unmapped_config.base_url,
+                unmapped_config.worker_id,
+                unmapped_config.admin_token,
+                session=_AsgiSession(app),  # type: ignore[arg-type]
+            ) as unmapped_client,
+        ):
+            mapped_worker = LocalWorker(mapped_config, mapped_client)
+            unmapped_worker = LocalWorker(unmapped_config, unmapped_client)
+            mapped_worker.start()
+            unmapped_worker.start()
+            for worker_id, cost in (
+                (unmapped_config.worker_id, 1),
+                (mapped_config.worker_id, 5),
+            ):
+                _request(
+                    app,
+                    "POST",
+                    "/api/execution/routing-profiles",
+                    {
+                        "schema_version": 1,
+                        "worker_id": worker_id,
+                        "enabled": True,
+                        "estimated_cost_units_per_run": cost,
+                        "quota_capacity_units": 20,
+                        "quota_remaining_units": 20,
+                        "quota_reset_at": None,
+                        "routing_priority": 0,
+                    },
+                )
+            mapped_client.heartbeat_worker(status="online")
+            unmapped_client.heartbeat_worker(status="online")
+            assert mapped_worker.poll_once() is False
+            assert unmapped_worker.poll_once() is False
+
+            request_payload = {
+                "repository_full_name": repository_name,
+                "pull_request_number": 126,
+                "manifest": {
+                    "name": "validate-accounting-modular",
+                    "version": "1",
+                },
+                "routing_policy": "cheapest_capable",
+                "reuse_policy": "never",
+                "maximum_cost_units": 10,
+                "required_quota_units": 2,
+            }
+            fresh_request = _request(
+                app,
+                "POST",
+                "/api/execution/github/pull-requests/validate",
+                request_payload,
+            )
+            _request(
+                app,
+                "POST",
+                f"/api/execution/work-orders/{fresh_request['work_order_id']}/approve",
+                {"queue": True},
+            )
+            unmapped_client.heartbeat_worker(status="online")
+            assert unmapped_worker.poll_once() is False
+
+            original_runner = worker_module.run_step
+            original_verifier = worker_module.verify_reuse_candidate
+            with (
+                patch.object(
+                    worker_module, "run_step", wraps=original_runner
+                ) as runner,
+                patch.object(
+                    worker_module,
+                    "verify_reuse_candidate",
+                    wraps=original_verifier,
+                ) as verifier,
+            ):
+                mapped_client.heartbeat_worker(status="online")
+                assert mapped_worker.poll_once() is True
+                manifest = get_trusted_manifest("validate-accounting-modular", "1")
+                assert manifest is not None
+                assert runner.call_count == len(manifest.execution_steps) == 11
+                assert verifier.call_count == 0
+
+                fresh_run = _request(
+                    app,
+                    "GET",
+                    f"/api/execution/runs?work_order_id={fresh_request['work_order_id']}",
+                )[0]
+                fresh_evidence = ExecutionEvidence.model_validate(
+                    _request(
+                        app,
+                        "GET",
+                        f"/api/execution/runs/{fresh_run['id']}/evidence",
+                    )
+                )
+                assert fresh_run["status"] == "succeeded", {
+                    "result_summary": fresh_run["result_summary"],
+                    "terminal_reason": fresh_run["terminal_reason"],
+                    "cleanup_status": fresh_run["cleanup_status"],
+                    "steps": [
+                        (item.step_id, item.status, item.summary)
+                        for item in fresh_evidence.steps
+                    ],
+                }
+                assert fresh_run["worker_id"] == mapped_config.worker_id
+                assert fresh_evidence.tested_sha == tested_sha
+                assert len(fresh_evidence.steps) == 11
+                assert {
+                    item.relative_path for item in fresh_evidence.artifacts
+                }.issuperset({"coverage.xml", "coverage.json"})
+                fresh_directory = mapped_config.evidence_root / f"run-{fresh_run['id']}"
+                assert (fresh_directory / "ownership.json").is_file()
+                assert (fresh_directory / "result.json").is_file()
+                assert list((fresh_directory / "logs").glob("*.log"))
+                assert (fresh_directory / "coverage.xml").is_file()
+                assert (fresh_directory / "coverage.json").is_file()
+                source_hashes = _retained_hashes(fresh_directory)
+                assert github.comments == []
+
+                published_current = _request(
+                    app,
+                    "POST",
+                    f"/api/execution/github/requests/{fresh_request['request_id']}/publish",
+                    {},
+                )
+                assert published_current["publication_decision"] == "current"
+                assert len(github.comments) == 1
+
+                reused_request = _request(
+                    app,
+                    "POST",
+                    "/api/execution/github/pull-requests/validate",
+                    {**request_payload, "reuse_policy": "allow_exact"},
+                )
+                _request(
+                    app,
+                    "POST",
+                    f"/api/execution/work-orders/{reused_request['work_order_id']}/approve",
+                    {"queue": True},
+                )
+                unmapped_client.heartbeat_worker(status="online")
+                assert unmapped_worker.poll_once() is False
+                mapped_client.heartbeat_worker(status="online")
+                assert mapped_worker.poll_once() is True
+                assert runner.call_count == 11
+                assert verifier.call_count == 1
+
+            reused_run = _request(
+                app,
+                "GET",
+                f"/api/execution/runs?work_order_id={reused_request['work_order_id']}",
+            )[0]
+            reused_evidence = ExecutionEvidence.model_validate(
+                _request(
+                    app,
+                    "GET",
+                    f"/api/execution/runs/{reused_run['id']}/evidence",
+                )
+            )
+            assert reused_run["id"] != fresh_run["id"]
+            assert reused_run["reuse_decision"] == "reused"
+            assert reused_run["reused_from_run_id"] == fresh_run["id"]
+            assert (
+                reused_run["source_evidence_fingerprint"] == fresh_evidence.fingerprint
+            )
+            assert reused_evidence.steps == []
+            assert reused_evidence.artifacts == []
+            assert _retained_hashes(fresh_directory) == source_hashes
+
+            github.resolved = _resolved_pull_request(
+                moved_sha,
+                repository_full_name=repository_name,
+                head_repository_full_name=repository_name,
+                pull_request_number=126,
+            )
+            published_stale = _request(
+                app,
+                "POST",
+                f"/api/execution/github/requests/{reused_request['request_id']}/publish",
+                {},
+            )
+            assert published_stale["publication_decision"] == "stale"
+            assert published_stale["tested_head_sha"] == tested_sha
+            assert published_stale["publication_head_sha"] == moved_sha
+            assert len(github.comments) == 2
+
+            overview = _request(
+                app, "GET", "/api/execution/operator/overview?window_days=1"
+            )
+            history = _request(
+                app, "GET", "/api/execution/operator/history?limit=25&offset=0"
+            )
+            assert overview["runs"]["fresh_successful"] == 1
+            assert overview["runs"]["reused_successful"] == 1
+            assert overview["avoided_work"]["deterministic_executions_avoided"] == 1
+            assert overview["avoided_work"]["reuse_rate"] == 0.5
+            assert overview["publications"] == {"current": 1, "stale": 1}
+            assert history["total"] == 2
+
+        async def capacity_proof() -> tuple[int, list[int]]:
+            async with sessions() as database:
+                leases = await database.scalar(
+                    select(func.count()).select_from(ExecutionLease)
+                )
+                active_counts = (
+                    (
+                        await database.execute(
+                            select(ExecutionWorker.active_run_count).order_by(
+                                ExecutionWorker.worker_id
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+            return int(leases or 0), [int(value) for value in active_counts]
+
+        leases, active_counts = asyncio.run(capacity_proof())
+        assert leases == 0
+        assert active_counts == [0, 0]
+        assert list(mapped_config.worker_root.glob("run-*")) == []
+        assert list(unmapped_config.worker_root.glob("run-*")) == []
+        assert _git(canonical, "status", "--porcelain=v1") == status_before
+        assert _git(canonical, "rev-parse", "HEAD") == moved_sha
+        print(
+            "accounting_acceptance="
+            + json.dumps(
+                {
+                    "fresh_run_id": fresh_run["id"],
+                    "fresh_step_count": len(fresh_evidence.steps),
+                    "reused_run_id": reused_run["id"],
+                    "reused_step_count": len(reused_evidence.steps),
+                    "source_evidence_fingerprint": fresh_evidence.fingerprint,
+                    "publication_decisions": [
+                        published_current["publication_decision"],
+                        published_stale["publication_decision"],
+                    ],
+                    "history_total": history["total"],
+                    "reuse_rate": overview["avoided_work"]["reuse_rate"],
+                    "canonical_clean": True,
+                },
+                sort_keys=True,
+            )
+        )
     finally:
         app.dependency_overrides.clear()
         asyncio.run(engine.dispose())
