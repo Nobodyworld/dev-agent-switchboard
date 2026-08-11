@@ -46,7 +46,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915
             additions = {
                 "github_actor_id": "BIGINT",
                 "github_actor_node_id": "VARCHAR(128)",
-                "publication_claim_token": "VARCHAR(64)",
+                # Bandit 1.9.4 mistakes this SQL type metadata for a password.
+                "publication_claim_token": "VARCHAR(64)",  # nosec B105
                 "publication_claimed_at": "DATETIME",
                 "publication_claim_expires_at": "DATETIME",
             }
