@@ -19,6 +19,8 @@ try:
         configuration_service as _configuration_service_module,
     )
     from server.db import Base, engine
+    from server.middleware import reset_all_rate_limit_middleware
+    from server.settings import reload_rate_limit_settings
 except ModuleNotFoundError as exc:  # pragma: no cover - exercised when deps missing
     pytest.skip(
         f"Server dependencies unavailable: {exc}",
@@ -74,9 +76,12 @@ def files_root(
 @pytest.fixture(autouse=True)
 def clean_state(files_root: Path):
     _ = files_root
+    reload_rate_limit_settings()
+    reset_all_rate_limit_middleware()
     asyncio.run(_reset_database())
     _reset_files()
     yield
+    reset_all_rate_limit_middleware()
     asyncio.run(_reset_database())
     _reset_files(recreate=False)
 

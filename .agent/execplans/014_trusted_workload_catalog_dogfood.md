@@ -81,6 +81,9 @@ The product remains a trusted execution broker, not a remote shell. Repository a
 - Observation: invalid negative quota form state briefly issued readiness requests that FastAPI correctly rejected with 422, creating strict-browser console errors.
   Evidence: readiness now stays locally unavailable until the input is a non-negative safe integer; strict Playwright then passed `3 passed` with zero skips and zero unexpected console errors.
 
+- Observation: the first hosted Python 3.11 `test` job failed after 516 passing tests because the production rate limiter retained the shared ASGI test-client bucket across pytest cases; fast hosted execution reached 120 requests inside the 60-second window while slower local execution aged entries out.
+  Evidence: CI run `31487309953`, job `93765547262`, failed only `server/tests/test_leases.py::test_completion_with_and_without_active_lease` when a completion request returned 429. The autouse state fixture now reloads restored environment settings and resets every live in-process limiter before and after each test. A two-app regression plus the exact hosted pytest command passed locally: `621 passed, 5 skipped`.
+
 ## Decision Log
 
 - Decision: Deliver catalog, worker repository availability, repository-aware routing, command-center onboarding, and first external dogfood in one coherent slice.
@@ -127,6 +130,10 @@ The product remains a trusted execution broker, not a remote shell. Repository a
   Rationale: the prior broad syntax remains compatible, but path-special segments cannot cross catalog, execution, evidence, GitHub schema, or transport boundaries.
   Date/Author: 2026-08-11 / review follow-up
 
+- Decision: Isolate rate-limit request buckets in the existing autouse test-state fixture rather than weakening production defaults or special-casing the failed lease test.
+  Rationale: database and file state were already reset per case, and every application instance uses the same client identity in tests. Resetting all live limiter instances makes the suite deterministic while retaining dedicated rate-limit coverage and production behavior.
+  Date/Author: 2026-08-11 / hosted CI follow-up
+
 ## Outcomes & Retrospective
 
 The source-controlled catalog now contains Switchboard and modular accounting with canonical digest `3e8fe68e917d1afa5615e158f3ef69ac78193f356502c8e6fb071799edad5436`. Historical `worker-smoke@1` and `validate-switchboard@1` digests remain unchanged. The new `validate-accounting-modular@1` digest is `892f1269cdf2a6f4e0df4d86879e5dae980374d598faeadee77c2c32f33aa612`; its eleven fixed, shell-free steps bind three dependency inputs, read-only policy, Python 3.12+, bounded parsers, command logs, and retained coverage XML/JSON.
@@ -159,6 +166,13 @@ syntax, workflow YAML, diff whitespace, and in-app browser interaction/visual QA
 passed. The broad combined local pytest command exceeded its harness timeout
 only because locally installed Chromium executes the UI module inline; the
 repository's staged non-UI plus strict-UI shape completed cleanly.
+
+The first hosted follow-up run exposed one speed-dependent shared rate-limit
+bucket in the broad Python 3.11 job after 516 passes. After isolating limiter
+state in the autouse fixture, the exact hosted pytest command completed locally
+with `621 passed, 5 skipped, 344 warnings` in 7m41s, including all three UI
+tests. Focused rate-limit and lease regressions passed `10 passed`. Ultimate-head
+hosted evidence remains external to this non-self-referential plan.
 
 Focused validation passed: dependency health clean; backend `127 passed`; worker/evidence `59 passed, 2` mutually exclusive OS skips; accounting acceptance separately `1 passed`; strict Playwright `3 passed`, zero skips. Complete pytest passed `604 passed, 5 skipped, 344 warnings`. Coverage passed at 93% aggregate and all 16 thresholds: contracts 95.40%, interfaces 94.17%, loader 100%, runtime 100%, task metrics 92.59%, plan metrics 95%, plan latency 87.76%, plan snapshot 100%, activity feed 100%, extension observability 97.73%, diagnostics 90.16%, health 97.59%, activity 94.83%, overview 100%, task service 90.71%, and configuration service 91.30%. Pre-commit, TODO policy, repository-pinned Ruff, Black, Mypy (180 files), pinned Bandit 1.8.6, pip-audit, Gitleaks (266 commits), and Lychee all passed. Generated reports, databases, caches, bytecode, Lychee state, and temporary environments were removed; the changed-file public-hygiene scan found no local worktree path, workstation identity, credential, private URL, or generated evidence. Commits, push, and hosted workflow evidence remain external delivery steps.
 
