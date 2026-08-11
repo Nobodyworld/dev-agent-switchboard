@@ -479,6 +479,7 @@ async def test_stale_lease_expiry_safely_requeues_and_increments_attempt_number(
         first_run = await service.get_run(first.run_id)
         assert first_run.status == ExecutionRunStatus.TIMED_OUT
 
+        await service.heartbeat_worker("worker-stale")
         second = await service.checkout("worker-stale")
         assert second.run_id is not None
         second_run = await service.get_run(second.run_id)

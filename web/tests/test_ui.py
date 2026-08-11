@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Generator
 from pathlib import Path
@@ -408,11 +409,20 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
 ) -> None:
     page = browser.new_page(viewport={"width": 1440, "height": 1000})
     console_errors: list[str] = []
+    readiness_requests: list[str] = []
     page.on(
         "console",
         lambda message: (
             console_errors.append(message.text)
             if message.type == "error" and "status of 409" not in message.text
+            else None
+        ),
+    )
+    page.on(
+        "request",
+        lambda request: (
+            readiness_requests.append(request.url)
+            if "/readiness?" in request.url
             else None
         ),
     )
@@ -465,6 +475,7 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
                 "display_name": "Local small",
                 "browsers": ["chromium"],
                 "capabilities": {
+                    "git_available": True,
                     "internal_marker": "not-for-operator-ui",
                 },
                 "repository_full_names": [
@@ -612,8 +623,54 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
             "validate-accounting-modular@1"
         )
         expect(page.locator("#validationRepositoryReadiness")).to_contain_text(
+            "0 ready workers"
+        )
+        expect(page.locator("#validationRepositoryReadiness")).to_contain_text(
+            "manifest capability mismatch"
+        )
+        _post_json(
+            page,
+            "/api/execution/workers",
+            {
+                **worker_base,
+                "worker_id": "ui-worker-cheap",
+                "display_name": "Local small",
+                "python_version": "3.12.4",
+                "browsers": ["chromium"],
+                "capabilities": {
+                    "git_available": True,
+                    "internal_marker": "not-for-operator-ui",
+                },
+                "repository_full_names": [
+                    "Nobodyworld/app-accounting-modular",
+                    "Nobodyworld/dev-agent-switchboard",
+                ],
+            },
+        )
+        page.dispatch_event("#validationRepository", "change")
+        expect(page.locator("#validationRepositoryReadiness")).to_contain_text(
             "1 ready worker"
         )
+        page.select_option("#validationRoutingPolicy", "cheapest_capable")
+        page.fill("#validationCostCeiling", "3")
+        page.fill("#validationQuotaUnits", "2")
+        page.select_option("#validationPreferredExecutor", "ui-worker-cheap")
+        page.dispatch_event("#validationPreferredExecutor", "change")
+        expect(page.locator("#validationRepositoryReadiness")).to_contain_text(
+            "Local small: ready (selected)"
+        )
+        assert readiness_requests
+        query = urllib.parse.parse_qs(
+            urllib.parse.urlsplit(readiness_requests[-1]).query
+        )
+        assert query == {
+            "manifest_name": ["validate-accounting-modular"],
+            "manifest_version": ["1"],
+            "routing_policy": ["cheapest_capable"],
+            "maximum_cost_units": ["3"],
+            "required_quota_units": ["2"],
+            "preferred_executor": ["ui-worker-cheap"],
+        }
         page.select_option("#validationRepository", "Nobodyworld/dev-agent-switchboard")
         expect(page.locator("#validationManifest")).to_have_value(
             "validate-switchboard@1"
@@ -637,6 +694,7 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
         page.select_option("#validationReusePolicy", "never")
         page.select_option("#validationRoutingPolicy", "cheapest_capable")
         page.fill("#validationQuotaUnits", "1")
+        page.select_option("#validationPreferredExecutor", "")
         page.click('#validationRequestForm button[type="submit"]')
         page.wait_for_function(
             "() => document.querySelector('#brokerRequestDetail')?.textContent"

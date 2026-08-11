@@ -20,12 +20,14 @@ from server.execution.catalog import (
     repository_allows_manifest,
     trusted_catalog_digest,
     validate_catalog,
+    validate_repository_full_name,
 )
 from server.execution.entities import WorkOrderDraft
 from server.execution.enums import ApprovalPolicy, NetworkPolicy
 from server.execution.exceptions import UnknownManifestError
 from server.execution.registry import get_trusted_manifest
-from server.execution.schemas import WorkerRegistrationIn
+from server.execution.schemas import WorkerRegistrationIn, WorkOrderCreateIn
+from server.github_adapter.schemas import GitHubValidationCreateIn
 from server.models import (
     ExecutionLease,
     ExecutionRun,
@@ -236,6 +238,60 @@ def test_catalog_definitions_fail_closed_for_duplicates_and_invalid_references()
         validate_catalog(set(), (unknown_reference,))
 
 
+@pytest.mark.parametrize(
+    "repository_full_name",
+    ("./repository", "../repository", "owner/.", "owner/.."),
+)
+def test_repository_identity_rejects_exact_dot_segments_everywhere(
+    repository_full_name: str,
+) -> None:
+    accounting = get_trusted_repository(_ACCOUNTING)
+    assert accounting is not None
+    with pytest.raises(ValueError, match="dot segment"):
+        validate_repository_full_name(repository_full_name)
+    with pytest.raises(ValueError, match="dot segment"):
+        TrustedRepository.from_mapping(
+            {**accounting.safe_metadata(), "full_name": repository_full_name}
+        )
+    with pytest.raises(ValidationError):
+        WorkOrderCreateIn.model_validate(
+            {
+                "repository_full_name": repository_full_name,
+                "commit_sha": "a" * 40,
+                "manifest": {"name": "validate-switchboard", "version": "1"},
+            }
+        )
+    with pytest.raises(ValidationError):
+        GitHubValidationCreateIn.model_validate(
+            {
+                "repository_full_name": repository_full_name,
+                "pull_request_number": 1,
+                "manifest": {"name": "validate-switchboard", "version": "1"},
+            }
+        )
+    with pytest.raises(ValidationError):
+        WorkerRegistrationIn.model_validate(
+            {
+                "worker_id": "dot-segment-worker",
+                "display_name": "Dot segment worker",
+                "operating_system": "linux",
+                "architecture": "x86_64",
+                "repository_full_names": [repository_full_name],
+            }
+        )
+
+
+def test_repository_identity_allows_periods_inside_real_segments() -> None:
+    value = "owner.with.period/repository.with.period"
+    assert validate_repository_full_name(value) == value
+    accounting = get_trusted_repository(_ACCOUNTING)
+    assert accounting is not None
+    repository = TrustedRepository.from_mapping(
+        {**accounting.safe_metadata(), "full_name": value}
+    )
+    assert repository.full_name == value
+
+
 def test_worker_repository_names_are_sorted_known_bounded_and_path_free() -> None:
     base = {
         "worker_id": "catalog-worker",
@@ -317,7 +373,7 @@ async def test_catalog_api_is_bounded_and_executable_data_free() -> None:
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
         detail = await client.get(
-            "/api/execution/trusted-repositories/Nobodyworld/" "app-accounting-modular"
+            "/api/execution/trusted-repositories/Nobodyworld/app-accounting-modular"
         )
     assert detail.status_code == HTTPStatus.OK
     assert detail.json()["support_status"] == "developer_preview"

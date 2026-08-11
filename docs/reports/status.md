@@ -1,6 +1,6 @@
 # Public Developer Preview Status
 
-_Last reviewed: 2026-08-10_
+_Last reviewed: 2026-08-11_
 
 ## Classification
 
@@ -26,7 +26,7 @@ That preview predates later execution-broker product slices. It is a historical 
 Current `main` is:
 
 ```text
-33a5836496fa933dd6aae65ec71238d1b5ac9772
+83f84a7ee07b4f5cdddfa7611242a529897fa842
 ```
 
 The merged baseline includes:
@@ -58,6 +58,14 @@ accounting request, all eleven trusted steps run freshly on the mapped worker,
 declared coverage/log/result/ownership evidence is retained, and the second
 same-identity request reuses after worker-local verification with zero executed
 steps. The canonical Git repository remains clean.
+
+The draft follow-up makes repository readiness request-aware and routes it
+through the same pure evaluator as assessment and checkout. It catches the
+accounting Python 3.11 mismatch, permits profile-free first-available workers,
+enforces profile/cost/quota only for cheapest-capable, keeps hard pins strict,
+and performs no readiness writes. Broad quality and coverage return to Python
+3.11; the exact real accounting acceptance runs alone in a required Python 3.12
+job that fails on skips or any result other than one passing test.
 
 ## Active large slice
 

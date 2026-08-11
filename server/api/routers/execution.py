@@ -7,7 +7,7 @@ modify repositories, create worktrees, or accept executable payloads.
 from __future__ import annotations
 
 import datetime as dt
-from typing import Literal, NoReturn
+from typing import Literal, NoReturn, TypeAlias, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
@@ -20,6 +20,7 @@ from server.api.dependencies import (
 from server.execution.catalog import (
     get_trusted_repository,
     iter_trusted_repositories,
+    repository_allows_manifest,
     trusted_catalog_digest,
 )
 from server.execution.entities import (
@@ -59,6 +60,7 @@ from server.execution.operator_projection import (
     ExecutionWorkerPageOut,
 )
 from server.execution.registry import get_trusted_manifest
+from server.execution.routing import MAX_ROUTING_INTEGER, RoutingEligibility
 from server.execution.schemas import (
     ApproveWorkOrderIn,
     CheckoutIn,
@@ -91,6 +93,21 @@ from server.execution.schemas import (
 from server.settings import get_execution_routing_settings
 
 router = APIRouter(dependencies=[Depends(require_admin_token)])
+_MAX_READINESS_WORKERS = 100
+RepositoryReadinessReason: TypeAlias = Literal[
+    "ready",
+    "repository_unavailable",
+    "manifest_capability_mismatch",
+    "profile_missing",
+    "profile_invalid",
+    "profile_disabled",
+    "stale",
+    "capacity_constrained",
+    "worker_unavailable",
+    "maximum_cost_exceeded",
+    "insufficient_quota",
+    "preferred_executor_mismatch",
+]
 
 
 @router.get("/api/execution/catalog", response_model=TrustedCatalogOut)
@@ -168,16 +185,28 @@ async def get_trusted_repository_detail(
     "/api/execution/trusted-repositories/{owner}/{repository}/readiness",
     response_model=TrustedRepositoryReadinessOut,
 )
-async def get_named_trusted_repository_readiness(
+async def get_named_trusted_repository_readiness(  # noqa: PLR0913
     owner: str,
     repository: str,
-    session: SessionDependency,
-    required_quota_units: int = Query(default=0, ge=0),
+    service: ExecutionServiceDependency,
+    manifest_name: str | None = Query(default=None, min_length=1, max_length=128),
+    manifest_version: str | None = Query(default=None, min_length=1, max_length=64),
+    routing_policy: RoutingPolicy = RoutingPolicy.FIRST_AVAILABLE,
+    maximum_cost_units: int | None = Query(default=None, ge=0, le=MAX_ROUTING_INTEGER),
+    required_quota_units: int = Query(default=0, ge=0, le=MAX_ROUTING_INTEGER),
+    preferred_executor: str | None = Query(default=None, min_length=1, max_length=128),
 ) -> TrustedRepositoryReadinessOut:
     """Return read-only readiness at the canonical catalog route."""
 
-    return await get_trusted_repository_readiness(
-        f"{owner}/{repository}", session, required_quota_units
+    return await _build_repository_readiness(
+        repository_full_name=f"{owner}/{repository}",
+        service=service,
+        manifest_name=manifest_name,
+        manifest_version=manifest_version,
+        routing_policy=routing_policy,
+        maximum_cost_units=maximum_cost_units,
+        required_quota_units=required_quota_units,
+        preferred_executor=preferred_executor,
     )
 
 
@@ -185,77 +214,165 @@ async def get_named_trusted_repository_readiness(
     "/api/execution/catalog/{repository_full_name:path}/readiness",
     response_model=TrustedRepositoryReadinessOut,
 )
-async def get_trusted_repository_readiness(
+async def get_trusted_repository_readiness(  # noqa: PLR0913
     repository_full_name: str,
-    session: SessionDependency,
-    required_quota_units: int = Query(default=0, ge=0),
+    service: ExecutionServiceDependency,
+    manifest_name: str | None = Query(default=None, min_length=1, max_length=128),
+    manifest_version: str | None = Query(default=None, min_length=1, max_length=64),
+    routing_policy: RoutingPolicy = RoutingPolicy.FIRST_AVAILABLE,
+    maximum_cost_units: int | None = Query(default=None, ge=0, le=MAX_ROUTING_INTEGER),
+    required_quota_units: int = Query(default=0, ge=0, le=MAX_ROUTING_INTEGER),
+    preferred_executor: str | None = Query(default=None, min_length=1, max_length=128),
 ) -> TrustedRepositoryReadinessOut:
     """Return bounded read-only worker readiness for one catalog entry."""
 
-    if get_trusted_repository(repository_full_name) is None:
-        raise HTTPException(status_code=404, detail="trusted_repository_not_found")
-    freshness = get_execution_routing_settings()
-    page = await ExecutionOperatorProjection(session).list_workers(
-        limit=100,
-        offset=0,
-        heartbeat_freshness_seconds=freshness.heartbeat_freshness_seconds,
-        active_poll_freshness_seconds=freshness.active_poll_freshness_seconds,
+    return await _build_repository_readiness(
+        repository_full_name=repository_full_name,
+        service=service,
+        manifest_name=manifest_name,
+        manifest_version=manifest_version,
+        routing_policy=routing_policy,
+        maximum_cost_units=maximum_cost_units,
+        required_quota_units=required_quota_units,
+        preferred_executor=preferred_executor,
     )
-    workers = []
-    for worker in page.items:
-        advertised = repository_full_name in worker.repository_full_names
-        profile_enabled = worker.profile is not None and worker.profile.enabled
-        if not advertised:
-            reason = "repository_unavailable"
-        elif worker.profile is None:
-            reason = "profile_missing"
-        elif not worker.profile.enabled:
-            reason = "profile_disabled"
-        elif worker.activity_state == "stale":
-            reason = "stale"
-        elif worker.activity_state == "capacity_constrained":
-            reason = "capacity_constrained"
-        elif worker.activity_state == "unavailable":
-            reason = "worker_unavailable"
-        elif worker.profile.quota_remaining_units < required_quota_units:
-            reason = "insufficient_quota"
-        else:
-            reason = "ready"
-        ready = reason == "ready"
+
+
+async def _build_repository_readiness(  # noqa: PLR0913
+    *,
+    repository_full_name: str,
+    service: ExecutionServiceDependency,
+    manifest_name: str | None,
+    manifest_version: str | None,
+    routing_policy: RoutingPolicy,
+    maximum_cost_units: int | None,
+    required_quota_units: int,
+    preferred_executor: str | None,
+) -> TrustedRepositoryReadinessOut:
+    """Project shared routing eligibility into the bounded catalog contract."""
+
+    repository = get_trusted_repository(repository_full_name)
+    if repository is None:
+        raise HTTPException(status_code=404, detail="trusted_repository_not_found")
+    if (manifest_name is None) != (manifest_version is None):
+        raise HTTPException(
+            status_code=422, detail="manifest_identity_must_be_complete"
+        )
+    if manifest_name is None or manifest_version is None:
+        default_manifest = repository.default_manifest
+        if default_manifest is None:
+            raise HTTPException(
+                status_code=422, detail="repository_default_manifest_missing"
+            )
+        manifest_name = default_manifest.name
+        manifest_version = default_manifest.version
+    if not repository_allows_manifest(
+        repository_full_name, manifest_name, manifest_version
+    ):
+        raise HTTPException(status_code=422, detail="repository_manifest_not_allowed")
+
+    evaluations, selected = await service.assess_repository_readiness(
+        repository_full_name=repository_full_name,
+        manifest_name=manifest_name,
+        manifest_version=manifest_version,
+        routing_policy=routing_policy,
+        maximum_cost_units=maximum_cost_units,
+        required_quota_units=required_quota_units,
+        preferred_executor=preferred_executor,
+    )
+    eligible_count = sum(item.candidate is not None for item in evaluations)
+    workers: list[RepositoryWorkerReadinessOut] = []
+    for evaluation in evaluations[:_MAX_READINESS_WORKERS]:
+        worker = evaluation.worker
+        profile = evaluation.profile
+        reason = _repository_readiness_reason(evaluation)
+        ready = evaluation.candidate is not None
         workers.append(
             RepositoryWorkerReadinessOut(
                 worker_id=worker.worker_id,
                 display_name=worker.display_name,
-                advertises_repository=advertised,
-                activity_state=worker.activity_state,
-                routing_profile_enabled=profile_enabled,
+                advertises_repository=(
+                    repository_full_name in worker.repository_full_names
+                ),
+                activity_state=_repository_activity_state(evaluation),
+                routing_profile_enabled=(profile is not None and profile.enabled),
                 estimated_comparison_units=(
-                    worker.profile.estimated_cost_units_per_run
-                    if worker.profile is not None
+                    profile.estimated_cost_units_per_run
+                    if profile is not None
                     else None
                 ),
                 quota_remaining_units=(
-                    worker.profile.quota_remaining_units
-                    if worker.profile is not None
-                    else None
+                    profile.quota_remaining_units if profile is not None else None
                 ),
                 quota_capacity_units=(
-                    worker.profile.quota_capacity_units
-                    if worker.profile is not None
-                    else None
+                    profile.quota_capacity_units if profile is not None else None
                 ),
                 active_run_count=worker.active_run_count,
                 max_concurrency=worker.max_concurrency,
                 readiness_reason=reason,
                 ready=ready,
+                selected=(
+                    selected is not None
+                    and selected.worker.worker_id == worker.worker_id
+                ),
             )
         )
     return TrustedRepositoryReadinessOut(
         repository_full_name=repository_full_name,
+        manifest_name=manifest_name,
+        manifest_version=manifest_version,
+        routing_policy=routing_policy,
+        maximum_cost_units=maximum_cost_units,
         required_quota_units=required_quota_units,
-        ready_worker_count=sum(item.ready for item in workers),
+        preferred_executor=preferred_executor,
+        selected_worker_id=(
+            selected.worker.worker_id if selected is not None else None
+        ),
+        eligible_worker_count=eligible_count,
+        ready_worker_count=eligible_count,
         workers=workers,
     )
+
+
+def _repository_readiness_reason(
+    evaluation: RoutingEligibility,
+) -> RepositoryReadinessReason:
+    """Collapse internal diagnostics into a stable operator-safe vocabulary."""
+
+    if evaluation.candidate is not None:
+        return "ready"
+    precedence = (
+        ("preferred_executor_mismatch", "preferred_executor_mismatch"),
+        ("worker_repository_unavailable", "repository_unavailable"),
+        ("routing_profile_missing", "profile_missing"),
+        ("routing_profile_invalid", "profile_invalid"),
+        ("routing_profile_disabled", "profile_disabled"),
+        ("worker_heartbeat_stale", "stale"),
+        ("worker_checkout_poll_stale", "stale"),
+        ("worker_not_available", "worker_unavailable"),
+        ("worker_concurrency_limit", "capacity_constrained"),
+        ("routing_cost_ceiling_exceeded", "maximum_cost_exceeded"),
+        ("routing_quota_insufficient", "insufficient_quota"),
+    )
+    for internal, public in precedence:
+        if internal in evaluation.reasons:
+            return cast(RepositoryReadinessReason, public)
+    return "manifest_capability_mismatch"
+
+
+def _repository_activity_state(
+    evaluation: RoutingEligibility,
+) -> Literal["active", "stale", "capacity_constrained", "unavailable"]:
+    """Derive activity state from the same evaluator diagnostics."""
+
+    reasons = evaluation.reasons
+    if "worker_not_available" in reasons:
+        return "unavailable"
+    if "worker_heartbeat_stale" in reasons or "worker_checkout_poll_stale" in reasons:
+        return "stale"
+    if "worker_concurrency_limit" in reasons:
+        return "capacity_constrained"
+    return "active"
 
 
 @router.get(

@@ -105,6 +105,19 @@ documents. Cross-repository manifest pairs fail before work-order or GitHub
 request persistence. The compatibility repository set is derived from this
 catalog rather than maintained independently.
 
+Repository readiness accepts the selected `manifest_name` and
+`manifest_version` as a complete pair (or uses the repository default), plus
+`routing_policy`, optional `maximum_cost_units`, `required_quota_units`, and an
+optional hard `preferred_executor`. Both integers are bounded at `2147483647`.
+The response echoes that context, reports a selected worker when the policy
+produces one, and returns bounded per-worker reasons. It uses the same evaluator
+as route assessment and checkout: repository mapping, manifest capabilities,
+heartbeat, checkout polling, status, capacity, network posture, and read-only
+posture must agree. `first_available` needs no profile and ignores cost/quota;
+`cheapest_capable` additionally requires a valid enabled profile and enforces
+both. The read returns at most 100 safe worker summaries and never refreshes
+polls, reserves state, claims work, or exposes capability documents or paths.
+
 Expected request errors are explicit: missing credentials return `401`, missing
 records return `404`, invalid lifecycle/ownership/approval conflicts return
 `409`, and malformed or forbidden request fields return FastAPI validation
@@ -140,7 +153,7 @@ order exists.
 Every checkout by a known authenticated worker records only that requester's
 `last_checkout_poll_at` using server time. Poll freshness and heartbeat
 freshness are separate. A heartbeating worker that stops pulling ages out of
-`cheapest_capable` candidacy; `first_available` compatibility is unchanged.
+both policies; only `cheapest_capable` adds profile, cost, and quota gates.
 The successful checkout transaction conditionally reserves worker capacity
 and quota, claims the queued order, and creates the run and lease together.
 The first valid run heartbeat consumes reserved quota exactly once. A

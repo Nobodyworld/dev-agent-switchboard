@@ -5,8 +5,9 @@ from __future__ import annotations
 import datetime as dt
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from server.execution.catalog import validate_repository_full_name
 from server.execution.enums import ReusePolicy, RoutingPolicy
 from server.execution.routing import MAX_ROUTING_INTEGER
 
@@ -45,6 +46,11 @@ class GitHubValidationCreateIn(GitHubAdapterInput):
         default=0, strict=True, ge=0, le=MAX_ROUTING_INTEGER
     )
     preferred_executor: str | None = Field(default=None, min_length=1, max_length=128)
+
+    @field_validator("repository_full_name")
+    @classmethod
+    def validate_repository_identity(cls, value: str) -> str:
+        return validate_repository_full_name(value)
 
 
 class GitHubValidationRequestOut(BaseModel):

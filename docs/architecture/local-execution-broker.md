@@ -225,12 +225,14 @@ comparison values, not currency, credits, actual spend, or measured savings.
 
 Every known-worker checkout records a server-time poll timestamp for that
 requester. Heartbeat freshness proves liveness; poll freshness proves that the
-outbound worker is still asking for work. Cheapest-capable eligibility also
-requires online status, free capacity, manifest and work-order capabilities,
-network compatibility, false repository-write capability, an enabled valid
-profile, cost within the integer ceiling, and enough quota. Missing or
-malformed profiles fail closed for cheapest-capable and do not affect unpinned
-first-available work.
+outbound worker is still asking for work. One pure evaluator now supplies
+checkout, queued-route assessment, and repository readiness with identical
+repository, preferred-executor, heartbeat, poll, status, capacity, manifest and
+request capability, network, and read-only decisions. `first_available` uses
+those gates without requiring a routing profile. `cheapest_capable` adds the
+valid enabled profile, cost-ceiling, and quota gates before deterministic
+ranking. Missing or malformed profiles therefore fail closed only for
+cheapest-capable.
 
 The exact deterministic score is:
 
@@ -267,6 +269,12 @@ route provenance and do not weaken exact same-worker evidence proof.
 Provider budgets, external remaining-rate-limit ingestion, and paid-agent
 routing remain later concerns. Deterministic local validation must not invoke a
 paid coding agent.
+
+The repository-readiness endpoints accept the selected manifest identity and
+routing inputs, project that shared evaluator into a bounded public reason set,
+and return at most 100 safe worker summaries. They never synchronize manifests,
+write heartbeat/poll/profile/quota state, create work orders or runs, or claim
+that a local checkout contains a requested commit.
 
 ### Operator validation command center (#136)
 

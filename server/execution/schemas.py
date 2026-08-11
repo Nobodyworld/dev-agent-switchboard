@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .catalog import TRUSTED_REPOSITORIES
+from .catalog import TRUSTED_REPOSITORIES, validate_repository_full_name
 from .enums import (
     ApprovalPolicy,
     ExecutionRunStatus,
@@ -130,6 +130,11 @@ class WorkOrderCreateIn(ExecutionInput):
         default=0, strict=True, ge=0, le=MAX_ROUTING_INTEGER
     )
 
+    @field_validator("repository_full_name")
+    @classmethod
+    def validate_repository_identity(cls, value: str) -> str:
+        return validate_repository_full_name(value)
+
     @model_validator(mode="after")
     def reject_executable_metadata(self) -> WorkOrderCreateIn:
         """Keep all persisted caller metadata non-executable by construction."""
@@ -188,6 +193,8 @@ class WorkerRegistrationIn(ExecutionInput):
     @field_validator("repository_full_names")
     @classmethod
     def validate_repository_full_names(cls, value: list[str]) -> list[str]:
+        for repository_full_name in value:
+            validate_repository_full_name(repository_full_name)
         if value != sorted(value) or len(value) != len(set(value)):
             raise ValueError("repository_full_names must be sorted and unique")
         if any(item not in TRUSTED_REPOSITORIES for item in value):
@@ -471,21 +478,33 @@ class RepositoryWorkerReadinessOut(BaseModel):
     readiness_reason: Literal[
         "ready",
         "repository_unavailable",
+        "manifest_capability_mismatch",
         "profile_missing",
+        "profile_invalid",
         "profile_disabled",
         "stale",
         "capacity_constrained",
         "worker_unavailable",
+        "maximum_cost_exceeded",
         "insufficient_quota",
+        "preferred_executor_mismatch",
     ]
     ready: bool
+    selected: bool
 
 
 class TrustedRepositoryReadinessOut(BaseModel):
     """Bounded read-only worker readiness for one trusted repository."""
 
     repository_full_name: str = Field(min_length=3, max_length=201)
+    manifest_name: str = Field(min_length=1, max_length=128)
+    manifest_version: str = Field(min_length=1, max_length=64)
+    routing_policy: RoutingPolicy
+    maximum_cost_units: int | None = Field(default=None, ge=0)
     required_quota_units: int = Field(ge=0)
+    preferred_executor: str | None = Field(default=None, min_length=1, max_length=128)
+    selected_worker_id: str | None = Field(default=None, min_length=1, max_length=128)
+    eligible_worker_count: int = Field(ge=0)
     ready_worker_count: int = Field(ge=0)
     workers: list[RepositoryWorkerReadinessOut] = Field(max_length=100)
 

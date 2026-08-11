@@ -23,6 +23,17 @@ def _exact_keys(value: Mapping[str, Any], expected: set[str], kind: str) -> None
         raise ValueError(f"trusted {kind} definition fields are invalid")
 
 
+def validate_repository_full_name(value: str) -> str:
+    """Return one canonical accepted repository identity or fail closed."""
+
+    if not isinstance(value, str) or not _REPOSITORY_PATTERN.fullmatch(value):
+        raise ValueError("repository full_name is invalid")
+    owner, repository = value.split("/", maxsplit=1)
+    if owner in {".", ".."} or repository in {".", ".."}:
+        raise ValueError("repository full_name contains a dot segment")
+    return value
+
+
 @dataclass(frozen=True, slots=True, order=True)
 class TrustedManifestReference:
     """One immutable manifest identity allowed for a repository."""
@@ -125,8 +136,7 @@ class TrustedRepository:
         )
 
     def __post_init__(self) -> None:
-        if not _REPOSITORY_PATTERN.fullmatch(self.full_name):
-            raise ValueError("trusted repository full_name is invalid")
+        validate_repository_full_name(self.full_name)
         if not (1 <= len(self.display_name) <= _MAX_DISPLAY_NAME):
             raise ValueError("trusted repository display_name is invalid")
         if not (1 <= len(self.description) <= _MAX_DESCRIPTION):
@@ -266,4 +276,5 @@ __all__ = [
     "repository_allows_manifest",
     "trusted_catalog_digest",
     "validate_catalog",
+    "validate_repository_full_name",
 ]

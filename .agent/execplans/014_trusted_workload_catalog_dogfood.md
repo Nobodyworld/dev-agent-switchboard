@@ -28,6 +28,10 @@ The product remains a trusted execution broker, not a remote shell. Repository a
 - [x] Complete controlled local dogfood against the exact current head of `Nobodyworld/app-accounting-modular` PR #126, or record a precise environment blocker.
 - [x] Update authoritative docs and the public-safe screenshot where needed.
 - [x] Run the complete protected local matrix, cleanup, and public-hygiene audit.
+- [x] Reconcile review `4901645651`, merge current `origin/main` normally, and preserve PR #141's commitlint and lifecycle fixes.
+- [x] Replace the divergent readiness projection with the shared routing evaluator and add request-aware API/UI coverage.
+- [x] Restore broad CI to Python 3.11 and isolate the truthful accounting acceptance in a guarded Python 3.12 job.
+- [x] Complete the refreshed protected matrix for the review follow-up.
 - [ ] Push focused commits, record ultimate-head hosted evidence externally, and keep PR #139 draft and unmerged.
 
 ## Surprises & Discoveries
@@ -37,6 +41,12 @@ The product remains a trusted execution broker, not a remote shell. Repository a
 
 - Observation: The configured local Switchboard coordination endpoint was unavailable before editing, so no task state was invented or mirrored.
   Evidence: `http://127.0.0.1:8000/api/plan` did not accept the coordination request; Git and this living plan remain the authoritative local record.
+
+- Observation: Review `4901645651` identified three connected correctness gaps: readiness ignored manifest capability constraints, broad CI was moved to Python 3.12 to accommodate one workload, and exact `.`/`..` repository segments crossed validation boundaries.
+  Evidence: pre-follow-up PR head `9cd8c54e22740cbd1dbad2f9629e39ce24823293`; current `origin/main` `83f84a7ee07b4f5cdddfa7611242a529897fa842`; normal merge commit `2ba6d23970687067ae6c8888b06cd7751fb8e5ff`. The merge had no conflicts and incorporated the current `commitlint.config.js` and `server/api/lifecycle.py` fixes from PR #141.
+
+- Observation: Repository readiness had become a second policy implementation based on the operator projection, so it could label a Python 3.11 accounting worker ready even though checkout rejected it.
+  Evidence: the follow-up routes readiness, assessment, and checkout through `RoutingEvaluationRequest` and `evaluate_routing_candidate`; focused backend tests and strict Playwright prove the 3.11 mismatch and truthful 3.12 transition.
 
 - Observation: The external target changed after planning: `Nobodyworld/app-accounting-modular` PR #126 is now merged rather than an open current PR.
   Evidence: final head `a7af5766a4e83a95c64a40bfdc606ee7b280cbf5`, base `445241b4514baa42feef0541b677233920540114`, merge commit `4266ea43ed40201388df82bb53f757df45afe204`, merged 2026-08-10 19:36:36Z. This blocks truthful current-PR dogfood and publication; the production-path synthetic real-worker proof remains required.
@@ -66,7 +76,7 @@ The product remains a trusted execution broker, not a remote shell. Repository a
   Evidence: the first real accounting run executed all eleven commands but initially could not finalize `coverage.xml` and `coverage.json`; `EvidenceStore.capture_declared_artifact()` now copies only reviewed regular contained artifacts under size bounds before hashing/finalization, and focused missing-file/regular-copy tests pass.
 
 - Observation: Windows child-process resolution for the trusted fixed token `python` does not preserve a venv when the parent executable is a Python launcher, and the accounting contract truthfully requires Python 3.12+.
-  Evidence: hosted quality/test setup was raised from Python 3.11 to 3.12 rather than faking registration data or skipping the real-worker proof. Local real-worker validation used the established Python 3.14 worker runtime; pinned static/security checks used an isolated compatible Python 3.13 toolchain.
+  Evidence: the real accounting acceptance remains truthful and is skipped only below Python 3.12; hosted quality and coverage stay on Python 3.11 while the dedicated `Accounting workload acceptance` job runs that one selector on Python 3.12 and rejects skips.
 
 - Observation: invalid negative quota form state briefly issued readiness requests that FastAPI correctly rejected with 422, creating strict-browser console errors.
   Evidence: readiness now stays locally unavailable until the input is a non-negative safe integer; strict Playwright then passed `3 passed` with zero skips and zero unexpected console errors.
@@ -105,9 +115,17 @@ The product remains a trusted execution broker, not a remote shell. Repository a
   Rationale: operators need onboarding and eligibility state, not argv, environment values, paths, or arbitrary capabilities.
   Date/Author: 2026-08-10 / implementation
 
-- Decision: Preserve the target's Python 3.12+ constraint and move the hosted quality matrix to Python 3.12.
-  Rationale: the real LocalWorker acceptance must execute under a truthful supported runtime; capability fabrication or a conditional skip would invalidate the proof.
-  Date/Author: 2026-08-10 / implementation
+- Decision: Preserve the target's Python 3.12+ constraint without changing the repository-wide quality and coverage baseline.
+  Rationale: the real LocalWorker acceptance must execute under a truthful supported runtime, while unrelated suites should retain Python 3.11 coverage. A dedicated required job can enforce exactly one non-skipped accounting pass.
+  Date/Author: 2026-08-11 / review follow-up
+
+- Decision: Keep one pure eligibility evaluator and project its detailed reasons into a smaller operator-safe readiness vocabulary.
+  Rationale: assessment, checkout, and readiness must agree on repository, pin, liveness, polling, status, capacity, manifest/request capabilities, network, and read-only posture. Profile, cost, and quota remain policy-specific to `cheapest_capable`.
+  Date/Author: 2026-08-11 / review follow-up
+
+- Decision: Reject exact `.` and `..` owner or repository segments through one central repository identity validator while preserving periods inside ordinary segments.
+  Rationale: the prior broad syntax remains compatible, but path-special segments cannot cross catalog, execution, evidence, GitHub schema, or transport boundaries.
+  Date/Author: 2026-08-11 / review follow-up
 
 ## Outcomes & Retrospective
 
@@ -120,6 +138,27 @@ The command center loads the bounded catalog, filters defaults, shows read-only 
 The real server-backed accounting acceptance used `ExecutionClient`, `LocalWorker`, `WorkerConfig`, `EvidenceStore`, mocked GitHub transport, file-backed SQLite, and a committed disposable canonical repository. The mapped worker executed 11 fresh steps; the cheaper unmapped worker could not claim. Retained ownership, result, logs, `coverage.xml`, and `coverage.json` were verified. A distinct second run reused after one worker-local verification with zero executed steps and preserved the source fingerprint. The mocked publications were explicitly invoked and resolved current then stale after a head move; before explicit publication the transport had zero comments. Overview/history reported one fresh success, one reused success, one deterministic execution avoided, 50% reuse, and two history rows. No lease, active capacity, disposable worktree, or canonical Git change remained. One captured proof produced fresh run `1`, reused run `2`, and source fingerprint `330a5f3aaec98c76f8bd92807369c42901def2a6b7fc8f4709b46b2429ed385c`.
 
 Live current-PR dogfood was not performed because target PR #126 had already merged at exact head `a7af5766a4e83a95c64a40bfdc606ee7b280cbf5`; no external repository or publication was mutated. Docker and attended Edge workloads remain deferred as separate capability/threat profiles.
+
+The review follow-up now evaluates repository readiness with the selected
+manifest and routing inputs through the same pure path used by route assessment
+and checkout. First-available remains profile-free; cheapest-capable retains
+profile, cost, quota, and deterministic ranking. Readiness returns bounded safe
+reasons and performs no persistence mutation. Repository identities reject exact
+dot segments centrally while continuing to accept ordinary periods.
+
+Refreshed review-follow-up validation passed on 2026-08-11: focused catalog,
+routing, evidence, and transport coverage `149 passed`; complete non-UI pytest
+`617 passed, 5 skipped`; strict Playwright `3 passed` with the JUnit guard
+confirming zero skips; and the exact accounting selector `1 passed` with its
+guard confirming exactly one test and no failures, errors, or skips. The
+accounting proof executed 11 fresh steps and zero reused steps. Coverage remained
+93% aggregate and all 16 configured module thresholds passed with the same
+percentages recorded below. Pre-commit, TODO policy, Mypy (180 files), pinned
+Bandit 1.8.6 under Python 3.13, pip-audit, Gitleaks (265 commits), Lychee, Node
+syntax, workflow YAML, diff whitespace, and in-app browser interaction/visual QA
+passed. The broad combined local pytest command exceeded its harness timeout
+only because locally installed Chromium executes the UI module inline; the
+repository's staged non-UI plus strict-UI shape completed cleanly.
 
 Focused validation passed: dependency health clean; backend `127 passed`; worker/evidence `59 passed, 2` mutually exclusive OS skips; accounting acceptance separately `1 passed`; strict Playwright `3 passed`, zero skips. Complete pytest passed `604 passed, 5 skipped, 344 warnings`. Coverage passed at 93% aggregate and all 16 thresholds: contracts 95.40%, interfaces 94.17%, loader 100%, runtime 100%, task metrics 92.59%, plan metrics 95%, plan latency 87.76%, plan snapshot 100%, activity feed 100%, extension observability 97.73%, diagnostics 90.16%, health 97.59%, activity 94.83%, overview 100%, task service 90.71%, and configuration service 91.30%. Pre-commit, TODO policy, repository-pinned Ruff, Black, Mypy (180 files), pinned Bandit 1.8.6, pip-audit, Gitleaks (266 commits), and Lychee all passed. Generated reports, databases, caches, bytecode, Lychee state, and temporary environments were removed; the changed-file public-hygiene scan found no local worktree path, workstation identity, credential, private URL, or generated evidence. Commits, push, and hosted workflow evidence remain external delivery steps.
 

@@ -3,18 +3,18 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cmp_to_key
+from typing import Any
 
 from server.models import (
-    CommandManifest,
     ExecutionWorker,
-    ExecutionWorkOrder,
     WorkerRoutingProfile,
 )
 
 from .capabilities import match_worker_capabilities
-from .enums import WorkerStatus
+from .enums import NetworkPolicy, RoutingPolicy, WorkerStatus
 
 ROUTING_SCHEMA_VERSION = 1
 MAX_ROUTING_INTEGER = 2_147_483_647
@@ -25,19 +25,35 @@ class RoutingCandidate:
     """One fully eligible worker with authoritative operator profile state."""
 
     worker: ExecutionWorker
-    profile: WorkerRoutingProfile
+    profile: WorkerRoutingProfile | None
 
     @property
     def quota_headroom(self) -> int:
         """Return quota remaining after the prospective reservation."""
 
-        return self.profile.quota_remaining_units
+        return self.profile.quota_remaining_units if self.profile is not None else 0
+
+
+@dataclass(frozen=True, slots=True)
+class RoutingEvaluationRequest:
+    """Complete pure input shared by checkout, assessment, and readiness."""
+
+    repository_full_name: str
+    routing_policy: RoutingPolicy
+    preferred_executor: str | None
+    maximum_cost_units: int | None
+    required_quota_units: int
+    manifest_requirements: Mapping[str, Any]
+    requested_requirements: Mapping[str, Any]
+    network_policy: NetworkPolicy
 
 
 @dataclass(frozen=True, slots=True)
 class RoutingEligibility:
     """Fail-closed eligibility outcome for one worker and work order."""
 
+    worker: ExecutionWorker
+    profile: WorkerRoutingProfile | None
     candidate: RoutingCandidate | None
     reasons: tuple[str, ...]
 
@@ -46,8 +62,7 @@ def evaluate_routing_candidate(  # noqa: PLR0912,PLR0913
     worker: ExecutionWorker,
     profile: WorkerRoutingProfile | None,
     *,
-    work_order: ExecutionWorkOrder,
-    manifest: CommandManifest,
+    request: RoutingEvaluationRequest,
     now: dt.datetime,
     heartbeat_freshness_seconds: int,
     active_poll_freshness_seconds: int,
@@ -58,21 +73,19 @@ def evaluate_routing_candidate(  # noqa: PLR0912,PLR0913
     repository_full_names = worker.repository_full_names or [
         "Nobodyworld/dev-agent-switchboard"
     ]
-    repository_full_name = (
-        work_order.repository_full_name or "Nobodyworld/dev-agent-switchboard"
-    )
-    if repository_full_name not in repository_full_names:
+    if request.repository_full_name not in repository_full_names:
         reasons.append("worker_repository_unavailable")
-    if work_order.preferred_executor is not None and (
-        worker.worker_id != work_order.preferred_executor
+    if request.preferred_executor is not None and (
+        worker.worker_id != request.preferred_executor
     ):
         reasons.append("preferred_executor_mismatch")
-    if profile is None:
-        reasons.append("routing_profile_missing")
-    elif not _valid_profile(profile):
-        reasons.append("routing_profile_invalid")
-    elif not profile.enabled:
-        reasons.append("routing_profile_disabled")
+    if request.routing_policy == RoutingPolicy.CHEAPEST_CAPABLE:
+        if profile is None:
+            reasons.append("routing_profile_missing")
+        elif not _valid_profile(profile):
+            reasons.append("routing_profile_invalid")
+        elif not profile.enabled:
+            reasons.append("routing_profile_disabled")
 
     if worker.status != WorkerStatus.ONLINE:
         reasons.append("worker_not_available")
@@ -93,25 +106,29 @@ def evaluate_routing_candidate(  # noqa: PLR0912,PLR0913
 
     capability_match = match_worker_capabilities(
         worker,
-        manifest_requirements=manifest.required_capabilities,
-        requested_requirements=work_order.required_capabilities,
-        network_policy=work_order.network_policy,
+        manifest_requirements=request.manifest_requirements,
+        requested_requirements=request.requested_requirements,
+        network_policy=request.network_policy,
     )
     reasons.extend(capability_match.reasons)
 
-    if profile is not None and _valid_profile(profile):
+    if (
+        request.routing_policy == RoutingPolicy.CHEAPEST_CAPABLE
+        and profile is not None
+        and _valid_profile(profile)
+    ):
         if (
-            work_order.maximum_cost_units is not None
-            and profile.estimated_cost_units_per_run > work_order.maximum_cost_units
+            request.maximum_cost_units is not None
+            and profile.estimated_cost_units_per_run > request.maximum_cost_units
         ):
             reasons.append("routing_cost_ceiling_exceeded")
-        if profile.quota_remaining_units < work_order.required_quota_units:
+        if profile.quota_remaining_units < request.required_quota_units:
             reasons.append("routing_quota_insufficient")
 
     unique_reasons = tuple(dict.fromkeys(reasons))
-    if unique_reasons or profile is None:
-        return RoutingEligibility(None, unique_reasons)
-    return RoutingEligibility(RoutingCandidate(worker, profile), ())
+    if unique_reasons:
+        return RoutingEligibility(worker, profile, None, unique_reasons)
+    return RoutingEligibility(worker, profile, RoutingCandidate(worker, profile), ())
 
 
 def rank_routing_candidates(
@@ -122,6 +139,8 @@ def rank_routing_candidates(
     def compare(first: RoutingCandidate, second: RoutingCandidate) -> int:
         first_profile = first.profile
         second_profile = second.profile
+        if first_profile is None or second_profile is None:
+            raise ValueError("ranked routing candidates require profiles")
         if (
             first_profile.estimated_cost_units_per_run
             != second_profile.estimated_cost_units_per_run
@@ -225,6 +244,7 @@ __all__ = [
     "ROUTING_SCHEMA_VERSION",
     "RoutingCandidate",
     "RoutingEligibility",
+    "RoutingEvaluationRequest",
     "evaluate_routing_candidate",
     "rank_routing_candidates",
     "unavailable_route_reason",

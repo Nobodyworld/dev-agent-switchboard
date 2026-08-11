@@ -34,9 +34,13 @@ keys. Switchboard never receives the path. Ensure the exact requested commit
 object already exists locally; workers do not fetch or modify refs.
 
 Create an enabled operator-owned routing profile when using
-`cheapest_capable`. The readiness API and command center report advertisement,
-activity, and profile state only. They do not reserve anything or prove the SHA
-exists.
+`cheapest_capable`; `first_available` deliberately works without one. The
+readiness API and command center evaluate the selected manifest and routing
+inputs through the same repository, capability, liveness, polling, status,
+capacity, network, read-only, hard-pin, cost, and quota rules used by routing.
+For the accounting contract, a worker advertising Python 3.11 is ineligible;
+its actual registration must report Python 3.12 or newer. Readiness does not
+reserve anything or prove the SHA exists.
 
 ## Acceptance evidence
 
@@ -58,6 +62,12 @@ Automated onboarding must prove:
 - canonical repositories and worker roots are clean after cleanup; and
 - strict browser tests show filtered manifests and safe readiness at desktop
   and 390-pixel widths with no token exposure or console errors.
+
+The general quality and coverage suites remain on the repository baseline
+Python 3.11 runtime. The one real accounting `LocalWorker` acceptance is marked
+to skip below Python 3.12 and runs as a separate required
+`Accounting workload acceptance` job on Python 3.12; its JUnit guard requires
+exactly one passing test with no failures, errors, or skips.
 
 Live external dogfood is additional evidence, never a substitute for those
 offline proofs. Re-resolve the target immediately before use. If the PR moved,

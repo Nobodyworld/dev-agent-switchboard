@@ -208,9 +208,13 @@ function renderRepositoryReadiness() {
   }
   const advertised = readiness.workers.filter((worker) => worker.advertises_repository);
   const dispositions = readiness.workers
-    .map((worker) => `${worker.display_name}: ${formatLabel(worker.readiness_reason)}`)
+    .map(
+      (worker) =>
+        `${worker.display_name}: ${formatLabel(worker.readiness_reason)}${worker.selected ? ' (selected)' : ''}`
+    )
     .join('; ');
-  element.textContent = `${readiness.ready_worker_count} ready worker${readiness.ready_worker_count === 1 ? '' : 's'}; ${advertised.length} advertise this repository.${dispositions ? ` ${dispositions}.` : ''}`;
+  const manifest = `${readiness.manifest_name}@${readiness.manifest_version}`;
+  element.textContent = `${readiness.ready_worker_count} ready worker${readiness.ready_worker_count === 1 ? '' : 's'} for ${manifest} with ${formatLabel(readiness.routing_policy)}; ${advertised.length} advertise this repository.${dispositions ? ` ${dispositions}.` : ''}`;
 }
 
 function renderWorkerChoices() {
@@ -507,23 +511,47 @@ async function refreshCatalog() {
 
 async function refreshRepositoryReadiness() {
   const repository = document.getElementById('validationRepository')?.value;
-  const quotaInput = document.getElementById('validationQuotaUnits');
-  const requiredQuota = Number(quotaInput?.value || 0);
+  const manifest = document.getElementById('validationManifest')?.value || '';
+  const routingPolicy =
+    document.getElementById('validationRoutingPolicy')?.value || 'first_available';
+  const maximumCostValue =
+    document.getElementById('validationCostCeiling')?.value.trim() || '';
+  const requiredQuota = Number(
+    document.getElementById('validationQuotaUnits')?.value || 0
+  );
+  const preferredExecutor =
+    document.getElementById('validationPreferredExecutor')?.value.trim() || '';
+  const [manifestName, manifestVersion] = manifest.split('@');
   if (!repository) {
     brokerState.repositoryReadiness = null;
     renderRepositoryReadiness();
     return;
   }
-  if (!Number.isSafeInteger(requiredQuota) || requiredQuota < 0) {
+  const maximumCost = maximumCostValue === '' ? null : Number(maximumCostValue);
+  if (
+    !manifestName ||
+    !manifestVersion ||
+    !Number.isSafeInteger(requiredQuota) ||
+    requiredQuota < 0 ||
+    (maximumCost !== null && (!Number.isSafeInteger(maximumCost) || maximumCost < 0))
+  ) {
     brokerState.repositoryReadiness = null;
     renderRepositoryReadiness();
     return;
   }
+  const params = new URLSearchParams({
+    manifest_name: manifestName,
+    manifest_version: manifestVersion,
+    routing_policy: routingPolicy,
+    required_quota_units: String(requiredQuota),
+  });
+  if (maximumCost !== null) params.set('maximum_cost_units', String(maximumCost));
+  if (preferredExecutor) params.set('preferred_executor', preferredExecutor);
   brokerState.repositoryReadiness = await apiFetchJson(
     `/api/execution/trusted-repositories/${repository
       .split('/')
       .map((part) => encodeURIComponent(part))
-      .join('/')}/readiness?required_quota_units=${encodeURIComponent(requiredQuota)}`,
+      .join('/')}/readiness?${params.toString()}`,
     { headers: authorizedHeaders({ json: false }) }
   );
   renderRepositoryReadiness();
@@ -830,13 +858,23 @@ function initBrokerEvents() {
       renderRepositoryReadiness();
     }
   });
-  document.getElementById('validationQuotaUnits')?.addEventListener('change', async () => {
-    try {
-      await refreshRepositoryReadiness();
-    } catch (error) {
-      console.error('Failed to refresh repository readiness', error);
-    }
-  });
+  for (const elementId of [
+    'validationManifest',
+    'validationRoutingPolicy',
+    'validationCostCeiling',
+    'validationQuotaUnits',
+    'validationPreferredExecutor',
+  ]) {
+    document.getElementById(elementId)?.addEventListener('change', async () => {
+      try {
+        await refreshRepositoryReadiness();
+      } catch (error) {
+        console.error('Failed to refresh repository readiness', error);
+        brokerState.repositoryReadiness = null;
+        renderRepositoryReadiness();
+      }
+    });
+  }
   document.getElementById('routingProfileForm')?.addEventListener(
     'submit',
     handleProfileSubmit

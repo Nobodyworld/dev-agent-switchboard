@@ -12,6 +12,7 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .catalog import validate_repository_full_name
 from .text_policy import validate_no_absolute_local_paths
 
 ParserKind = Literal[
@@ -37,7 +38,6 @@ MAX_EVIDENCE_PATH_LENGTH = 512
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 _IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
-_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _WINDOWS_DEVICES = {
     "aux",
     "clock$",
@@ -270,9 +270,7 @@ class EvidenceReuseIdentity(EvidenceModel):
             raise ValueError(
                 "dependency-lock identities must be unique and canonically sorted"
             )
-        owner, name = self.repository_full_name.split("/", maxsplit=1)
-        if owner in {".", ".."} or name in {".", ".."}:
-            raise ValueError("invalid repository identity")
+        validate_repository_full_name(self.repository_full_name)
         return self
 
 
@@ -408,12 +406,7 @@ class ExecutionEvidenceDraft(EvidenceModel):
     @field_validator("repository_full_name")
     @classmethod
     def validate_repository(cls, value: str) -> str:
-        if not _REPOSITORY.fullmatch(value):
-            raise ValueError("invalid repository identity")
-        owner, name = value.split("/", maxsplit=1)
-        if owner in {".", ".."} or name in {".", ".."}:
-            raise ValueError("invalid repository identity")
-        return value
+        return validate_repository_full_name(value)
 
     @model_validator(mode="after")
     def validate_document(self) -> Self:

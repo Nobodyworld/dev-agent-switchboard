@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import json
 import subprocess
+import sys
 from collections.abc import AsyncGenerator
 from http import HTTPStatus
 from pathlib import Path
@@ -14,6 +15,7 @@ from unittest.mock import patch
 from urllib.parse import urlsplit
 
 import httpx
+import pytest
 from fastapi import FastAPI
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -1328,6 +1330,10 @@ def test_routed_github_validation_executes_then_reuses_real_local_worker(  # noq
         asyncio.run(engine.dispose())
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 12),
+    reason="trusted accounting acceptance requires the workload's Python 3.12+ runtime",
+)
 def test_accounting_catalog_routes_real_worker_then_reuses_exact_evidence(  # noqa: PLR0915 - complete issue #138 production-path proof
     tmp_path: Path,
 ) -> None:

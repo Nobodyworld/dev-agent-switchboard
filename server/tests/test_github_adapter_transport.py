@@ -270,6 +270,26 @@ async def test_fixed_routes_ignore_untrusted_returned_urls_and_encode_identity()
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "repository_full_name",
+    ("./repository", "../repository", "owner/.", "owner/.."),
+)
+async def test_fixed_routes_reject_exact_dot_segments_before_transport(
+    repository_full_name: str,
+) -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        raise AssertionError("invalid repository identity reached transport")
+
+    transport = GitHubTransport(_settings(), transport=httpx.MockTransport(handler))
+    with pytest.raises(GitHubTransportError, match=r"^github_transport_failed$"):
+        await transport.resolve_pull_request(repository_full_name, 125)
+    assert requests == []
+
+
+@pytest.mark.asyncio
 async def test_actor_and_persisted_comment_reads_use_fixed_authoritative_routes() -> (
     None
 ):
