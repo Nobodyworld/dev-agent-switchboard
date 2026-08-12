@@ -185,7 +185,7 @@ async def get_trusted_repository_detail(
     "/api/execution/trusted-repositories/{owner}/{repository}/readiness",
     response_model=TrustedRepositoryReadinessOut,
 )
-async def get_named_trusted_repository_readiness(  # noqa: PLR0913
+async def get_named_trusted_repository_readiness(  # noqa: PLR0913, PLR0917
     owner: str,
     repository: str,
     service: ExecutionServiceDependency,
@@ -214,7 +214,7 @@ async def get_named_trusted_repository_readiness(  # noqa: PLR0913
     "/api/execution/catalog/{repository_full_name:path}/readiness",
     response_model=TrustedRepositoryReadinessOut,
 )
-async def get_trusted_repository_readiness(  # noqa: PLR0913
+async def get_trusted_repository_readiness(  # noqa: PLR0913, PLR0917
     repository_full_name: str,
     service: ExecutionServiceDependency,
     manifest_name: str | None = Query(default=None, min_length=1, max_length=128),
@@ -397,7 +397,7 @@ async def get_operator_overview(
     "/api/execution/operator/history",
     response_model=ExecutionHistoryPageOut,
 )
-async def list_operator_history(  # noqa: PLR0913
+async def list_operator_history(  # noqa: PLR0913, PLR0917
     session: SessionDependency,
     limit: int = Query(default=25, ge=1, le=MAX_OPERATOR_LIMIT),
     offset: int = Query(default=0, ge=0, le=MAX_OPERATOR_OFFSET),

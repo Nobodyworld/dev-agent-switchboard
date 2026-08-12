@@ -225,7 +225,7 @@ def test_server_backed_rejection_releases_capacity_for_second_worker(  # noqa: P
             config.worker_id,
             config.admin_token,
             session=_AsgiSession(app),  # type: ignore[arg-type]
-            on_checkout=lambda: callback(),
+            on_checkout=lambda: callback(),  # noqa: PLW0108 - intentional late binding
         )
         worker = LocalWorker(config, client)
         if mode == "shutdown":

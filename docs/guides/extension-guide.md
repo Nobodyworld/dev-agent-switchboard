@@ -71,6 +71,7 @@ from __future__ import annotations
 
 from server.extensions import ExtensionDescriptor, ExtensionRegistry
 
+
 class EmailHook:
     async def on_complete(self, *, agent_id: str, result) -> None:
         if result.ok and result.task:

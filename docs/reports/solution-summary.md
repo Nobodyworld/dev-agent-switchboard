@@ -29,6 +29,7 @@ Both APIs fail before returning any data.
 async def get_plan(session: AsyncSession = Depends(get_session)):
     plan_dict = await _serialize_plan(session)  # ❌
 
+
 # After:
 async def get_plan(service: TaskService = Depends(get_task_service)):
     plan_dict = await _serialize_plan(service)  # ✓

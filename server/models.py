@@ -675,8 +675,7 @@ class ExecutionRun(Base):
             name="ck_execution_run_routing_policy",
         ),
         CheckConstraint(
-            "route_quota_state IN "
-            "('not_required', 'reserved', 'consumed', 'released')",
+            "route_quota_state IN ('not_required', 'reserved', 'consumed', 'released')",
             name="ck_execution_run_quota_state",
         ),
     )
@@ -891,8 +890,7 @@ class GitHubValidationRequest(Base):
             name="ck_github_validation_pull_request_number",
         ),
         CheckConstraint(
-            "repository_id >= 1 AND pull_request_id >= 1 "
-            "AND head_repository_id >= 1",
+            "repository_id >= 1 AND pull_request_id >= 1 AND head_repository_id >= 1",
             name="ck_github_validation_stable_numeric_ids",
         ),
         CheckConstraint(
@@ -921,8 +919,7 @@ class GitHubValidationRequest(Base):
             name="ck_github_validation_pull_request_state",
         ),
         CheckConstraint(
-            "length(base_ref) BETWEEN 1 AND 255 "
-            "AND length(head_ref) BETWEEN 1 AND 255",
+            "length(base_ref) BETWEEN 1 AND 255 AND length(head_ref) BETWEEN 1 AND 255",
             name="ck_github_validation_ref_bounds",
         ),
         CheckConstraint(
@@ -945,8 +942,7 @@ class GitHubValidationRequest(Base):
             name="ck_github_validation_transport_reason_bounds",
         ),
         CheckConstraint(
-            "publication_reason IS NULL "
-            "OR length(publication_reason) BETWEEN 1 AND 64",
+            "publication_reason IS NULL OR length(publication_reason) BETWEEN 1 AND 64",
             name="ck_github_validation_publication_reason_bounds",
         ),
         CheckConstraint(

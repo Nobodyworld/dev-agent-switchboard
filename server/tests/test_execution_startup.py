@@ -187,10 +187,7 @@ async def test_existing_adapter_table_gains_actor_and_claim_columns(
     try:
         async with engine.begin() as connection:
             await connection.execute(
-                text(
-                    "CREATE TABLE github_validation_requests "
-                    "(id INTEGER PRIMARY KEY)"
-                )
+                text("CREATE TABLE github_validation_requests (id INTEGER PRIMARY KEY)")
             )
         monkeypatch.setattr(lifecycle_module, "engine", engine)
         monkeypatch.setattr(lifecycle_module, "AsyncSessionLocal", factory)

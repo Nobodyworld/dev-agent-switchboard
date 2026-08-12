@@ -97,7 +97,7 @@ async def put_live_file(
 @router.get("/live/{path:path}")
 async def get_live_file(path: str, request: Request):
     fp = full_path(path)
-    if not os.path.exists(fp):
+    if not os.path.exists(fp):  # noqa: ASYNC240 - bounded local metadata probe
         return JSONResponse({"error": "not_found"}, status_code=404)
 
     etag_value = await _resolve_etag(path)

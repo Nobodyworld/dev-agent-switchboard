@@ -142,7 +142,7 @@ async def _ensure_entry_sha(
         return entry.sha256, False
 
     file_path = full_path(rel_path)
-    if not os.path.exists(file_path):
+    if not os.path.exists(file_path):  # noqa: ASYNC240 - bounded local metadata probe
         return None, False
 
     try:
@@ -171,7 +171,7 @@ async def etag_for_path(
     """Return a quoted ETag for the given relative path if the file exists."""
 
     file_path = full_path(rel_path)
-    if not os.path.exists(file_path):
+    if not os.path.exists(file_path):  # noqa: ASYNC240 - bounded local metadata probe
         return None
 
     async def _resolve(target_session: AsyncSession) -> tuple[str | None, bool]:
