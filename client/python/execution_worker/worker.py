@@ -782,6 +782,10 @@ class LocalWorker:
                             for step in attempted_steps
                             for artifact in step.artifacts
                         )
+                        for _step_id, declaration in declarations:
+                            store.capture_declared_artifact(
+                                worktree.checkout, declaration
+                            )
                         artifacts = store.finalize_artifacts(declarations)
                         artifact_status = "succeeded"
                     except Exception as error:

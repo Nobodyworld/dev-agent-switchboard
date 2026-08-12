@@ -9,6 +9,7 @@ from starlette.testclient import TestClient
 from server.app import app
 from server.middleware import (
     get_current_rate_limit_middleware,
+    reset_all_rate_limit_middleware,
     set_rate_limit_metrics_callback,
 )
 from server.settings import (
@@ -67,6 +68,22 @@ def test_rate_limit_trusted_bypass(monkeypatch):
         for _ in range(3):
             response = client.get("/health")
             assert response.status_code == HTTPStatus.OK
+
+
+def test_reset_clears_every_live_middleware_instance(monkeypatch, app_factory):
+    _configure_limit(monkeypatch, requests=1, window=60)
+    second_app = app_factory()
+
+    with TestClient(app) as first_client, TestClient(second_app) as second_client:
+        assert first_client.get("/health").status_code == HTTPStatus.OK
+        assert second_client.get("/health").status_code == HTTPStatus.OK
+        assert first_client.get("/health").status_code == HTTPStatus.TOO_MANY_REQUESTS
+        assert second_client.get("/health").status_code == HTTPStatus.TOO_MANY_REQUESTS
+
+        reset_all_rate_limit_middleware()
+
+        assert first_client.get("/health").status_code == HTTPStatus.OK
+        assert second_client.get("/health").status_code == HTTPStatus.OK
 
 
 def test_untrusted_forwarded_for_cannot_bypass(monkeypatch):

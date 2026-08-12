@@ -72,6 +72,7 @@ class WorkerRegistration:
     network_policy_capability: NetworkPolicy
     repository_write_capability: bool
     status: WorkerStatus
+    repository_full_names: tuple[str, ...] = ("Nobodyworld/dev-agent-switchboard",)
 
 
 @dataclass(frozen=True, slots=True)

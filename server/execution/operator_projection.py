@@ -124,6 +124,7 @@ class ExecutionWorkerSummaryOut(OperatorProjectionModel):
     desktop_available: bool
     network_policy_capability: Literal["disabled", "worker_restricted"]
     repository_write_capability: Literal[False]
+    repository_full_names: list[str] = Field(min_length=1, max_length=32)
     status: str = Field(min_length=1, max_length=32)
     activity_state: Literal["active", "stale", "capacity_constrained", "unavailable"]
     active_run_count: int = Field(ge=0)
@@ -400,6 +401,7 @@ class ExecutionOperatorProjection:
                         worker.network_policy_capability
                     ),
                     repository_write_capability=worker.repository_write_capability,
+                    repository_full_names=list(worker.repository_full_names),
                     status=_enum_value(worker.status),
                     activity_state=_worker_activity_state(
                         status=worker.status,

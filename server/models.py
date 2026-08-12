@@ -548,6 +548,11 @@ class ExecutionWorker(Base):
     capabilities: Mapped[dict[str, Any]] = mapped_column(
         JSON, nullable=False, default=dict
     )
+    repository_full_names: Mapped[list[str]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=lambda: ["Nobodyworld/dev-agent-switchboard"],
+    )
     max_concurrency: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     active_run_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     network_policy_capability: Mapped[NetworkPolicy] = mapped_column(

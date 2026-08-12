@@ -219,6 +219,31 @@ class EvidenceStore:
             )
         return records
 
+    def capture_declared_artifact(
+        self,
+        source_root: Path,
+        declaration: TrustedArtifact,
+    ) -> None:
+        """Copy one missing regular checkout artifact into owned evidence storage."""
+
+        self.verify_ownership()
+        destination = _safe_path(self.run_directory, declaration.relative_path)
+        if destination.exists():
+            _assert_regular_contained(destination, self.run_directory)
+            return
+        source_root = _absolute(source_root)
+        _assert_no_reparse_ancestry(source_root)
+        source = _safe_path(source_root, declaration.relative_path)
+        if not source.exists():
+            raise ValueError("declared checkout artifact does not exist")
+        before = _assert_regular_contained(source, source_root)
+        if before.st_size > self.limits.maximum_artifact_bytes:
+            raise ValueError("maximum bytes per artifact exceeded")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        _assert_no_reparse_ancestry(destination.parent)
+        shutil.copyfile(source, destination)
+        _assert_regular_contained(destination, self.run_directory)
+
     def write_result(self, payload: dict[str, object]) -> None:
         """Write the bounded final local record after evidence validation."""
 

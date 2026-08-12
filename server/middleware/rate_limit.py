@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import weakref
 from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable
 from typing import cast
@@ -27,11 +28,13 @@ _STATE: dict[str, object] = {
     "middleware": None,
     "metrics_callback": _noop_metrics_callback,
 }
+_INSTANCES: weakref.WeakSet[RateLimitMiddleware] = weakref.WeakSet()
 
 __all__ = [
     "RateLimitMiddleware",
     "SettingsProvider",
     "get_current_rate_limit_middleware",
+    "reset_all_rate_limit_middleware",
     "set_rate_limit_metrics_callback",
 ]
 
@@ -50,6 +53,13 @@ def set_rate_limit_metrics_callback(
     _STATE["metrics_callback"] = callback or _noop_metrics_callback
 
 
+def reset_all_rate_limit_middleware() -> None:
+    """Clear request buckets for every live in-process limiter instance."""
+
+    for middleware in tuple(_INSTANCES):
+        middleware.reset()
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Limit requests per client IP over a sliding time window."""
 
@@ -58,6 +68,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._settings_provider = settings_provider
         self._lock = asyncio.Lock()
         self._buckets: dict[str, deque[float]] = defaultdict(deque)
+        _INSTANCES.add(self)
         _STATE["middleware"] = self
 
     def reset(self) -> None:

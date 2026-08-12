@@ -62,7 +62,8 @@
           </div>
           <form id="validationRequestForm" class="broker-form">
             <label for="validationRepository">Repository</label>
-            <input id="validationRepository" name="repository_full_name" value="Nobodyworld/dev-agent-switchboard" required pattern="[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+" />
+            <select id="validationRepository" name="repository_full_name" required></select>
+            <p id="validationRepositoryReadiness" class="broker-help">Repository readiness is loading.</p>
 
             <div class="broker-form-pair">
               <div>

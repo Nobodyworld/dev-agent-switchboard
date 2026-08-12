@@ -93,6 +93,30 @@ def test_fingerprint_is_deterministic_and_identity_sensitive() -> None:
 
 
 @pytest.mark.parametrize(
+    "repository_full_name",
+    ("./repository", "../repository", "owner/.", "owner/.."),
+)
+def test_evidence_repository_identity_rejects_exact_dot_segments(
+    repository_full_name: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        _draft(repository_full_name=repository_full_name)
+    with pytest.raises(ValidationError):
+        _reuse_identity(repository_full_name=repository_full_name)
+
+
+def test_evidence_repository_identity_allows_ordinary_periods() -> None:
+    repository_full_name = "owner.with.period/repository.with.period"
+    assert _draft(repository_full_name=repository_full_name).repository_full_name == (
+        repository_full_name
+    )
+    assert (
+        _reuse_identity(repository_full_name=repository_full_name).repository_full_name
+        == repository_full_name
+    )
+
+
+@pytest.mark.parametrize(
     "summary",
     [
         r"pytest failed under C:\Users\worker\checkout\tests",

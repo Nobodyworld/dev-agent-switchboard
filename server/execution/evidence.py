@@ -12,6 +12,7 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .catalog import validate_repository_full_name
 from .text_policy import validate_no_absolute_local_paths
 
 ParserKind = Literal[
@@ -20,6 +21,9 @@ ParserKind = Literal[
     "pytest-coverage",
     "security-audit",
     "dependency-audit",
+    "dependency-health",
+    "critical-coverage",
+    "secret-scan",
 ]
 TerminalStatus = Literal["succeeded", "failed", "timed_out", "cancelled"]
 RedactionState = Literal["none", "redacted"]
@@ -34,7 +38,6 @@ MAX_EVIDENCE_PATH_LENGTH = 512
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 _IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
-_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _WINDOWS_DEVICES = {
     "aux",
     "clock$",
@@ -154,7 +157,7 @@ class ParsedCoverage(EvidenceModel):
 class AuditSummary(EvidenceModel):
     """Normalized security or dependency-audit result."""
 
-    kind: Literal["security", "dependency"]
+    kind: Literal["security", "dependency", "quality"]
     status: Literal["passed", "failed"]
     tool: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.+-]+$")
     findings: int = Field(ge=0, le=10_000_000)
@@ -192,7 +195,13 @@ class ParsedResult(EvidenceModel):
             self.tests is None or self.coverage is None or self.audit is not None
         ):
             raise ValueError("pytest-coverage parser result shape is invalid")
-        if self.parser in {"security-audit", "dependency-audit"} and (
+        if self.parser in {
+            "security-audit",
+            "dependency-audit",
+            "dependency-health",
+            "critical-coverage",
+            "secret-scan",
+        } and (
             self.audit is None or self.tests is not None or self.coverage is not None
         ):
             raise ValueError("audit parser result shape is invalid")
@@ -261,9 +270,7 @@ class EvidenceReuseIdentity(EvidenceModel):
             raise ValueError(
                 "dependency-lock identities must be unique and canonically sorted"
             )
-        owner, name = self.repository_full_name.split("/", maxsplit=1)
-        if owner in {".", ".."} or name in {".", ".."}:
-            raise ValueError("invalid repository identity")
+        validate_repository_full_name(self.repository_full_name)
         return self
 
 
@@ -399,12 +406,7 @@ class ExecutionEvidenceDraft(EvidenceModel):
     @field_validator("repository_full_name")
     @classmethod
     def validate_repository(cls, value: str) -> str:
-        if not _REPOSITORY.fullmatch(value):
-            raise ValueError("invalid repository identity")
-        owner, name = value.split("/", maxsplit=1)
-        if owner in {".", ".."} or name in {".", ".."}:
-            raise ValueError("invalid repository identity")
-        return value
+        return validate_repository_full_name(value)
 
     @model_validator(mode="after")
     def validate_document(self) -> Self:

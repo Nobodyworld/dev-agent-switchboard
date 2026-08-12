@@ -17,7 +17,6 @@ from typing import Any
 from .enums import NetworkPolicy, RepositoryWritePolicy
 from .evidence import ParserKind, RedactionState, validate_relative_path
 
-TRUSTED_REPOSITORIES = frozenset({"Nobodyworld/dev-agent-switchboard"})
 MAX_TRUSTED_STEP_ID_LENGTH = 80
 MAX_TRUSTED_STEP_OUTPUT_SUMMARY_BYTES = 64 * 1024
 MIN_MEDIA_TYPE_LENGTH = 3
@@ -94,6 +93,9 @@ class TrustedStep:
             "pytest-coverage",
             "security-audit",
             "dependency-audit",
+            "dependency-health",
+            "critical-coverage",
+            "secret-scan",
         }:
             raise ValueError("trusted step parser kind is unsupported")
         if len({item.relative_path for item in self.artifacts}) != len(self.artifacts):
@@ -375,7 +377,211 @@ _VALIDATE_SWITCHBOARD_ARTIFACTS = [
 ]
 
 
+_ACCOUNTING_ENVIRONMENT = (*_FIXED_VALIDATION_ENVIRONMENT, ("PYTHONPATH", "src"))
+
+
+def _accounting_step(  # noqa: PLR0913 - immutable step builder mirrors the contract
+    step_id: str,
+    title: str,
+    argv: tuple[str, ...],
+    *,
+    timeout_seconds: int = 900,
+    parser_kind: ParserKind | None = None,
+    artifacts: tuple[TrustedArtifact, ...] = (),
+) -> TrustedStep:
+    return TrustedStep(
+        id=step_id,
+        title=title,
+        argv=argv,
+        required=True,
+        timeout_seconds=timeout_seconds,
+        environment=_ACCOUNTING_ENVIRONMENT,
+        parser_kind=parser_kind,
+        artifacts=_log_artifacts(step_id) + artifacts,
+    )
+
+
+_VALIDATE_ACCOUNTING_STEPS = (
+    _accounting_step("lint", "Run Ruff checks", ("python", "-m", "ruff", "check", ".")),
+    _accounting_step(
+        "format",
+        "Check Ruff formatting",
+        ("python", "-m", "ruff", "format", "--check", "."),
+    ),
+    _accounting_step(
+        "typecheck",
+        "Run bounded Mypy checks",
+        (
+            "python",
+            "-m",
+            "mypy",
+            "src/apps/modular_accounting/application",
+            "src/apps/api",
+            "src/apps/extensions",
+            "src/cli",
+        ),
+    ),
+    _accounting_step(
+        "tests-with-coverage",
+        "Run full tests with branch coverage",
+        (
+            "python",
+            "-m",
+            "pytest",
+            "-o",
+            "cache_dir=.pytest_cache_runtime",
+            "--cov=src/apps",
+            "--cov=src/plugins",
+            "--cov=src/cli",
+            "--cov-branch",
+            "--cov-report=term-missing",
+            "--cov-report=xml:coverage.xml",
+            "--cov-report=json:coverage.json",
+        ),
+        timeout_seconds=1800,
+        parser_kind="pytest-coverage",
+        artifacts=(
+            TrustedArtifact("coverage-xml", "coverage.xml", "application/xml", "none"),
+            TrustedArtifact(
+                "coverage-json", "coverage.json", "application/json", "none"
+            ),
+        ),
+    ),
+    _accounting_step(
+        "aggregate-coverage",
+        "Enforce aggregate coverage",
+        (
+            "python",
+            "-m",
+            "src.tools.coverage_gate",
+            "coverage.json",
+            "--minimum-line",
+            "85",
+        ),
+        parser_kind="coverage",
+    ),
+    _accounting_step(
+        "critical-coverage",
+        "Enforce critical-module coverage",
+        (
+            "python",
+            "-m",
+            "src.tools.critical_coverage",
+            "coverage.json",
+            "--config",
+            "config/critical-coverage.toml",
+        ),
+        parser_kind="critical-coverage",
+    ),
+    _accounting_step(
+        "focused-controls",
+        "Run focused accounting controls",
+        (
+            "python",
+            "-m",
+            "pytest",
+            "-o",
+            "cache_dir=.pytest_cache_runtime",
+            "-q",
+            "tests/test_ledger_service.py",
+            "tests/test_data_snapshot_service.py",
+            "tests/test_modular_accounting_snapshot.py",
+            "tests/test_modular_accounting_controls.py",
+        ),
+        parser_kind="pytest",
+    ),
+    _accounting_step(
+        "dependency-health",
+        "Validate installed dependency consistency",
+        ("python", "-m", "pip", "check"),
+        parser_kind="dependency-health",
+    ),
+    _accounting_step(
+        "runtime-dependency-audit",
+        "Audit locked runtime dependencies",
+        (
+            "python",
+            "-m",
+            "pip_audit",
+            "--timeout",
+            "60",
+            "--require-hashes",
+            "--disable-pip",
+            "-r",
+            "requirements-container.lock",
+        ),
+        parser_kind="dependency-audit",
+    ),
+    _accounting_step(
+        "development-dependency-audit",
+        "Audit development dependencies",
+        ("python", "-m", "pip_audit", "--timeout", "60", "-r", "requirements-dev.txt"),
+        parser_kind="dependency-audit",
+    ),
+    _accounting_step(
+        "secret-scan",
+        "Run repository secret scan",
+        ("python", "-m", "src.tools.secret_scan"),
+        parser_kind="secret-scan",
+    ),
+)
+
+
+_VALIDATE_ACCOUNTING_ARTIFACTS = [
+    artifact.safe_metadata()
+    for step in _VALIDATE_ACCOUNTING_STEPS
+    for artifact in step.artifacts
+]
+
+
 _TRUSTED_MANIFESTS = (
+    TrustedManifest(
+        name="validate-accounting-modular",
+        version="1",
+        schema_version=1,
+        description=(
+            "Read-only fixed-argv validation of one exact modular-accounting commit "
+            "with bounded retained evidence."
+        ),
+        registry_source="server/execution/registry.py",
+        required_capabilities={
+            "operating_system": ["linux", "windows"],
+            "python": {"minimum": "3.12"},
+            "git_available": True,
+            "repository_write": False,
+        },
+        fixed_step_metadata=[
+            step.safe_metadata() for step in _VALIDATE_ACCOUNTING_STEPS
+        ],
+        environment_policy={
+            "allowed_inherited_keys": [
+                "PATH",
+                "HOME",
+                "USERPROFILE",
+                "SYSTEMROOT",
+                "TEMP",
+                "TMP",
+            ],
+            "redact_keys": [
+                "SWITCHBOARD_ADMIN_TOKEN",
+                "GITHUB_TOKEN",
+                "GH_TOKEN",
+                "OPENAI_API_KEY",
+                "ANTHROPIC_API_KEY",
+                "XAI_API_KEY",
+            ],
+        },
+        network_policy=NetworkPolicy.WORKER_RESTRICTED,
+        repository_write_policy=RepositoryWritePolicy.READ_ONLY,
+        timeout_seconds=5400,
+        artifact_declarations=_VALIDATE_ACCOUNTING_ARTIFACTS,
+        execution_steps=_VALIDATE_ACCOUNTING_STEPS,
+        dependency_lock_paths=(
+            "requirements.txt",
+            "requirements-dev.txt",
+            "requirements-container.lock",
+        ),
+    ),
     TrustedManifest(
         name="validate-switchboard",
         version="1",
@@ -480,6 +686,11 @@ def get_trusted_manifest(name: str, version: str) -> TrustedManifest | None:
         ),
         None,
     )
+
+
+from .catalog import TRUSTED_REPOSITORIES, validate_catalog  # noqa: E402
+
+validate_catalog((item.name, item.version) for item in _TRUSTED_MANIFESTS)
 
 
 __all__ = [

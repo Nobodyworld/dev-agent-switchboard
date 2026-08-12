@@ -10,7 +10,7 @@ from http import HTTPStatus
 import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from server.app import app
 from server.db import AsyncSessionLocal
@@ -38,6 +38,7 @@ from server.execution.exceptions import (
 from server.execution.repository import ExecutionRepository
 from server.execution.routing import (
     RoutingCandidate,
+    RoutingEvaluationRequest,
     evaluate_routing_candidate,
     rank_routing_candidates,
 )
@@ -51,6 +52,7 @@ from server.execution.schemas import (
 from server.execution.service import ExecutionService
 from server.models import (
     CommandManifest,
+    ExecutionLease,
     ExecutionRun,
     ExecutionWorker,
     ExecutionWorkOrder,
@@ -78,24 +80,28 @@ def _worker(
     status: WorkerStatus = WorkerStatus.ONLINE,
     docker_available: bool = False,
     network_policy: NetworkPolicy = NetworkPolicy.WORKER_RESTRICTED,
+    repository_full_names: tuple[str, ...] = ("Nobodyworld/dev-agent-switchboard",),
+    python_version: str = "3.11.9",
+    capabilities: dict[str, object] | None = None,
 ) -> WorkerRegistration:
     return WorkerRegistration(
         worker_id=worker_id,
         display_name=worker_id,
         operating_system="linux",
         architecture="x86_64",
-        python_version="3.11.9",
+        python_version=python_version,
         node_version="20.0.0",
         docker_available=docker_available,
         browsers=("chromium",),
         gpu_available=False,
         unity_available=False,
         desktop_available=False,
-        capabilities={},
+        capabilities=capabilities or {},
         max_concurrency=max_concurrency,
         network_policy_capability=network_policy,
         repository_write_capability=False,
         status=status,
+        repository_full_names=repository_full_names,
     )
 
 
@@ -107,12 +113,14 @@ def _draft(
     preferred_executor: str | None = None,
     required_capabilities: dict[str, object] | None = None,
     cost_ceiling: float | None = 0.0,
+    repository_full_name: str = "Nobodyworld/dev-agent-switchboard",
+    manifest_name: str = "validate-switchboard",
 ) -> WorkOrderDraft:
     return WorkOrderDraft(
         schema_version=1,
-        repository_full_name="Nobodyworld/dev-agent-switchboard",
+        repository_full_name=repository_full_name,
         commit_sha=_SHA,
-        manifest_name="validate-switchboard",
+        manifest_name=manifest_name,
         manifest_version="1",
         manifest_parameters={},
         required_capabilities=required_capabilities or {},
@@ -263,6 +271,144 @@ async def test_first_available_works_without_profile_or_poll_history() -> None:
         assert run.route_profile_revision is None
         assert run.route_estimated_cost_units is None
         assert run.route_quota_state == QuotaReservationState.NOT_REQUIRED
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "routing_policy",
+    [RoutingPolicy.FIRST_AVAILABLE, RoutingPolicy.CHEAPEST_CAPABLE],
+)
+async def test_repository_mapping_precedes_capacity_and_quota_reservation(
+    routing_policy: RoutingPolicy,
+) -> None:
+    accounting = "Nobodyworld/app-accounting-modular"
+    async with AsyncSessionLocal() as session:
+        service = _service(session)
+        await service.register_worker(
+            _worker(
+                "worker-unmapped-repository",
+                python_version="3.12.4",
+                capabilities={"git_available": True},
+            )
+        )
+        await service.register_worker(
+            _worker(
+                "worker-mapped-repository",
+                repository_full_names=(accounting,),
+                python_version="3.12.4",
+                capabilities={"git_available": True},
+            )
+        )
+        if routing_policy == RoutingPolicy.CHEAPEST_CAPABLE:
+            await service.create_routing_profile(
+                _profile("worker-unmapped-repository", cost=1, remaining=20)
+            )
+            await service.create_routing_profile(
+                _profile("worker-mapped-repository", cost=5, remaining=20)
+            )
+            await _active_poll(service, "worker-unmapped-repository")
+            await _active_poll(service, "worker-mapped-repository")
+        order_id = await _approved(
+            service,
+            _draft(
+                routing_policy=routing_policy,
+                required_quota_units=(
+                    2 if routing_policy == RoutingPolicy.CHEAPEST_CAPABLE else 0
+                ),
+                repository_full_name=accounting,
+                manifest_name="validate-accounting-modular",
+            ),
+        )
+
+        refused = await service.checkout("worker-unmapped-repository")
+        assert not refused.assigned
+        assert "worker_repository_unavailable" in refused.mismatch_reasons
+        if routing_policy == RoutingPolicy.FIRST_AVAILABLE:
+            assert refused.reason == "worker_repository_unavailable"
+        unmapped = await service._repository.get_worker("worker-unmapped-repository")
+        assert unmapped is not None
+        assert unmapped.active_run_count == 0
+        if routing_policy == RoutingPolicy.CHEAPEST_CAPABLE:
+            unmapped_profile = await service.get_routing_profile(
+                "worker-unmapped-repository"
+            )
+            assert unmapped_profile.quota_remaining_units == 20
+
+        claimed = await service.checkout("worker-mapped-repository")
+        assert claimed.assigned
+        assert claimed.work_order_id == order_id
+
+
+@pytest.mark.asyncio
+async def test_unmapped_hard_pin_never_falls_back_or_mutates_route_state() -> None:
+    accounting = "Nobodyworld/app-accounting-modular"
+    async with AsyncSessionLocal() as session:
+        service = _service(session)
+        await service.register_worker(
+            _worker(
+                "worker-unmapped-pin",
+                python_version="3.12.4",
+                capabilities={"git_available": True},
+            )
+        )
+        await service.register_worker(
+            _worker(
+                "worker-mapped-alternative",
+                repository_full_names=(accounting,),
+                python_version="3.12.4",
+                capabilities={"git_available": True},
+            )
+        )
+        for worker_id, cost in (
+            ("worker-unmapped-pin", 1),
+            ("worker-mapped-alternative", 5),
+        ):
+            await service.create_routing_profile(_profile(worker_id, cost=cost))
+            await _active_poll(service, worker_id)
+        order_id = await _approved(
+            service,
+            _draft(
+                routing_policy=RoutingPolicy.CHEAPEST_CAPABLE,
+                repository_full_name=accounting,
+                manifest_name="validate-accounting-modular",
+                preferred_executor="worker-unmapped-pin",
+                required_quota_units=2,
+            ),
+        )
+        before_runs = int(
+            await session.scalar(select(func.count(ExecutionRun.id))) or 0
+        )
+        before_leases = int(
+            await session.scalar(select(func.count(ExecutionLease.id))) or 0
+        )
+        assessment = await service.assess_route(order_id)
+        assert assessment.selected_worker_id is None
+        assert assessment.eligible_candidate_count == 0
+        assert assessment.explicit_pin_applied is True
+        assert assessment.reason == "preferred_executor_unavailable"
+
+        alternative = await service.checkout("worker-mapped-alternative")
+        pinned = await service.checkout("worker-unmapped-pin")
+        assert not alternative.assigned
+        assert not pinned.assigned
+        assert "worker_repository_unavailable" in pinned.mismatch_reasons
+        order = await service.get_work_order(order_id, refresh=True)
+        assert order.status.value == "queued"
+        assert order.attempt_count == 0
+        assert order.route_provenance is None
+        assert (
+            int(await session.scalar(select(func.count(ExecutionRun.id))) or 0)
+            == before_runs
+        )
+        assert (
+            int(await session.scalar(select(func.count(ExecutionLease.id))) or 0)
+            == before_leases
+        )
+        for worker_id in ("worker-unmapped-pin", "worker-mapped-alternative"):
+            worker = await service._repository.get_worker(worker_id)
+            profile = await service.get_routing_profile(worker_id)
+            assert worker is not None and worker.active_run_count == 0
+            assert profile.quota_remaining_units == 100
 
 
 @pytest.mark.asyncio
@@ -496,8 +642,16 @@ def test_routed_eligibility_fails_closed_at_every_pin_boundary(
     eligibility = evaluate_routing_candidate(
         worker,
         profile,
-        work_order=order,
-        manifest=manifest,
+        request=RoutingEvaluationRequest(
+            repository_full_name="Nobodyworld/dev-agent-switchboard",
+            routing_policy=RoutingPolicy.CHEAPEST_CAPABLE,
+            preferred_executor=order.preferred_executor,
+            maximum_cost_units=order.maximum_cost_units,
+            required_quota_units=order.required_quota_units,
+            manifest_requirements=manifest.required_capabilities,
+            requested_requirements=order.required_capabilities,
+            network_policy=order.network_policy,
+        ),
         now=_NOW,
         heartbeat_freshness_seconds=300,
         active_poll_freshness_seconds=60,
@@ -954,6 +1108,301 @@ async def test_assessment_is_read_only_and_api_provenance_is_redacted() -> None:
             assert "local_root" not in encoded
             assert "secret" not in encoded
             assert "credential" not in encoded
+
+
+@pytest.mark.asyncio
+async def test_repository_readiness_agrees_with_assessment_and_checkout() -> (  # noqa: PLR0915
+    None
+):
+    accounting = "Nobodyworld/app-accounting-modular"
+    async with AsyncSessionLocal() as session:
+        service = _service(session)
+        repository = ExecutionRepository(session)
+        await service.register_worker(
+            _worker(
+                "worker-accounting-311",
+                repository_full_names=(accounting,),
+                python_version="3.11.9",
+                capabilities={"git_available": True},
+            )
+        )
+        await service.register_worker(
+            _worker(
+                "worker-accounting-312",
+                repository_full_names=(accounting,),
+                python_version="3.12.4",
+                capabilities={"git_available": True},
+            )
+        )
+        await _active_poll(service, "worker-accounting-311")
+        await _active_poll(service, "worker-accounting-312")
+
+        first, selected = await service.assess_repository_readiness(
+            repository_full_name=accounting,
+            manifest_name="validate-accounting-modular",
+            manifest_version="1",
+            routing_policy=RoutingPolicy.FIRST_AVAILABLE,
+            maximum_cost_units=None,
+            required_quota_units=0,
+            preferred_executor=None,
+        )
+        by_worker = {item.worker.worker_id: item for item in first}
+        assert by_worker["worker-accounting-311"].candidate is None
+        assert (
+            "python_version_too_old_or_missing"
+            in by_worker["worker-accounting-311"].reasons
+        )
+        assert by_worker["worker-accounting-312"].candidate is not None
+        assert by_worker["worker-accounting-312"].profile is None
+        assert selected is None
+
+        cheapest, selected = await service.assess_repository_readiness(
+            repository_full_name=accounting,
+            manifest_name="validate-accounting-modular",
+            manifest_version="1",
+            routing_policy=RoutingPolicy.CHEAPEST_CAPABLE,
+            maximum_cost_units=None,
+            required_quota_units=0,
+            preferred_executor=None,
+        )
+        by_worker = {item.worker.worker_id: item for item in cheapest}
+        assert "routing_profile_missing" in by_worker["worker-accounting-312"].reasons
+        assert selected is None
+
+        disabled = await service.create_routing_profile(
+            _profile("worker-accounting-312", cost=5, remaining=2, enabled=False)
+        )
+        disabled_readiness, _ = await service.assess_repository_readiness(
+            repository_full_name=accounting,
+            manifest_name="validate-accounting-modular",
+            manifest_version="1",
+            routing_policy=RoutingPolicy.CHEAPEST_CAPABLE,
+            maximum_cost_units=None,
+            required_quota_units=0,
+            preferred_executor=None,
+        )
+        disabled_item = next(
+            item
+            for item in disabled_readiness
+            if item.worker.worker_id == "worker-accounting-312"
+        )
+        assert "routing_profile_disabled" in disabled_item.reasons
+
+        enabled = await service.replace_routing_profile(
+            "worker-accounting-312",
+            RoutingProfileReplacement(
+                expected_revision=disabled.revision,
+                enabled=True,
+                estimated_cost_units_per_run=5,
+                quota_capacity_units=20,
+                quota_remaining_units=2,
+                quota_reset_at=None,
+                routing_priority=0,
+            ),
+        )
+
+        async def snapshot() -> tuple[object, ...]:
+            rows = await repository.list_workers_with_profiles()
+            worker_values = tuple(
+                (
+                    worker.worker_id,
+                    worker.status,
+                    worker.active_run_count,
+                    worker.last_heartbeat_at,
+                    worker.last_checkout_poll_at,
+                    profile.revision if profile else None,
+                    profile.quota_remaining_units if profile else None,
+                )
+                for worker, profile in rows
+            )
+            counts = []
+            for model in (ExecutionWorkOrder, ExecutionRun, ExecutionLease):
+                counts.append(
+                    int(await session.scalar(select(func.count(model.id))) or 0)
+                )
+            return worker_values, tuple(counts)
+
+        before = await snapshot()
+        constrained, constrained_selected = await service.assess_repository_readiness(
+            repository_full_name=accounting,
+            manifest_name="validate-accounting-modular",
+            manifest_version="1",
+            routing_policy=RoutingPolicy.CHEAPEST_CAPABLE,
+            maximum_cost_units=4,
+            required_quota_units=3,
+            preferred_executor=None,
+        )
+        constrained_item = next(
+            item
+            for item in constrained
+            if item.worker.worker_id == "worker-accounting-312"
+        )
+        assert "routing_cost_ceiling_exceeded" in constrained_item.reasons
+        assert "routing_quota_insufficient" in constrained_item.reasons
+        assert constrained_selected is None
+
+        pinned, pinned_selected = await service.assess_repository_readiness(
+            repository_full_name=accounting,
+            manifest_name="validate-accounting-modular",
+            manifest_version="1",
+            routing_policy=RoutingPolicy.FIRST_AVAILABLE,
+            maximum_cost_units=None,
+            required_quota_units=0,
+            preferred_executor="worker-accounting-311",
+        )
+        assert pinned_selected is None
+        pinned_by_worker = {item.worker.worker_id: item for item in pinned}
+        assert (
+            "preferred_executor_mismatch"
+            in pinned_by_worker["worker-accounting-312"].reasons
+        )
+        assert await snapshot() == before
+
+        ready_profile = await service.replace_routing_profile(
+            "worker-accounting-312",
+            RoutingProfileReplacement(
+                expected_revision=enabled.revision,
+                enabled=True,
+                estimated_cost_units_per_run=5,
+                quota_capacity_units=20,
+                quota_remaining_units=20,
+                quota_reset_at=None,
+                routing_priority=0,
+            ),
+        )
+        order_id = await _approved(
+            service,
+            _draft(
+                repository_full_name=accounting,
+                manifest_name="validate-accounting-modular",
+                routing_policy=RoutingPolicy.CHEAPEST_CAPABLE,
+                maximum_cost_units=5,
+                required_quota_units=3,
+            ),
+        )
+        assessment = await service.assess_route(order_id)
+        readiness, readiness_selected = await service.assess_repository_readiness(
+            repository_full_name=accounting,
+            manifest_name="validate-accounting-modular",
+            manifest_version="1",
+            routing_policy=RoutingPolicy.CHEAPEST_CAPABLE,
+            maximum_cost_units=5,
+            required_quota_units=3,
+            preferred_executor=None,
+        )
+        assert ready_profile.revision == assessment.selected_routing_profile_revision
+        assert assessment.selected_worker_id == "worker-accounting-312"
+        assert assessment.eligible_candidate_count == 1
+        assert readiness_selected is not None
+        assert readiness_selected.worker.worker_id == assessment.selected_worker_id
+        assert sum(item.candidate is not None for item in readiness) == 1
+        assignment = await service.checkout("worker-accounting-312")
+        assert assignment.assigned
+        claimed = await service.get_work_order(order_id, refresh=True)
+        assert claimed.route_selected_worker_id == assessment.selected_worker_id
+
+
+@pytest.mark.asyncio
+async def test_repository_readiness_api_is_request_aware_and_bounded() -> None:
+    worker = {
+        "worker_id": "worker-readiness-api",
+        "display_name": "Readiness API worker",
+        "operating_system": "linux",
+        "architecture": "x86_64",
+        "python_version": "3.11.9",
+        "node_version": None,
+        "docker_available": False,
+        "browsers": [],
+        "gpu_available": False,
+        "unity_available": False,
+        "desktop_available": False,
+        "capabilities": {"git_available": True},
+        "repository_full_names": ["Nobodyworld/app-accounting-modular"],
+        "max_concurrency": 1,
+        "network_policy_capability": "worker_restricted",
+        "repository_write_capability": False,
+        "status": "online",
+    }
+    route = (
+        "/api/execution/trusted-repositories/"
+        "Nobodyworld/app-accounting-modular/readiness"
+    )
+    params = {
+        "manifest_name": "validate-accounting-modular",
+        "manifest_version": "1",
+        "routing_policy": "first_available",
+        "maximum_cost_units": "7",
+        "required_quota_units": "1",
+        "preferred_executor": worker["worker_id"],
+    }
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        registered = await client.post("/api/execution/workers", json=worker)
+        assert registered.status_code == HTTPStatus.OK
+        polled = await client.post(
+            "/api/execution/checkout", json={"worker_id": worker["worker_id"]}
+        )
+        assert polled.status_code == HTTPStatus.OK
+
+        incompatible = await client.get(route, params=params)
+        assert incompatible.status_code == HTTPStatus.OK
+        payload = incompatible.json()
+        assert payload["manifest_name"] == "validate-accounting-modular"
+        assert payload["manifest_version"] == "1"
+        assert payload["routing_policy"] == "first_available"
+        assert payload["maximum_cost_units"] == 7
+        assert payload["required_quota_units"] == 1
+        assert payload["preferred_executor"] == worker["worker_id"]
+        assert payload["selected_worker_id"] is None
+        assert payload["eligible_worker_count"] == 0
+        assert payload["ready_worker_count"] == 0
+        assert payload["workers"][0]["readiness_reason"] == (
+            "manifest_capability_mismatch"
+        )
+
+        updated = await client.post(
+            "/api/execution/workers", json={**worker, "python_version": "3.12.4"}
+        )
+        assert updated.status_code == HTTPStatus.OK
+        compatible = await client.get(route, params=params)
+        compatible_payload = compatible.json()
+        assert compatible.status_code == HTTPStatus.OK
+        assert compatible_payload["selected_worker_id"] == worker["worker_id"]
+        assert compatible_payload["eligible_worker_count"] == 1
+        assert compatible_payload["workers"][0]["ready"] is True
+        assert compatible_payload["workers"][0]["selected"] is True
+        assert compatible_payload["workers"][0]["routing_profile_enabled"] is False
+
+        cheapest = await client.get(
+            route, params={**params, "routing_policy": "cheapest_capable"}
+        )
+        assert cheapest.status_code == HTTPStatus.OK
+        assert cheapest.json()["eligible_worker_count"] == 0
+        assert cheapest.json()["workers"][0]["readiness_reason"] == "profile_missing"
+
+        defaulted = await client.get(route)
+        assert defaulted.status_code == HTTPStatus.OK
+        assert defaulted.json()["manifest_name"] == "validate-accounting-modular"
+        partial = await client.get(route, params={"manifest_name": "missing-version"})
+        assert partial.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert partial.json()["detail"] == "manifest_identity_must_be_complete"
+        disallowed = await client.get(
+            route,
+            params={
+                "manifest_name": "validate-switchboard",
+                "manifest_version": "1",
+            },
+        )
+        assert disallowed.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert disallowed.json()["detail"] == "repository_manifest_not_allowed"
+        for field in ("maximum_cost_units", "required_quota_units"):
+            overflow = await client.get(route, params={field: "2147483648"})
+            assert overflow.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+
+        serialized = str(compatible_payload).lower()
+        for prohibited in ("capabilities", "local_root", "secret", "credential"):
+            assert prohibited not in serialized
 
 
 @pytest.mark.asyncio

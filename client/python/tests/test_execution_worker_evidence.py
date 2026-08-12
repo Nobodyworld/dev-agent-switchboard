@@ -28,6 +28,7 @@ from server.execution.evidence import (
     EvidenceReuseProvenance,
     ExecutionEvidence,
     ExecutionEvidenceDraft,
+    ParserKind,
     ReuseCandidate,
     compute_reuse_identity_hash,
     finalize_evidence,
@@ -35,6 +36,7 @@ from server.execution.evidence import (
 from server.execution.registry import TrustedArtifact
 
 _NOW = dt.datetime(2026, 7, 1, tzinfo=dt.UTC)
+_ACCOUNTING_COVERAGE_PERCENT = 87.25
 
 
 def _store(tmp_path: Path, **limits: int):
@@ -102,6 +104,44 @@ def test_artifact_count_and_byte_limits(
 
     with pytest.raises(ValueError, match=message):
         store.finalize_artifacts(declarations)
+
+
+def test_declared_checkout_artifact_is_copied_into_owned_evidence(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    source_root = tmp_path / "checkout"
+    source_root.mkdir()
+    source = source_root / "coverage.json"
+    source.write_bytes(b'{"totals":{"percent_covered":91}}\n')
+    declaration = TrustedArtifact(
+        kind="coverage-json",
+        relative_path="coverage.json",
+        media_type="application/json",
+        redaction_state="none",
+    )
+
+    store.capture_declared_artifact(source_root, declaration)
+    records = store.finalize_artifacts((("tests-with-coverage", declaration),))
+
+    assert (store.run_directory / "coverage.json").read_bytes() == source.read_bytes()
+    assert records[0].relative_path == "coverage.json"
+    assert records[0].sha256 == hashlib.sha256(source.read_bytes()).hexdigest()
+
+
+def test_missing_declared_checkout_artifact_fails_closed(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    source_root = tmp_path / "checkout"
+    source_root.mkdir()
+    declaration = TrustedArtifact(
+        kind="coverage-json",
+        relative_path="coverage.json",
+        media_type="application/json",
+        redaction_state="none",
+    )
+
+    with pytest.raises(ValueError, match="does not exist"):
+        store.capture_declared_artifact(source_root, declaration)
 
 
 def test_artifact_must_be_regular_and_evidence_root_must_not_overlap(
@@ -236,6 +276,71 @@ def test_trusted_parsers_report_counts_coverage_audits_and_failure(
     )
     assert failed.status == "parser_failed"
     assert failed.tests is None
+
+
+@pytest.mark.parametrize(
+    ("parser_kind", "output", "audit_kind", "tool"),
+    [
+        ("dependency-health", "No broken requirements found.\n", "dependency", "pip"),
+        (
+            "critical-coverage",
+            "critical coverage satisfied\n",
+            "quality",
+            "critical-coverage",
+        ),
+        ("secret-scan", "No secrets detected.\n", "security", "secret-scan"),
+    ],
+)
+def test_accounting_audit_parsers_emit_bounded_truthful_shapes(
+    tmp_path: Path,
+    parser_kind: ParserKind,
+    output: str,
+    audit_kind: str,
+    tool: str,
+) -> None:
+    stdout = tmp_path / f"{parser_kind}.stdout.log"
+    stderr = tmp_path / f"{parser_kind}.stderr.log"
+    stdout.write_text(output, encoding="utf-8")
+    stderr.write_text("", encoding="utf-8")
+
+    parsed = parse_result(
+        parser_kind,
+        stdout_path=stdout,
+        stderr_path=stderr,
+        command_succeeded=True,
+    )
+
+    assert parsed.status == "parsed"
+    assert parsed.audit is not None
+    assert parsed.audit.model_dump() == {
+        "kind": audit_kind,
+        "status": "passed",
+        "tool": tool,
+        "findings": 0,
+    }
+
+
+def test_accounting_coverage_gate_parser_accepts_real_style_output(
+    tmp_path: Path,
+) -> None:
+    stdout = tmp_path / "coverage.stdout.log"
+    stderr = tmp_path / "coverage.stderr.log"
+    stdout.write_text(
+        f"Aggregate line coverage: {_ACCOUNTING_COVERAGE_PERCENT}% (minimum 85%)\n",
+        encoding="utf-8",
+    )
+    stderr.write_text("", encoding="utf-8")
+
+    parsed = parse_result(
+        "coverage",
+        stdout_path=stdout,
+        stderr_path=stderr,
+        command_succeeded=True,
+    )
+
+    assert parsed.status == "parsed"
+    assert parsed.coverage is not None
+    assert parsed.coverage.measured_percent == _ACCOUNTING_COVERAGE_PERCENT
 
 
 def _reusable_source(

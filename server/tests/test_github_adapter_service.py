@@ -58,6 +58,7 @@ from server.execution.operator_projection import ExecutionOperatorProjection
 from server.execution.registry import get_trusted_manifest
 from server.github_adapter.errors import (
     GitHubAmbiguousWriteError,
+    GitHubManifestError,
     GitHubRateLimitedError,
     GitHubRepositoryNotAllowedError,
     GitHubTerminalEvidenceRequiredError,
@@ -530,6 +531,45 @@ async def test_allowlist_is_enforced_before_remote_or_work_order_creation() -> N
     assert transport.actor_calls == 0
     assert transport.resolve_calls == 0
     assert int(work_orders or 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_repository_manifest_pair_is_enforced_before_remote_or_persistence() -> (
+    None
+):
+    transport = FakeGitHubTransport()
+    async with AsyncSessionLocal() as session:
+        before_requests = int(
+            await session.scalar(select(func.count(GitHubValidationRequest.id))) or 0
+        )
+        before_orders = int(
+            await session.scalar(select(func.count(ExecutionWorkOrder.id))) or 0
+        )
+        service = _service(session, transport)
+        with pytest.raises(
+            GitHubManifestError, match=r"^repository_manifest_not_allowed$"
+        ):
+            await service.request_validation(
+                repository_full_name=REPOSITORY,
+                pull_request_number=125,
+                manifest_name="validate-accounting-modular",
+                manifest_version="1",
+            )
+        await session.rollback()
+        assert (
+            int(
+                await session.scalar(select(func.count(GitHubValidationRequest.id)))
+                or 0
+            )
+            == before_requests
+        )
+        assert (
+            int(await session.scalar(select(func.count(ExecutionWorkOrder.id))) or 0)
+            == before_orders
+        )
+
+    assert transport.actor_calls == 0
+    assert transport.resolve_calls == 0
 
 
 @pytest.mark.asyncio

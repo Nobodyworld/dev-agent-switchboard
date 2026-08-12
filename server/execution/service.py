@@ -16,7 +16,7 @@ from server.models import (
     WorkerRoutingProfile,
 )
 
-from .capabilities import match_worker_capabilities
+from .catalog import TRUSTED_REPOSITORIES, repository_allows_manifest
 from .entities import (
     CheckoutResult,
     ExecutionCompletion,
@@ -61,16 +61,14 @@ from .exceptions import (
     RepositoryWritePolicyError,
     UnknownManifestError,
 )
-from .registry import (
-    TRUSTED_REPOSITORIES,
-    get_trusted_manifest,
-    iter_trusted_manifests,
-)
+from .registry import get_trusted_manifest, iter_trusted_manifests
 from .repository import ExecutionRepository, LeaseSnapshot, RunLeaseWindow
 from .routing import (
     MAX_ROUTING_INTEGER,
     ROUTING_SCHEMA_VERSION,
     RoutingCandidate,
+    RoutingEligibility,
+    RoutingEvaluationRequest,
     evaluate_routing_candidate,
     rank_routing_candidates,
     unavailable_route_reason,
@@ -125,9 +123,15 @@ class ExecutionService:
         """Create a pending, deny-by-default work order from safe request data."""
 
         self._validate_work_order_draft(draft)
+        if draft.repository_full_name not in TRUSTED_REPOSITORIES:
+            raise UnknownManifestError("trusted_repository_not_found")
         definition = get_trusted_manifest(draft.manifest_name, draft.manifest_version)
         if definition is None:
             raise UnknownManifestError("trusted_manifest_not_found")
+        if not repository_allows_manifest(
+            draft.repository_full_name, draft.manifest_name, draft.manifest_version
+        ):
+            raise UnknownManifestError("repository_manifest_not_allowed")
         unsupported = set(draft.manifest_parameters) - definition.allowed_parameters
         if unsupported:
             names = ",".join(sorted(unsupported))
@@ -356,6 +360,7 @@ class ExecutionService:
                 "unity_available": registration.unity_available,
                 "desktop_available": registration.desktop_available,
                 "capabilities": dict(registration.capabilities),
+                "repository_full_names": list(registration.repository_full_names),
                 "max_concurrency": registration.max_concurrency,
                 "network_policy_capability": registration.network_policy_capability,
                 "repository_write_capability": False,
@@ -502,47 +507,67 @@ class ExecutionService:
             raise ManifestIntegrityError("trusted_manifest_not_found")
         now = self._clock()
         explicit_pin = work_order.preferred_executor is not None
-        if (
-            work_order.routing_policy == RoutingPolicy.FIRST_AVAILABLE
-            and not explicit_pin
-        ):
-            count = await self._first_available_candidate_count(
-                work_order=work_order, manifest=manifest
+        evaluations = await self._routing_eligibilities(
+            request=self._routing_request(work_order=work_order, manifest=manifest),
+            now=now,
+        )
+        candidates = [
+            item.candidate for item in evaluations if item.candidate is not None
+        ]
+        mismatches = list(
+            dict.fromkeys(reason for item in evaluations for reason in item.reasons)
+        )
+        if work_order.routing_policy == RoutingPolicy.FIRST_AVAILABLE:
+            selected = (
+                next(
+                    (
+                        item
+                        for item in candidates
+                        if item.worker.worker_id == work_order.preferred_executor
+                    ),
+                    None,
+                )
+                if explicit_pin
+                else None
             )
             return RouteAssessment(
                 schema_version=ROUTING_SCHEMA_VERSION,
                 work_order_id=work_order.id,
                 routing_policy=work_order.routing_policy,
-                selected_worker_id=None,
+                selected_worker_id=(selected.worker.worker_id if selected else None),
                 selected_routing_profile_revision=None,
                 estimated_cost_units=None,
                 required_quota_units=work_order.required_quota_units,
                 reserved_quota_units=0,
                 quota_reservation_state=QuotaReservationState.NOT_REQUIRED,
-                eligible_candidate_count=count,
-                explicit_pin_applied=False,
-                reason="first_available",
+                eligible_candidate_count=len(candidates),
+                explicit_pin_applied=explicit_pin,
+                reason=(
+                    "first_available"
+                    if candidates
+                    else unavailable_route_reason(mismatches, explicit_pin=explicit_pin)
+                ),
                 decision_timestamp=now,
             )
-        candidates, mismatches = await self._routed_candidates(
-            work_order=work_order,
-            manifest=manifest,
-            now=now,
-        )
         ranked = rank_routing_candidates(
             candidates, required_quota_units=work_order.required_quota_units
         )
         selected = ranked[0] if ranked else None
+        selected_profile = selected.profile if selected is not None else None
+        if selected is not None and selected_profile is None:  # pragma: no cover
+            raise ManifestIntegrityError("ranked_routing_profile_missing")
         return RouteAssessment(
             schema_version=ROUTING_SCHEMA_VERSION,
             work_order_id=work_order.id,
             routing_policy=work_order.routing_policy,
             selected_worker_id=(selected.worker.worker_id if selected else None),
             selected_routing_profile_revision=(
-                selected.profile.revision if selected else None
+                selected_profile.revision if selected_profile else None
             ),
             estimated_cost_units=(
-                selected.profile.estimated_cost_units_per_run if selected else None
+                selected_profile.estimated_cost_units_per_run
+                if selected_profile
+                else None
             ),
             required_quota_units=work_order.required_quota_units,
             reserved_quota_units=0,
@@ -556,6 +581,60 @@ class ExecutionService:
             ),
             decision_timestamp=now,
         )
+
+    async def assess_repository_readiness(  # noqa: PLR0913
+        self,
+        *,
+        repository_full_name: str,
+        manifest_name: str,
+        manifest_version: str,
+        routing_policy: RoutingPolicy,
+        maximum_cost_units: int | None,
+        required_quota_units: int,
+        preferred_executor: str | None,
+    ) -> tuple[list[RoutingEligibility], RoutingCandidate | None]:
+        """Evaluate trusted repository readiness without mutating persisted state."""
+
+        if not repository_allows_manifest(
+            repository_full_name, manifest_name, manifest_version
+        ):
+            raise UnknownManifestError("repository_manifest_not_allowed")
+        manifest = get_trusted_manifest(manifest_name, manifest_version)
+        if manifest is None:
+            raise UnknownManifestError("trusted_manifest_not_found")
+        request = RoutingEvaluationRequest(
+            repository_full_name=repository_full_name,
+            routing_policy=routing_policy,
+            preferred_executor=preferred_executor,
+            maximum_cost_units=maximum_cost_units,
+            required_quota_units=required_quota_units,
+            manifest_requirements=manifest.required_capabilities,
+            requested_requirements={},
+            network_policy=manifest.network_policy,
+        )
+        evaluations = await self._routing_eligibilities(
+            request=request,
+            now=self._clock(),
+        )
+        candidates = [
+            item.candidate for item in evaluations if item.candidate is not None
+        ]
+        if routing_policy == RoutingPolicy.CHEAPEST_CAPABLE:
+            ranked = rank_routing_candidates(
+                candidates, required_quota_units=required_quota_units
+            )
+            return evaluations, (ranked[0] if ranked else None)
+        if preferred_executor is not None:
+            selected = next(
+                (
+                    item
+                    for item in candidates
+                    if item.worker.worker_id == preferred_executor
+                ),
+                None,
+            )
+            return evaluations, selected
+        return evaluations, None
 
     async def checkout(self, worker_id: str) -> CheckoutResult:
         """Atomically assign one capability-compatible queued work order."""
@@ -586,41 +665,48 @@ class ExecutionService:
         for work_order, manifest in candidates:
             now = self._clock()
             explicit_pin = work_order.preferred_executor is not None
-            if (
-                work_order.routing_policy == RoutingPolicy.FIRST_AVAILABLE
-                and not explicit_pin
-            ):
-                capability_match = match_worker_capabilities(
-                    worker,
-                    manifest_requirements=manifest.required_capabilities,
-                    requested_requirements=work_order.required_capabilities,
-                    network_policy=work_order.network_policy,
-                )
-                if not capability_match.eligible:
-                    mismatch_reasons.extend(capability_match.reasons)
+            evaluations = await self._routing_eligibilities(
+                request=self._routing_request(
+                    work_order=work_order,
+                    manifest=manifest,
+                ),
+                now=now,
+            )
+            eligibility = next(
+                item
+                for item in evaluations
+                if item.worker.worker_id == worker.worker_id
+            )
+            mismatch_reasons.extend(eligibility.reasons)
+            eligible = [
+                item.candidate for item in evaluations if item.candidate is not None
+            ]
+            if work_order.routing_policy == RoutingPolicy.FIRST_AVAILABLE:
+                if eligibility.candidate is None:
+                    reason = unavailable_route_reason(
+                        list(eligibility.reasons), explicit_pin=explicit_pin
+                    )
+                    if reason != "no_capable_workers":
+                        route_reasons.append(reason)
                     continue
                 result = await self._claim_routed_work(
                     worker=worker,
                     work_order=work_order,
                     profile=None,
-                    eligible_candidate_count=1,
-                    explicit_pin=False,
+                    eligible_candidate_count=len(eligible),
+                    explicit_pin=explicit_pin,
                     now=now,
                 )
             else:
-                routed, reasons = await self._routed_candidates(
-                    work_order=work_order,
-                    manifest=manifest,
-                    now=now,
-                )
-                mismatch_reasons.extend(reasons)
                 ranked = rank_routing_candidates(
-                    routed,
+                    eligible,
                     required_quota_units=work_order.required_quota_units,
                 )
                 if not ranked:
                     route_reasons.append(
-                        unavailable_route_reason(reasons, explicit_pin=explicit_pin)
+                        unavailable_route_reason(
+                            list(eligibility.reasons), explicit_pin=explicit_pin
+                        )
                     )
                     continue
                 selected = ranked[0]
@@ -647,11 +733,16 @@ class ExecutionService:
                 tuple(dict.fromkeys(mismatch_reasons)),
             )
         if mismatch_reasons:
+            unique_mismatches = tuple(dict.fromkeys(mismatch_reasons))
             return CheckoutResult(
                 None,
                 None,
-                "capability_mismatch",
-                tuple(dict.fromkeys(mismatch_reasons)),
+                (
+                    "worker_repository_unavailable"
+                    if "worker_repository_unavailable" in unique_mismatches
+                    else "capability_mismatch"
+                ),
+                unique_mismatches,
             )
         return CheckoutResult(None, None, "no_queued_work_orders")
 
@@ -745,60 +836,49 @@ class ExecutionService:
         except IntegrityError:
             return CheckoutResult(None, None, "checkout_conflict")
 
-    async def _routed_candidates(
-        self,
+    @staticmethod
+    def _routing_request(
         *,
         work_order: ExecutionWorkOrder,
         manifest: CommandManifest,
-        now: dt.datetime,
-    ) -> tuple[list[RoutingCandidate], list[str]]:
-        """Load and evaluate the complete authoritative routed-worker set."""
+    ) -> RoutingEvaluationRequest:
+        """Build the pure evaluator input used by every routing surface."""
 
-        candidates: list[RoutingCandidate] = []
-        mismatch_reasons: list[str] = []
+        return RoutingEvaluationRequest(
+            repository_full_name=work_order.repository_full_name,
+            routing_policy=work_order.routing_policy,
+            preferred_executor=work_order.preferred_executor,
+            maximum_cost_units=work_order.maximum_cost_units,
+            required_quota_units=work_order.required_quota_units,
+            manifest_requirements=manifest.required_capabilities,
+            requested_requirements=work_order.required_capabilities,
+            network_policy=work_order.network_policy,
+        )
+
+    async def _routing_eligibilities(
+        self,
+        *,
+        request: RoutingEvaluationRequest,
+        now: dt.datetime,
+    ) -> list[RoutingEligibility]:
+        """Evaluate the complete authoritative worker set without mutations."""
+
         heartbeat_freshness_seconds, active_poll_freshness_seconds = (
             self._routing_freshness_seconds()
         )
+        evaluations: list[RoutingEligibility] = []
         for worker, profile in await self._repository.list_workers_with_profiles():
-            eligibility = evaluate_routing_candidate(
-                worker,
-                profile,
-                work_order=work_order,
-                manifest=manifest,
-                now=now,
-                heartbeat_freshness_seconds=heartbeat_freshness_seconds,
-                active_poll_freshness_seconds=active_poll_freshness_seconds,
+            evaluations.append(
+                evaluate_routing_candidate(
+                    worker,
+                    profile,
+                    request=request,
+                    now=now,
+                    heartbeat_freshness_seconds=heartbeat_freshness_seconds,
+                    active_poll_freshness_seconds=active_poll_freshness_seconds,
+                )
             )
-            if eligibility.candidate is not None:
-                candidates.append(eligibility.candidate)
-            else:
-                mismatch_reasons.extend(eligibility.reasons)
-        return candidates, list(dict.fromkeys(mismatch_reasons))
-
-    async def _first_available_candidate_count(
-        self,
-        *,
-        work_order: ExecutionWorkOrder,
-        manifest: CommandManifest,
-    ) -> int:
-        """Count compatibility candidates without adding new legacy gates."""
-
-        count = 0
-        for worker, _profile in await self._repository.list_workers_with_profiles():
-            if (
-                worker.status != WorkerStatus.ONLINE
-                or worker.active_run_count >= worker.max_concurrency
-            ):
-                continue
-            match = match_worker_capabilities(
-                worker,
-                manifest_requirements=manifest.required_capabilities,
-                requested_requirements=work_order.required_capabilities,
-                network_policy=work_order.network_policy,
-            )
-            if match.eligible:
-                count += 1
-        return count
+        return evaluations
 
     @classmethod
     def _routing_profile_values(
@@ -1176,6 +1256,11 @@ class ExecutionService:
             provenance = evidence.reuse_provenance
             if (
                 worker is None
+                or source_order.repository_full_name
+                not in (
+                    worker.repository_full_names
+                    or ["Nobodyworld/dev-agent-switchboard"]
+                )
                 or source_order.status != WorkOrderStatus.SUCCEEDED
                 or source_order.finished_at is None
                 or source_run.status != ExecutionRunStatus.SUCCEEDED
@@ -1235,6 +1320,12 @@ class ExecutionService:
         )
         if definition is None:
             raise ApprovalDeniedError("trusted_manifest_not_found")
+        if not repository_allows_manifest(
+            work_order.repository_full_name,
+            work_order.manifest_name,
+            work_order.manifest_version,
+        ):
+            raise ApprovalDeniedError("repository_manifest_not_allowed")
         if definition.digest != work_order.manifest_digest:
             raise ManifestIntegrityError("trusted_manifest_digest_conflict")
 

@@ -19,6 +19,13 @@ All sensitive fields (such as `DATABASE_URL` credentials or `SWITCHBOARD_ADMIN_T
 
 ## Local execution routing
 
+The worker JSON `repositories` object remains the only place where logical
+`owner/repository` names map to canonical local paths. Registration derives a
+sorted `repository_full_names` list from its keys and sends no values from that
+mapping. The server accepts only catalog repositories. Existing workers that
+omit the field and prior database rows upgrade to the historical Switchboard
+repository only; they never implicitly gain access to later catalog entries.
+
 Two server-owned environment settings bound `cheapest_capable` liveness:
 
 - `SWITCHBOARD_EXECUTION_HEARTBEAT_FRESHNESS_SECONDS` defaults to `300` and
@@ -49,7 +56,9 @@ These values are local operator comparison units only: Switchboard does not
 interpret them as currency, credits, spend, savings, billing, or a provider
 rate limit. No provider credential or paid-agent configuration is introduced.
 
-The Validation Broker workspace edits the same persisted profiles through the
+The Validation Broker workspace loads the source-controlled catalog, filters
+manifest choices by selected repository, shows read-only readiness, and edits
+the same persisted profiles through the
 revision-protected APIs and reads active/stale worker state through a bounded
 projection. It does not introduce browser-owned routing configuration. The
 browser reads the existing admin token from local storage only when sending an

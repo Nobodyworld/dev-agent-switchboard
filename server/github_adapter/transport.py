@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 import httpx
 
+from server.execution.catalog import validate_repository_full_name
 from server.settings import GitHubSettings
 
 from .errors import (
@@ -33,7 +34,6 @@ MAX_SAFE_PULL_REQUEST_NUMBER = 2_147_483_647
 SAFE_READ_ATTEMPTS = 3
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
-_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _NODE_ID = re.compile(rf"^[A-Za-z0-9_=-]{{1,{MAX_GITHUB_NODE_ID_LENGTH}}}$")
 _DISPLAY_TEXT = re.compile(r"^[^\x00-\x1f\x7f]{1,255}$")
 _TRANSIENT_READ_STATUSES = frozenset({502, 503, 504})
@@ -648,11 +648,11 @@ class GitHubTransport:
 
 
 def _repository_route(repository_full_name: str) -> tuple[str, str, str]:
-    if not _REPOSITORY.fullmatch(repository_full_name):
-        raise GitHubTransportError("github_transport_failed")
+    try:
+        validate_repository_full_name(repository_full_name)
+    except ValueError as error:
+        raise GitHubTransportError("github_transport_failed") from error
     owner, repository_name = repository_full_name.split("/", maxsplit=1)
-    if owner in {".", ".."} or repository_name in {".", ".."}:
-        raise GitHubTransportError("github_transport_failed")
     return (
         f"repos/{quote(owner, safe='')}/{quote(repository_name, safe='')}",
         owner,
@@ -817,9 +817,12 @@ def _safe_node_id(value: object) -> str:
 
 
 def _safe_repository_name(value: object) -> str:
-    if not isinstance(value, str) or not _REPOSITORY.fullmatch(value):
+    if not isinstance(value, str):
         raise GitHubTransportError("github_transport_failed")
-    return value
+    try:
+        return validate_repository_full_name(value)
+    except ValueError as error:
+        raise GitHubTransportError("github_transport_failed") from error
 
 
 def _safe_display_text(value: object) -> str:
@@ -1028,9 +1031,12 @@ def _decode_issue_association(
         pull_request_number = int(number_part)
     except ValueError as error:
         raise GitHubTransportError("github_transport_failed") from error
+    try:
+        validate_repository_full_name(repository_full_name)
+    except ValueError as error:
+        raise GitHubTransportError("github_transport_failed") from error
     if (
-        not _REPOSITORY.fullmatch(repository_full_name)
-        or quote(owner, safe="") != owner_part
+        quote(owner, safe="") != owner_part
         or quote(repository_name, safe="") != repository_part
         or str(pull_request_number) != number_part
         or not 1 <= pull_request_number <= MAX_SAFE_PULL_REQUEST_NUMBER

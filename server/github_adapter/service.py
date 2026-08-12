@@ -11,6 +11,10 @@ from dataclasses import dataclass
 
 from sqlalchemy.exc import IntegrityError
 
+from server.execution.catalog import (
+    TRUSTED_REPOSITORIES,
+    repository_allows_manifest,
+)
 from server.execution.entities import WorkOrderDraft
 from server.execution.enums import (
     ApprovalPolicy,
@@ -20,11 +24,7 @@ from server.execution.enums import (
 )
 from server.execution.evidence import ExecutionEvidence
 from server.execution.exceptions import ExecutionNotFoundError, MalformedEvidenceError
-from server.execution.registry import (
-    TRUSTED_REPOSITORIES,
-    TrustedManifest,
-    get_trusted_manifest,
-)
+from server.execution.registry import TrustedManifest, get_trusted_manifest
 from server.execution.service import ExecutionService
 from server.models import ExecutionRun, GitHubValidationRequest
 from server.settings import GitHubSettings
@@ -145,6 +145,10 @@ class GitHubAdapterService:
         manifest = get_trusted_manifest(manifest_name, manifest_version)
         if manifest is None:
             raise GitHubManifestError("trusted_manifest_not_found")
+        if not repository_allows_manifest(
+            repository_full_name, manifest_name, manifest_version
+        ):
+            raise GitHubManifestError("repository_manifest_not_allowed")
         actor = await self._transport.resolve_authenticated_actor()
         resolved = await self._transport.resolve_pull_request(
             repository_full_name, pull_request_number, require_head=True
