@@ -11,6 +11,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -118,6 +119,14 @@ def _directory_size(path: Path) -> int:
         for item in path.rglob("*")
         if item.is_file() and not item.is_symlink()
     )
+
+
+def _runtime_argv(argv: tuple[str, ...]) -> tuple[str, ...]:
+    """Bind trusted symbolic Python steps to this worker's interpreter."""
+
+    if argv and argv[0] == "python":
+        return (sys.executable, *argv[1:])
+    return argv
 
 
 def _parse_linux_process_stat(value: str) -> tuple[int, str] | None:
@@ -408,7 +417,7 @@ def run_step(  # noqa: PLR0912, PLR0913, PLR0915 - trusted lifecycle inputs are 
     started_at = dt.datetime.now(dt.UTC)
     with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
         process = subprocess.Popen(
-            step.argv,
+            _runtime_argv(step.argv),
             cwd=cwd,
             env=environment,
             shell=False,

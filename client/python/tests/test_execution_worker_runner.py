@@ -70,6 +70,15 @@ def test_deadline_expired_before_launch_does_not_call_popen(tmp_path: Path) -> N
     popen.assert_not_called()
 
 
+def test_symbolic_python_step_uses_worker_interpreter() -> None:
+    assert runner_module._runtime_argv(("python", "-m", "ruff")) == (
+        sys.executable,
+        "-m",
+        "ruff",
+    )
+    assert runner_module._runtime_argv(("git", "status")) == ("git", "status")
+
+
 def test_summary_is_bounded_and_redacts_values(tmp_path: Path) -> None:
     checkout = tmp_path / "checkout"
     checkout.mkdir()
