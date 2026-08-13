@@ -114,7 +114,7 @@ def _render_storage_section(storage: Mapping[str, Any]) -> list[str]:
     free_bytes = _format_bytes(storage.get("free_bytes"))
     total_bytes = _format_bytes(storage.get("total_bytes"))
     return [
-        ("Storage root: " f"{root} (exists: {exists}, writable: {writable})"),
+        (f"Storage root: {root} (exists: {exists}, writable: {writable})"),
         f"Storage free: {free_bytes} / {total_bytes}",
     ]
 
@@ -328,9 +328,7 @@ def process_task(  # - CLI flow intentionally branches on user commands
     heartbeat_note = f"every {heartbeat_interval:.0f}s"
     if max_heartbeats is not None and max_heartbeats > 0:
         heartbeat_note += f"; auto-abandon after {max_heartbeats} heartbeats"
-    print(
-        "Heartbeat thread started " f"({heartbeat_note}). " "Type 'help' for options."
-    )
+    print(f"Heartbeat thread started ({heartbeat_note}). Type 'help' for options.")
     notes: str | None = None
 
     def finalize(action: str) -> bool:

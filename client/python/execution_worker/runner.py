@@ -6,10 +6,12 @@
 from __future__ import annotations
 
 import datetime as dt
+import errno
 import os
 import re
 import signal
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -23,6 +25,9 @@ from .parsers import parse_result
 
 _WINDOWS_ABSOLUTE_PATH = re.compile(r"(?i)\b[A-Z]:\\[^\s\r\n\"']+")
 _POSIX_ABSOLUTE_PATH = re.compile(r"(?<![:A-Za-z0-9])/(?:[^\s\r\n\"']+/?)+")
+_LINUX_TERMINAL_PROCESS_STATES = frozenset({"X", "x", "Z"})
+_LINUX_STAT_MIN_FIELDS = 3
+_PROCESS_GROUP_POLL_SECONDS = 0.01
 
 
 class OverallDeadlineExceededError(RuntimeError):
@@ -116,17 +121,122 @@ def _directory_size(path: Path) -> int:
     )
 
 
-def _process_group_alive(process: subprocess.Popen[bytes]) -> bool:
-    if os.name == "nt":
-        return process.poll() is None
-    kill_process_group = getattr(os, "killpg", None)
-    if not callable(kill_process_group):  # pragma: no cover - POSIX contract guard
-        raise RuntimeError("POSIX process-group termination is unavailable")
+def _runtime_argv(argv: tuple[str, ...]) -> tuple[str, ...]:
+    """Bind trusted symbolic Python steps to this worker's interpreter."""
+
+    if argv and argv[0] == "python":
+        return (sys.executable, *argv[1:])
+    return argv
+
+
+def _parse_linux_process_stat(value: str) -> tuple[int, str] | None:
+    """Parse the process group and state from one Linux /proc stat record."""
+
+    command_end = value.rfind(")")
+    fields = value[command_end + 2 :].split() if command_end >= 0 else []
+    if len(fields) < _LINUX_STAT_MIN_FIELDS:
+        return None
     try:
-        kill_process_group(process.pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
+        process_group_id = int(fields[2])
+    except ValueError:
+        return None
+    return process_group_id, fields[0]
+
+
+def _linux_process_group_members(process_group_id: int) -> dict[int, str] | None:
+    """Return Linux process states for a group, or None without reliable /proc."""
+
+    proc_root = Path("/proc")
+    if os.name == "nt" or not (proc_root / "self" / "stat").is_file():
+        return None
+    try:
+        entries = tuple(proc_root.iterdir())
+    except OSError:
+        return None
+
+    members: dict[int, str] = {}
+    reliable = True
+    for entry in entries:
+        if not entry.name.isdecimal():
+            continue
+        try:
+            stat = (entry / "stat").read_text(encoding="utf-8", errors="replace")
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+        except PermissionError:
+            reliable = False
+            break
+        except OSError as error:
+            if error.errno in {errno.ENOENT, errno.ESRCH}:
+                continue
+            reliable = False
+            break
+
+        parsed = _parse_linux_process_stat(stat)
+        if parsed is None:
+            reliable = False
+            break
+        try:
+            member_process_id = int(entry.name)
+        except ValueError:
+            reliable = False
+            break
+        member_group_id, state = parsed
+        if member_group_id == process_group_id:
+            members[member_process_id] = state
+    return members if reliable else None
+
+
+def _process_group_observation(process_group_id: int) -> tuple[bool, str]:
+    """Report execution-capable group membership; zombies are already terminated."""
+
+    members = _linux_process_group_members(process_group_id)
+    if members is not None:
+        live = {
+            process_id: state
+            for process_id, state in members.items()
+            if state not in _LINUX_TERMINAL_PROCESS_STATES
+        }
+        terminal = {
+            process_id: state
+            for process_id, state in members.items()
+            if state in _LINUX_TERMINAL_PROCESS_STATES
+        }
+        if not members:
+            kill_process_group = getattr(os, "killpg", None)
+            if _signal_process_group(kill_process_group, process_group_id, 0):
+                return (
+                    True,
+                    f"pgid={process_group_id} membership remains (states unavailable)",
+                )
+            return False, f"pgid={process_group_id} members=none"
+
+        details = [f"pgid={process_group_id}"]
+        if live:
+            details.append(
+                "live="
+                + ",".join(
+                    f"{process_id}:{state}"
+                    for process_id, state in sorted(live.items())
+                )
+            )
+        if terminal:
+            details.append(
+                "terminal="
+                + ",".join(
+                    f"{process_id}:{state}"
+                    for process_id, state in sorted(terminal.items())
+                )
+            )
+        return bool(live), " ".join(details)
+
+    kill_process_group = getattr(os, "killpg", None)
+    alive = _signal_process_group(kill_process_group, process_group_id, 0)
+    return alive, (
+        f"pgid={process_group_id} membership remains (states unavailable)"
+        if alive
+        else f"pgid={process_group_id} members=none"
+    )
 
 
 def _terminate_windows(process: subprocess.Popen[bytes], grace_seconds: float) -> None:
@@ -151,7 +261,7 @@ def _terminate_windows(process: subprocess.Popen[bytes], grace_seconds: float) -
 
 
 def _signal_process_group(
-    kill_process_group: object, process_id: int, signal_number: signal.Signals
+    kill_process_group: object, process_id: int, signal_number: int | signal.Signals
 ) -> bool:
     """Signal one known process group, returning false when it has exited."""
 
@@ -172,23 +282,43 @@ def _wait_for_parent(process: subprocess.Popen[bytes], grace_seconds: float) -> 
     return True
 
 
+def _wait_for_process_group_exit(process_group_id: int, grace_seconds: float) -> None:
+    """Wait within the grace budget until no execution-capable member remains."""
+
+    deadline = time.monotonic() + max(grace_seconds, 0.0)
+    while True:
+        alive, details = _process_group_observation(process_group_id)
+        if not alive:
+            return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError(
+                f"POSIX descendant process termination failed ({details})"
+            )
+        time.sleep(min(_PROCESS_GROUP_POLL_SECONDS, remaining))
+
+
 def _terminate_posix(process: subprocess.Popen[bytes], grace_seconds: float) -> None:
     """Send TERM then KILL to the trusted process group and verify it exits."""
 
     kill_process_group = getattr(os, "killpg", None)
     if not _signal_process_group(kill_process_group, process.pid, signal.SIGTERM):
         return
+    force_signal = getattr(signal, "SIGKILL", signal.SIGTERM)
+    force_sent = False
     if not _wait_for_parent(process, grace_seconds):
-        force_signal = getattr(signal, "SIGKILL", signal.SIGTERM)
         _signal_process_group(kill_process_group, process.pid, force_signal)
+        force_sent = True
         if not _wait_for_parent(process, grace_seconds):
             raise RuntimeError("POSIX parent process termination failed")
-    if _process_group_alive(process):
-        force_signal = getattr(signal, "SIGKILL", signal.SIGTERM)
-        if not _signal_process_group(kill_process_group, process.pid, force_signal):
-            return
-        if _process_group_alive(process):
-            raise RuntimeError("POSIX descendant process termination failed")
+    alive, _details = _process_group_observation(process.pid)
+    if not alive:
+        return
+    if not force_sent and not _signal_process_group(
+        kill_process_group, process.pid, force_signal
+    ):
+        return
+    _wait_for_process_group_exit(process.pid, grace_seconds)
 
 
 def _terminate(process: subprocess.Popen[bytes], *, grace_seconds: float = 2.0) -> None:
@@ -287,7 +417,7 @@ def run_step(  # noqa: PLR0912, PLR0913, PLR0915 - trusted lifecycle inputs are 
     started_at = dt.datetime.now(dt.UTC)
     with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
         process = subprocess.Popen(
-            step.argv,
+            _runtime_argv(step.argv),
             cwd=cwd,
             env=environment,
             shell=False,

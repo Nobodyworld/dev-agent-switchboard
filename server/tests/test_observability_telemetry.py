@@ -70,6 +70,5 @@ def test_telemetry_report_surfaces_warnings(monkeypatch):
     assert any("Prometheus" in warning for warning in payload["metrics"]["warnings"])
     assert payload["tracing"]["enabled"] is False
     assert any("OpenTelemetry" in warning for warning in payload["tracing"]["warnings"])
-    assert payload["logging"][
-        "warnings"
-    ], "Logging warnings should surface when not configured"
+    missing_logging_warning = "Logging warnings should surface when not configured"
+    assert payload["logging"]["warnings"], missing_logging_warning

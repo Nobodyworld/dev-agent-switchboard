@@ -748,6 +748,7 @@ class GitHubValidationCreateIn:
     required_quota_units: int = 0
     preferred_executor: str | None = None
 
+
 class ExecutionOperatorOverviewOut:
     window: TimeWindowOut
     requests: RequestMetricsOut
@@ -756,6 +757,7 @@ class ExecutionOperatorOverviewOut:
     avoided_work: AvoidedWorkMetricsOut
     publications: PublicationMetricsOut
     workers: WorkerMetricsOut
+
 
 class ExecutionHistoryPageOut:
     items: list[ExecutionHistoryItemOut]
