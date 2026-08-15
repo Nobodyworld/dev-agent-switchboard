@@ -48,14 +48,14 @@ PR #144 was squash-merged as the current baseline. Its merged-main CI run `31661
 
 ## Active large slice
 
-Issue #143 is the active large coherent product slice.
+Issue #143 and draft PR #145 are the active large coherent product slice.
 
 ```text
 starting main: eef4df6c43807576bf1c067200b44f16d6dd8e31
 branch: feat/public-workload-onboarding-factory
+pull request: #145 — draft, open, unmerged
 ExecPlan: .agent/execplans/015_public_workload_onboarding_factory.md
-pull request: pending connector creation
-state: initial planning commit; implementation not started
+state: connector planning and status initialization complete; local implementation not started
 ```
 
 The slice will turn bespoke public workload onboarding into a repeatable source-controlled factory and prove it with:
@@ -140,7 +140,7 @@ The execution-broker roadmap is tracked in issue #111.
 
 The current sequence is:
 
-1. complete issue #143 through one canonical draft PR, local evidence, hosted evidence, controlled live dogfood or precise blockers, and final connector review;
+1. complete issue #143 through draft PR #145, local evidence, hosted evidence, controlled live dogfood or precise blockers, and final connector review;
 2. merge only after a separate explicit expected-head owner authorization;
 3. use the resulting workload factory to onboard further high-value deterministic profiles;
 4. define a separate typed MCP/Secure MCP Tunnel architecture only after local-first profile utility is proven;
