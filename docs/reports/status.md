@@ -1,6 +1,6 @@
 # Public Developer Preview Status
 
-_Last reviewed: 2026-08-11_
+_Last reviewed: 2026-08-15_
 
 ## Classification
 
@@ -12,87 +12,96 @@ The repository is public for source inspection, controlled local evaluation, and
 
 ## Published preview
 
-The developer-preview checkpoint is:
+The historical developer-preview checkpoint remains:
 
 ```text
 tag: v0.1.0-preview.1
 commit: dcac19fb211e105474cf74831a9cc53ef2138ea3
 ```
 
-That preview predates later execution-broker product slices. It is a historical public checkpoint, not the current `main` and not a production release.
+That tag predates later execution-broker product slices. It is not current `main`, a general-availability release, or production authorization.
 
 ## Current merged baseline
 
 Current `main` is:
 
 ```text
-83f84a7ee07b4f5cdddfa7611242a529897fa842
+eef4df6c43807576bf1c067200b44f16d6dd8e31
 ```
 
-The merged baseline includes:
+It includes:
 
 - the task-coordination server, API, Python client, dashboard, observability, and Docker packaging;
-- an exact-SHA execution control plane with explicit approval, work orders, workers, runs, leases, heartbeats, cancellation, and terminal completion;
-- an outbound trusted local worker using operator-allowlisted repositories, disposable read-only exact-SHA worktrees, fixed reviewed argv, bounded/redacted output, retained local logs, ownership checks, cancellation, process-tree termination, and contained cleanup;
-- compact validation evidence with dependency-lock identity, parsed test/coverage/security results, retained artifact hashes, deterministic fingerprints, and local-path rejection;
-- exact GitHub pull-request resolution and explicit managed current/stale evidence publication;
+- exact-SHA work orders, explicit approval, execution runs, leases, heartbeats, cancellation, and terminal completion;
+- an outbound trusted local worker using operator-allowlisted repositories and disposable read-only exact-SHA worktrees;
+- fixed reviewed argv, bounded/redacted output, full process-tree cancellation, ownership checks, and contained cleanup;
+- compact evidence with dependency identity, parsed results, retained artifact hashes, deterministic fingerprints, and local-path rejection;
+- exact GitHub pull-request resolution and explicit current/stale evidence publication;
 - opt-in same-worker exact evidence reuse after retained local cryptographic proof;
-- deterministic `first_available` and `cheapest_capable` local routing with operator-owned integer cost, quota, priority, active-poll, capacity, and route provenance;
-- the merged Validation Broker command center for worker/profile setup, exact-PR requests, explicit approval and queueing, fresh or reused execution, explicit publication, bounded history, and truthful avoided-work metrics.
+- deterministic `first_available` and `cheapest_capable` routing using server-owned integer cost, quota, priority, capacity, and route provenance;
+- the Validation Broker operator interface;
+- a strict two-repository source-controlled workload catalog with `validate-accounting-modular@1`;
+- repository-aware readiness, routing, exact reuse, and a dedicated Python 3.12 accounting acceptance gate;
+- the dependency convergence from PR #144, including current framework/tooling versions, Ruff alignment, POSIX process-group lifecycle correction, and trusted Python interpreter binding.
 
-The Validation Broker merged through issue #136 and PR #137. Its exact accepted head was `ba9d0a8184448a1ae0c30357a18a7b5962dea94d`, squash-merged as the current baseline above. Full local and hosted evidence remains in the PR, issue, and living ExecPlan.
-
-## Current draft slice
-
-Draft PR #139 now contains a strict two-repository source-controlled catalog,
-explicit repository-to-manifest compatibility, bounded logical worker
-availability, restart-safe Switchboard-only legacy defaults, repository-aware
-routing/reuse, catalog-driven command-center onboarding, and the external
-`validate-accounting-modular@1` fixed contract. Existing Switchboard manifest
-digests remain unchanged.
-
-The file-backed production-path acceptance uses real FastAPI execution/GitHub
-routes, `ExecutionClient`, `LocalWorker`, worker-owned evidence storage, and a
-mocked GitHub transport. It proves an unmapped cheaper worker cannot claim the
-accounting request, all eleven trusted steps run freshly on the mapped worker,
-declared coverage/log/result/ownership evidence is retained, and the second
-same-identity request reuses after worker-local verification with zero executed
-steps. The canonical Git repository remains clean.
-
-The draft follow-up makes repository readiness request-aware and routes it
-through the same pure evaluator as assessment and checkout. It catches the
-accounting Python 3.11 mismatch, permits profile-free first-available workers,
-enforces profile/cost/quota only for cheapest-capable, keeps hard pins strict,
-and performs no readiness writes. Broad quality and coverage return to Python
-3.11; the exact real accounting acceptance runs alone in a required Python 3.12
-job that fails on skips or any result other than one passing test.
+PR #144 was squash-merged as the current baseline. Its merged-main CI run `31661847137` passed lint, typecheck, test, security, Secrets audit, Link check, Coverage, strict Browser UI tests, and Accounting workload acceptance.
 
 ## Active large slice
 
-Issue [#138](https://github.com/Nobodyworld/dev-agent-switchboard/issues/138) and draft PR [#139](https://github.com/Nobodyworld/dev-agent-switchboard/pull/139) implement:
+Issue #143 is the active large coherent product slice.
 
-- a strict source-controlled trusted repository/workload catalog;
-- explicit repository-to-manifest compatibility;
-- preserved existing Switchboard manifest identities and digests;
-- first external `validate-accounting-modular@1` manifest;
-- bounded worker logical repository availability without local paths;
-- restart-safe persistence compatibility;
-- repository-aware routing, hard pins, assessment, and exact reuse;
-- repository-aware command-center onboarding and readiness;
-- controlled real fresh-then-reused dogfood against the exact current head of public `Nobodyworld/app-accounting-modular` PR #126, or a precise environment blocker.
+```text
+starting main: eef4df6c43807576bf1c067200b44f16d6dd8e31
+branch: feat/public-workload-onboarding-factory
+ExecPlan: .agent/execplans/015_public_workload_onboarding_factory.md
+pull request: pending connector creation
+state: initial planning commit; implementation not started
+```
 
-The target PR must not be modified, published to, merged, closed, retargeted, or marked ready automatically. Approval and publication remain explicit.
+The slice will turn bespoke public workload onboarding into a repeatable source-controlled factory and prove it with:
 
-Target state changed after planning: PR #126 merged before implementation could
-perform truthful current-PR dogfood. Its final head is
-`a7af5766a4e83a95c64a40bfdc606ee7b280cbf5` and merge commit is
-`4266ea43ed40201388df82bb53f757df45afe204`. No target mutation or publication
-was attempted, and synthetic real-worker evidence is not represented as live
-target-PR dogfood.
+- `validate-zscripts@1` for `Nobodyworld/dev-logger-zscripts`;
+- `validate-industry-resilience@1` for `Nobodyworld/app-industry-resilience`.
+
+The intended completed public catalog contains exactly:
+
+1. `Nobodyworld/dev-agent-switchboard`;
+2. `Nobodyworld/app-accounting-modular`;
+3. `Nobodyworld/dev-logger-zscripts`;
+4. `Nobodyworld/app-industry-resilience`.
+
+The slice also adds deterministic catalog/profile validation, truthful pnpm capability matching, a bounded read-only catalog readiness overview, workload-pack history, committed synthetic fresh/reuse production-path acceptances, dedicated hosted acceptance jobs, documentation, and controlled live evidence or precise blockers.
+
+## External target state
+
+### Zscripts
+
+```text
+repository: Nobodyworld/dev-logger-zscripts
+current reviewed main: c96628e2409dbb4d184030fc29fd431050b3009c
+planned live target: PR #119
+PR #119 state: closed and merged
+live dogfood disposition: TARGET-STATE-BLOCKED
+```
+
+The profile must reproduce the current protected deterministic quality contract under Python 3.11, Node 24.12.0, and pnpm 10.18.1. No replacement PR may be substituted, and current-main inspection must not be represented as live exact-PR dogfood.
+
+### Industry Resilience
+
+```text
+repository: Nobodyworld/app-industry-resilience
+live target: PR #130
+observed state: open, draft, mergeable
+observed head: 5e458da35accc9fedd9f29a521de5c27b757a8d0
+CI Quality Gate: 31553906171 — success
+Docker Smoke: 31553906099 — success
+```
+
+The generic profile must translate the protected Makefile gate into fixed direct argv under Python 3.13. It must not require GNU Make or claim target Docker, Edge, Playwright, screen-reader, release, or publication acceptance. The exact PR state and head must be re-resolved immediately before implementation and live dogfood.
 
 ## Validation posture
 
-The protected GitHub Actions matrix exercises:
+The protected GitHub Actions matrix currently exercises:
 
 - Commitlint;
 - pinned pre-commit and repository-policy checks;
@@ -103,22 +112,40 @@ The protected GitHub Actions matrix exercises:
 - Bandit and dependency auditing;
 - full-history Gitleaks scanning;
 - documentation link validation;
-- strict browser UI tests that fail when skipped.
+- strict browser UI tests that fail when skipped;
+- dedicated Python 3.12 accounting workload acceptance.
 
-Exact workflow identifiers, test counts, coverage measurements, target dogfood SHA, and environment limitations belong in active pull requests and living ExecPlans. This page intentionally records durable capability and scope rather than rapidly stale run details.
+Issue #143 must preserve every existing protected check and add isolated exact-result acceptance jobs for the new synthetic Zscripts and Industry Resilience profiles. External repositories must not be checked out or executed in hosted Switchboard CI.
 
-## Release and deployment boundary
+## Security and execution boundary
 
-Technical validation, a public repository, and a developer-preview tag do not authorize production or public hosting. Any later tag, release, deployment, expanded network exposure, untrusted multi-tenant claim, paid-provider execution, or write-capable worker remains a separate owner-controlled decision with its own accepted contract and evidence.
+The active slice does not authorize:
+
+- arbitrary or runtime-authored commands;
+- executable YAML, JSON, TOML, database, API, or target-repository profiles;
+- caller-controlled argv, parsers, environment values, artifact paths, working directories, URLs, or cleanup targets;
+- private repository metadata in the public catalog;
+- target source writes;
+- external PR comments or state changes;
+- paid-provider execution or billing claims;
+- MCP or Secure MCP Tunnel implementation;
+- browser, Docker, Unity, GPU, desktop, or RPA worker expansion;
+- release, publication, deployment, auto-merge, force-push, rebase, or history rewriting.
+
+Workers remain outbound, read-only, exact-SHA, fixed-argv evidence producers. Full logs and artifact bytes remain local. GitHub and the owner retain repository and merge authority.
 
 ## Roadmap
 
-The execution-broker roadmap is tracked in issue [#111](https://github.com/Nobodyworld/dev-agent-switchboard/issues/111).
+The execution-broker roadmap is tracked in issue #111.
 
 The current sequence is:
 
-1. complete review and hosted validation of issue #138 / draft PR #139 while retaining the merged-target blocker truthfully;
-2. onboard additional deterministic workloads only through reviewed fixed profiles;
-3. define a separate typed MCP/Secure MCP Tunnel architecture after local-first utility is proven;
-4. keep paid-provider handoff behind local profile coverage and truthful evidence;
-5. treat browser, desktop, Unity, Docker, and RPA workers as later specialized capability slices.
+1. complete issue #143 through one canonical draft PR, local evidence, hosted evidence, controlled live dogfood or precise blockers, and final connector review;
+2. merge only after a separate explicit expected-head owner authorization;
+3. use the resulting workload factory to onboard further high-value deterministic profiles;
+4. define a separate typed MCP/Secure MCP Tunnel architecture only after local-first profile utility is proven;
+5. keep paid-provider handoff, browser workers, Docker workers, desktop/RPA, and write-capable workers behind separate accepted threat models and issues.
+
+## Release and deployment boundary
+
+Technical validation, public source visibility, and a developer-preview tag do not authorize production or public hosting. Any later tag, release, deployment, expanded network exposure, untrusted multi-tenant claim, paid-provider execution, or write-capable worker remains a separate owner-controlled decision with its own accepted contract and evidence.
