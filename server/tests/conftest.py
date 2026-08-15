@@ -16,6 +16,7 @@ configuration_service_module = None
 try:
     from server import db, file_store
     from server.api import AppConfig, create_app
+    from server.application import factory as application_factory
     from server.application import (
         configuration_service as _configuration_service_module,
     )
@@ -98,11 +99,9 @@ def freeze_execution_reuse_clock(
         yield
         return
 
-    from server.application import factory as application_factory
-
     # The module's synthetic evidence is fixed at this instant. Freeze the
     # injected service clock so its 14-day retention contract never date-rots.
-    fixed_now = dt.datetime(2026, 7, 30, 12)
+    fixed_now = dt.datetime(2026, 7, 30, 12, tzinfo=dt.UTC).replace(tzinfo=None)
     monkeypatch.setattr(application_factory, "utcnow_naive", lambda: fixed_now)
     monkeypatch.setattr(request.module, "utcnow_naive", lambda: fixed_now)
     yield
