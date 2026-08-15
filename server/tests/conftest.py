@@ -16,9 +16,9 @@ configuration_service_module = None
 try:
     from server import db, file_store
     from server.api import AppConfig, create_app
-    from server.application import factory as application_factory
     from server.application import (
         configuration_service as _configuration_service_module,
+        factory as application_factory,
     )
     from server.db import Base, engine
     from server.middleware import reset_all_rate_limit_middleware
