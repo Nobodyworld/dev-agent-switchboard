@@ -331,6 +331,92 @@ body {
   margin-bottom: 0.85rem;
 }
 
+.broker-catalog-panel {
+  margin-bottom: 0.85rem;
+}
+
+.broker-catalog-readiness {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.65rem;
+  min-width: 0;
+  margin-top: 0.8rem;
+}
+
+.broker-catalog-card {
+  min-width: 0;
+  border: 1px solid #34465f;
+  border-radius: 0.55rem;
+  padding: 0.7rem;
+}
+
+.broker-catalog-card header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.broker-catalog-card h4,
+.broker-catalog-card .broker-code {
+  overflow-wrap: anywhere;
+}
+
+.broker-catalog-card h4 {
+  margin: 0;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 750;
+}
+
+.broker-catalog-card .broker-code {
+  margin: 0.25rem 0 0;
+  color: var(--broker-muted);
+}
+
+.broker-catalog-details {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.65rem 0;
+  color: var(--broker-muted);
+  font-size: 0.72rem;
+}
+
+.broker-catalog-details div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.broker-catalog-details dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--broker-text);
+  overflow-wrap: anywhere;
+}
+
+.broker-catalog-result-details {
+  color: var(--broker-muted);
+}
+
+.broker-catalog-exclusions {
+  border-top: 1px solid #26364d;
+  padding-top: 0.55rem;
+  color: var(--broker-muted);
+  font-size: 0.7rem;
+}
+
+.broker-catalog-exclusions p {
+  margin: 0 0 0.2rem;
+  font-weight: 700;
+}
+
+.broker-catalog-exclusions ul {
+  display: grid;
+  gap: 0.15rem;
+  margin: 0;
+  padding-left: 1rem;
+}
+
 .broker-metric {
   min-width: 0;
   border: 1px solid var(--broker-border);
@@ -627,6 +713,10 @@ body {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
+  .broker-catalog-readiness {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .broker-workspace-grid {
     grid-template-columns: minmax(18rem, 0.85fr) minmax(22rem, 1.15fr);
   }
@@ -639,6 +729,10 @@ body {
 @media (min-width: 1200px) {
   .broker-metrics {
     grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+
+  .broker-catalog-readiness {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
