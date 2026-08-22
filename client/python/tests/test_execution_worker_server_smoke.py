@@ -8,7 +8,7 @@ import hashlib
 import json
 import subprocess
 import sys
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from http import HTTPStatus
 from pathlib import Path
 from unittest.mock import patch
@@ -21,6 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from client.python.execution_worker import worker as worker_module
+from client.python.execution_worker.capabilities import discover_worker_registration
 from client.python.execution_worker.client import ExecutionClient
 from client.python.execution_worker.config import WorkerConfig
 from client.python.execution_worker.evidence import EvidenceStore
@@ -33,6 +34,7 @@ from server.api.dependencies import (
 )
 from server.application import build_execution_service
 from server.db import Base
+from server.execution.enums import RoutingPolicy
 from server.execution.evidence import ExecutionEvidence, compute_evidence_fingerprint
 from server.execution.registry import get_trusted_manifest
 from server.github_adapter.errors import (
@@ -211,6 +213,210 @@ print('TOTAL 10 0 100%')
     _git(repository, "commit", "-am", "accounting fixture two")
     second = _git(repository, "rev-parse", "HEAD")
     return repository, (first, second), _git(repository, "status", "--porcelain=v1")
+
+
+def _write_fixture_file(repository: Path, relative_path: str, content: str) -> None:
+    """Write one committed synthetic repository input with explicit UTF-8 bytes."""
+
+    path = repository.joinpath(*relative_path.split("/"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _catalog_repository(
+    tmp_path: Path,
+    *,
+    directory_name: str,
+    files: dict[str, str],
+    moved_input_path: str,
+) -> tuple[Path, tuple[str, str], str]:
+    """Create a clean two-commit local canonical repository for a catalog profile."""
+
+    repository = tmp_path / directory_name
+    subprocess.run(["git", "init", str(repository)], check=True, shell=False)
+    _git(repository, "config", "user.email", "worker@example.test")
+    _git(repository, "config", "user.name", "Worker Test")
+    for relative_path, content in sorted(files.items()):
+        _write_fixture_file(repository, relative_path, content)
+    _git(repository, "add", ".")
+    _git(repository, "commit", "-m", f"{directory_name} fixture one")
+    first = _git(repository, "rev-parse", "HEAD")
+    _write_fixture_file(
+        repository,
+        moved_input_path,
+        f"{files[moved_input_path]}\n# synthetic result-affecting input change\n",
+    )
+    _git(repository, "commit", "-am", f"{directory_name} fixture two")
+    second = _git(repository, "rev-parse", "HEAD")
+    return repository, (first, second), _git(repository, "status", "--porcelain=v1")
+
+
+def _zscripts_repository(tmp_path: Path) -> tuple[Path, tuple[str, str], str]:
+    """Build a no-network Zscripts fixture compatible with ``quality-gate``."""
+
+    quality_gate = """from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+OPERATIONS = (
+    "format-check",
+    "lint",
+    "type",
+    "frontend-install",
+    "frontend-format",
+    "frontend-lint",
+    "frontend-typecheck",
+    "frontend-tests",
+    "frontend-build",
+    "repository-safety",
+    "snapshot-store",
+    "workspace-api",
+    "packaged-workspace",
+    "helper-surface",
+    "helper-boundary",
+    "helper-compatibility",
+    "bandit",
+    "audit",
+    "binary",
+    "tests",
+    "coverage",
+    "docs",
+    "editable-smoke",
+    "wheel",
+    "zipapp",
+    "diagnostics",
+)
+
+if sys.argv[1:] != ["quality"]:
+    raise SystemExit(2)
+
+reports = Path("reports")
+reports.mkdir(exist_ok=True)
+summary = {
+    "profile": "quality",
+    "status": "passed",
+    "coverage_threshold": 85,
+    "operations": [
+        {
+            "operation": operation,
+            "status": "passed",
+            "duration_seconds": 0,
+            "details": {},
+        }
+        for operation in OPERATIONS
+    ],
+    "duration_seconds": 0,
+}
+(reports / "quality-summary.json").write_text(
+    json.dumps(summary, sort_keys=True), encoding="utf-8"
+)
+(reports / "coverage.json").write_text(
+    json.dumps({"totals": {"percent_covered": 100}}), encoding="utf-8"
+)
+(reports / "diagnostics.json").write_text(
+    json.dumps({"telemetry": {"status": "inactive"}}), encoding="utf-8"
+)
+print("quality gate synthetic fixture passed")
+"""
+    return _catalog_repository(
+        tmp_path,
+        directory_name="zscripts-canonical",
+        files={
+            ".github/workflows/ci.yml": "name: synthetic\n",
+            "README.md": "fixture first head\n",
+            "pyproject.toml": "[project]\nname = 'synthetic-zscripts'\n",
+            "scripts/quality_gate.py": quality_gate,
+            "workspace-ui/package.json": '{"name":"synthetic-workspace"}\n',
+            "workspace-ui/pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+        },
+        moved_input_path="scripts/quality_gate.py",
+    )
+
+
+def _industry_repository(tmp_path: Path) -> tuple[Path, tuple[str, str], str]:
+    """Build a no-network Industry fixture compatible with all ten fixed steps."""
+
+    pytest_main = """from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+xml_path = None
+json_path = None
+for argument in sys.argv[1:]:
+    if argument.startswith("--cov-report=xml:"):
+        xml_path = Path(argument.split(":", 1)[1])
+    if argument.startswith("--cov-report=json:"):
+        json_path = Path(argument.split(":", 1)[1])
+if xml_path is None or json_path is None:
+    raise SystemExit(2)
+xml_path.parent.mkdir(parents=True, exist_ok=True)
+xml_path.write_text('<coverage line-rate="1"/>', encoding="utf-8")
+json_path.write_text(
+    json.dumps({"totals": {"percent_covered": 100}}), encoding="utf-8"
+)
+print("2 passed in 0.01s")
+print("TOTAL 10 0 100%")
+"""
+    pip_audit_main = """from __future__ import annotations
+
+import json
+from pathlib import Path
+
+report = Path("build/reports/pip-audit.json")
+report.parent.mkdir(parents=True, exist_ok=True)
+report.write_text(json.dumps({"dependencies": []}), encoding="utf-8")
+print("No known vulnerabilities found")
+"""
+    return _catalog_repository(
+        tmp_path,
+        directory_name="industry-canonical",
+        files={
+            ".github/workflows/ci.yml": "name: synthetic\n",
+            "Makefile": "all:\n\t@true\n",
+            "README.md": "fixture first head\n",
+            "app.py": "def app() -> str:\n    return 'synthetic'\n",
+            "black/__init__.py": "",
+            "black/__main__.py": "print('black synthetic fixture passed')\n",
+            "config/.secrets.baseline": "{}\n",
+            "detect_secrets/__init__.py": "",
+            "detect_secrets/pre_commit_hook.py": (
+                "print('detect-secrets baseline validation passed')\n"
+            ),
+            "mypy/__init__.py": "",
+            "mypy/__main__.py": "print('mypy synthetic fixture passed')\n",
+            "pip/__init__.py": "",
+            "pip/__main__.py": "print('No broken requirements found.')\n",
+            "pip_audit/__init__.py": "",
+            "pip_audit/__main__.py": pip_audit_main,
+            "pytest/__init__.py": "",
+            "pytest/__main__.py": pytest_main,
+            "requirements-dev.txt": "-r requirements.txt\n",
+            "requirements.txt": "",
+            "ruff/__init__.py": "",
+            "ruff/__main__.py": "print('ruff synthetic fixture passed')\n",
+            "src/adapters/__init__.py": "",
+            "src/agents/__init__.py": "",
+            "src/application/__init__.py": "",
+            "src/core/__init__.py": "",
+            "src/extensions/__init__.py": "",
+            "src/infrastructure/__init__.py": "",
+            "src/interfaces/__init__.py": "",
+            "src/interfaces/api/__init__.py": "",
+            "src/interfaces/streamlit/__init__.py": "",
+            "src/scripts/benchmark_metrics.py": (
+                "from __future__ import annotations\n"
+                "import sys\n"
+                "if sys.argv[1:] != ['--check']:\n    raise SystemExit(2)\n"
+                "print('benchmark metrics passed')\n"
+            ),
+            "tests/__init__.py": "",
+        },
+        moved_input_path="requirements.txt",
+    )
 
 
 class _AsgiSession:
@@ -537,6 +743,481 @@ def test_server_backed_worker_smoke_executes_exact_sha_and_releases_lease(
     finally:
         app.dependency_overrides.clear()
         asyncio.run(engine.dispose())
+
+
+def _run_catalog_profile_acceptance(  # noqa: PLR0913, PLR0915 - acceptance inputs and boundaries are explicit
+    tmp_path: Path,
+    *,
+    repository_factory: Callable[[Path], tuple[Path, tuple[str, str], str]],
+    repository_name: str,
+    manifest_name: str,
+    pull_request_number: int,
+    expected_step_count: int,
+    expected_artifact_paths: set[str],
+    mismatch_versions: dict[str, str],
+    expected_mismatch_reasons: set[str],
+    expected_parsers: dict[str, str],
+) -> None:
+    """Exercise an immutable catalog profile through the real local worker path."""
+
+    canonical, tested_shas, status_before = repository_factory(tmp_path)
+    tested_sha, moved_sha = tested_shas
+    database_path = tmp_path / f"{manifest_name}-worker-acceptance.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    app = create_app(AppConfig(include_ui=False))
+    github = _MockGitHubAcceptanceTransport(
+        _resolved_pull_request(
+            tested_sha,
+            repository_full_name=repository_name,
+            head_repository_full_name=repository_name,
+            pull_request_number=pull_request_number,
+        )
+    )
+
+    async def isolated_session() -> AsyncGenerator[AsyncSession, None]:
+        async with sessions() as session:
+            yield session
+
+    def github_service(session: SessionDependency) -> GitHubAdapterService:
+        return GitHubAdapterService(
+            dependencies=GitHubAdapterDependencies(
+                repository=GitHubAdapterRepository(session),
+                execution=build_execution_service(session),
+                transport=github,
+            ),
+            settings=GitHubSettings(
+                api_url="https://api.github.com",
+                operator_id=f"{manifest_name}-worker-acceptance",
+                token=_GITHUB_TEST_TOKEN,
+            ),
+            clock=utcnow_naive,
+        )
+
+    app.dependency_overrides[get_session] = isolated_session
+    app.dependency_overrides[get_github_adapter_service] = github_service
+
+    async def prepare() -> None:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+    asyncio.run(prepare())
+    mapped_config = WorkerConfig(
+        base_url="http://switchboard.test",
+        worker_id=f"{manifest_name}-mapped-worker",
+        display_name=f"{manifest_name} mapped worker",
+        admin_token=_TOKEN,
+        worker_root=tmp_path / f"{manifest_name}-mapped-worktrees",
+        evidence_root=tmp_path / f"{manifest_name}-mapped-evidence",
+        repositories={repository_name: canonical},
+        execution_timeout_seconds=14_400,
+        output_summary_limit=16_384,
+        heartbeat_interval_seconds=5,
+    )
+    unmapped_config = WorkerConfig(
+        base_url="http://switchboard.test",
+        worker_id=f"{manifest_name}-unmapped-worker",
+        display_name=f"{manifest_name} unmapped worker",
+        admin_token=_TOKEN,
+        worker_root=tmp_path / f"{manifest_name}-unmapped-worktrees",
+        evidence_root=tmp_path / f"{manifest_name}-unmapped-evidence",
+        repositories={"Nobodyworld/dev-agent-switchboard": canonical},
+        execution_timeout_seconds=14_400,
+        output_summary_limit=16_384,
+        heartbeat_interval_seconds=5,
+    )
+    mismatch_config = WorkerConfig(
+        base_url="http://switchboard.test",
+        worker_id=f"{manifest_name}-mismatch-worker",
+        display_name=f"{manifest_name} mismatched worker",
+        admin_token=_TOKEN,
+        worker_root=tmp_path / f"{manifest_name}-mismatch-worktrees",
+        evidence_root=tmp_path / f"{manifest_name}-mismatch-evidence",
+        repositories={repository_name: canonical},
+        execution_timeout_seconds=14_400,
+        output_summary_limit=16_384,
+        heartbeat_interval_seconds=5,
+    )
+    try:
+        with (
+            ExecutionClient(
+                mapped_config.base_url,
+                mapped_config.worker_id,
+                mapped_config.admin_token,
+                session=_AsgiSession(app),  # type: ignore[arg-type]
+            ) as mapped_client,
+            ExecutionClient(
+                unmapped_config.base_url,
+                unmapped_config.worker_id,
+                unmapped_config.admin_token,
+                session=_AsgiSession(app),  # type: ignore[arg-type]
+            ) as unmapped_client,
+            ExecutionClient(
+                mismatch_config.base_url,
+                mismatch_config.worker_id,
+                mismatch_config.admin_token,
+                session=_AsgiSession(app),  # type: ignore[arg-type]
+            ) as mismatch_client,
+        ):
+            mapped_worker = LocalWorker(mapped_config, mapped_client)
+            unmapped_worker = LocalWorker(unmapped_config, unmapped_client)
+            mismatch_worker = LocalWorker(mismatch_config, mismatch_client)
+            mapped_worker.start()
+            unmapped_worker.start()
+            mismatch_registration = discover_worker_registration(mismatch_config)
+            mismatch_registration.update(mismatch_versions)
+            mismatch_client.register_worker(mismatch_registration)
+            for client, worker in (
+                (mapped_client, mapped_worker),
+                (unmapped_client, unmapped_worker),
+                (mismatch_client, mismatch_worker),
+            ):
+                client.heartbeat_worker(status="online")
+                assert worker.poll_once() is False
+
+            readiness = _request(
+                app,
+                "GET",
+                f"/api/execution/catalog/{repository_name}/readiness",
+            )
+            readiness_by_worker = {
+                item["worker_id"]: item for item in readiness["workers"]
+            }
+            assert (
+                readiness_by_worker[unmapped_config.worker_id]["readiness_reason"]
+                == "repository_unavailable"
+            )
+            assert (
+                readiness_by_worker[mismatch_config.worker_id]["readiness_reason"]
+                == "manifest_capability_mismatch"
+            )
+
+            async def mismatch_assessment() -> dict[str, tuple[str, ...]]:
+                async with sessions() as session:
+                    service = build_execution_service(session)
+                    evaluations, _selected = await service.assess_repository_readiness(
+                        repository_full_name=repository_name,
+                        manifest_name=manifest_name,
+                        manifest_version="1",
+                        routing_policy=RoutingPolicy.FIRST_AVAILABLE,
+                        maximum_cost_units=None,
+                        required_quota_units=0,
+                        preferred_executor=None,
+                    )
+                    return {item.worker.worker_id: item.reasons for item in evaluations}
+
+            mismatch_reasons = asyncio.run(mismatch_assessment())
+            assert (
+                "worker_repository_unavailable"
+                in mismatch_reasons[unmapped_config.worker_id]
+            )
+            assert expected_mismatch_reasons.issubset(
+                set(mismatch_reasons[mismatch_config.worker_id])
+            )
+
+            request_payload = {
+                "repository_full_name": repository_name,
+                "pull_request_number": pull_request_number,
+                "manifest": {"name": manifest_name, "version": "1"},
+                "routing_policy": "first_available",
+                "reuse_policy": "never",
+            }
+            fresh_request = _request(
+                app,
+                "POST",
+                "/api/execution/github/pull-requests/validate",
+                request_payload,
+            )
+            _request(
+                app,
+                "POST",
+                f"/api/execution/work-orders/{fresh_request['work_order_id']}/approve",
+                {"queue": True},
+            )
+
+            original_runner = worker_module.run_step
+            original_verifier = worker_module.verify_reuse_candidate
+            with (
+                patch.object(
+                    worker_module, "run_step", wraps=original_runner
+                ) as runner,
+                patch.object(
+                    worker_module,
+                    "verify_reuse_candidate",
+                    wraps=original_verifier,
+                ) as verifier,
+            ):
+                mismatch_client.heartbeat_worker(status="online")
+                assert mismatch_worker.poll_once() is False
+                unmapped_client.heartbeat_worker(status="online")
+                assert unmapped_worker.poll_once() is False
+                mapped_client.heartbeat_worker(status="online")
+                assert mapped_worker.poll_once() is True
+                manifest = get_trusted_manifest(manifest_name, "1")
+                assert manifest is not None
+                assert len(manifest.execution_steps) == expected_step_count
+                assert runner.call_count == expected_step_count
+                assert verifier.call_count == 0
+
+                fresh_run = _request(
+                    app,
+                    "GET",
+                    f"/api/execution/runs?work_order_id={fresh_request['work_order_id']}",
+                )[0]
+                fresh_evidence = ExecutionEvidence.model_validate(
+                    _request(
+                        app,
+                        "GET",
+                        f"/api/execution/runs/{fresh_run['id']}/evidence",
+                    )
+                )
+                assert fresh_run["status"] == "succeeded", {
+                    "cleanup_status": fresh_run["cleanup_status"],
+                    "result_summary": fresh_run["result_summary"],
+                    "terminal_reason": fresh_run["terminal_reason"],
+                }
+                assert fresh_run["worker_id"] == mapped_config.worker_id
+                assert fresh_run["route_provenance"]["selected_worker_id"] == (
+                    mapped_config.worker_id
+                )
+                assert fresh_run["route_provenance"]["routing_policy"] == (
+                    "first_available"
+                )
+                assert fresh_evidence.tested_sha == tested_sha
+                assert fresh_evidence.reuse_provenance.decision == "fresh"
+                assert len(fresh_evidence.steps) == expected_step_count
+                assert all(item.status == "succeeded" for item in fresh_evidence.steps)
+                parsed_by_step = {
+                    item.step_id: item.parsed_result for item in fresh_evidence.steps
+                }
+                for step_id, parser in expected_parsers.items():
+                    parsed = parsed_by_step[step_id]
+                    assert parsed is not None
+                    assert parsed.status == "parsed"
+                    assert parsed.parser == parser
+                assert {item.relative_path for item in fresh_evidence.artifacts} == (
+                    expected_artifact_paths
+                )
+                fresh_directory = mapped_config.evidence_root / f"run-{fresh_run['id']}"
+                assert (fresh_directory / "ownership.json").is_file()
+                assert (fresh_directory / "result.json").is_file()
+                assert list((fresh_directory / "logs").glob("*.log"))
+                for artifact in fresh_evidence.artifacts:
+                    retained = fresh_directory.joinpath(
+                        *artifact.relative_path.split("/")
+                    )
+                    assert retained.is_file()
+                    assert 0 < artifact.size_bytes <= 16 * 1024 * 1024
+                    assert hashlib.sha256(retained.read_bytes()).hexdigest() == (
+                        artifact.sha256
+                    )
+                source_hashes = _retained_hashes(fresh_directory)
+                assert source_hashes
+                assert github.comments == []
+                assert github.create_calls == 0
+                assert github.update_calls == 0
+
+                reused_request = _request(
+                    app,
+                    "POST",
+                    "/api/execution/github/pull-requests/validate",
+                    {**request_payload, "reuse_policy": "allow_exact"},
+                )
+                _request(
+                    app,
+                    "POST",
+                    f"/api/execution/work-orders/{reused_request['work_order_id']}/approve",
+                    {"queue": True},
+                )
+                mismatch_client.heartbeat_worker(status="online")
+                assert mismatch_worker.poll_once() is False
+                unmapped_client.heartbeat_worker(status="online")
+                assert unmapped_worker.poll_once() is False
+                mapped_client.heartbeat_worker(status="online")
+                assert mapped_worker.poll_once() is True
+                assert runner.call_count == expected_step_count
+                assert verifier.call_count == 1
+
+            reused_run = _request(
+                app,
+                "GET",
+                f"/api/execution/runs?work_order_id={reused_request['work_order_id']}",
+            )[0]
+            reused_evidence = ExecutionEvidence.model_validate(
+                _request(
+                    app,
+                    "GET",
+                    f"/api/execution/runs/{reused_run['id']}/evidence",
+                )
+            )
+            assert reused_run["status"] == "succeeded"
+            assert reused_run["worker_id"] == mapped_config.worker_id
+            assert reused_run["route_provenance"]["selected_worker_id"] == (
+                mapped_config.worker_id
+            )
+            assert reused_run["reuse_decision"] == "reused"
+            assert reused_run["reused_from_run_id"] == fresh_run["id"]
+            assert reused_run["source_evidence_fingerprint"] == (
+                fresh_evidence.fingerprint
+            )
+            assert reused_evidence.steps == []
+            assert reused_evidence.artifacts == []
+            assert reused_evidence.reuse_provenance.decision == "reused"
+            assert reused_evidence.reuse_provenance.source_run_id == fresh_run["id"]
+            assert (
+                reused_evidence.reuse_provenance.source_evidence_fingerprint
+                == fresh_evidence.fingerprint
+            )
+            assert _retained_hashes(fresh_directory) == source_hashes
+            assert github.comments == []
+            assert github.create_calls == 0
+            assert github.update_calls == 0
+
+            github.resolved = _resolved_pull_request(
+                moved_sha,
+                repository_full_name=repository_name,
+                head_repository_full_name=repository_name,
+                pull_request_number=pull_request_number,
+            )
+            moved_request = _request(
+                app,
+                "POST",
+                "/api/execution/github/pull-requests/validate",
+                {**request_payload, "reuse_policy": "allow_exact"},
+            )
+            assert moved_request["work_order_id"] != reused_request["work_order_id"]
+            _request(
+                app,
+                "POST",
+                f"/api/execution/work-orders/{moved_request['work_order_id']}/approve",
+                {"queue": True},
+            )
+            with (
+                patch.object(
+                    worker_module, "run_step", wraps=original_runner
+                ) as moved_runner,
+                patch.object(
+                    worker_module,
+                    "verify_reuse_candidate",
+                    wraps=original_verifier,
+                ) as moved_verifier,
+            ):
+                mapped_client.heartbeat_worker(status="online")
+                assert mapped_worker.poll_once() is True
+                assert moved_runner.call_count == expected_step_count
+                assert moved_verifier.call_count == 0
+            moved_run = _request(
+                app,
+                "GET",
+                f"/api/execution/runs?work_order_id={moved_request['work_order_id']}",
+            )[0]
+            moved_evidence = ExecutionEvidence.model_validate(
+                _request(
+                    app,
+                    "GET",
+                    f"/api/execution/runs/{moved_run['id']}/evidence",
+                )
+            )
+            assert moved_run["status"] == "succeeded"
+            assert moved_run["reuse_decision"] == "fresh"
+            assert moved_run["reused_from_run_id"] is None
+            assert moved_evidence.tested_sha == moved_sha
+            assert (
+                moved_evidence.dependency_lock_hashes
+                != fresh_evidence.dependency_lock_hashes
+            )
+            assert len(moved_evidence.steps) == expected_step_count
+            assert github.comments == []
+            assert github.create_calls == 0
+            assert github.update_calls == 0
+
+        async def capacity_proof() -> tuple[int, list[int]]:
+            async with sessions() as database:
+                leases = await database.scalar(
+                    select(func.count()).select_from(ExecutionLease)
+                )
+                active_counts = (
+                    (
+                        await database.execute(
+                            select(ExecutionWorker.active_run_count).order_by(
+                                ExecutionWorker.worker_id
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+            return int(leases or 0), [int(value) for value in active_counts]
+
+        leases, active_counts = asyncio.run(capacity_proof())
+        assert leases == 0
+        assert active_counts == [0, 0, 0]
+        assert list(mapped_config.worker_root.glob("run-*")) == []
+        assert list(unmapped_config.worker_root.glob("run-*")) == []
+        assert list(mismatch_config.worker_root.glob("run-*")) == []
+        assert _git(canonical, "status", "--porcelain=v1") == status_before
+        assert _git(canonical, "rev-parse", "HEAD") == moved_sha
+        assert tested_sha != moved_sha
+    finally:
+        app.dependency_overrides.clear()
+        asyncio.run(engine.dispose())
+
+
+def test_zscripts_catalog_routes_real_worker_then_reuses_exact_evidence(
+    tmp_path: Path,
+) -> None:
+    _run_catalog_profile_acceptance(
+        tmp_path,
+        repository_factory=_zscripts_repository,
+        repository_name="Nobodyworld/dev-logger-zscripts",
+        manifest_name="validate-zscripts",
+        pull_request_number=143,
+        expected_step_count=1,
+        expected_artifact_paths={
+            "reports/quality-summary.json",
+            "reports/coverage.json",
+            "reports/diagnostics.json",
+        },
+        mismatch_versions={"node_version": "v0.0.0", "pnpm_version": "0.0.0"},
+        expected_mismatch_reasons={
+            "node_version_too_old_or_missing",
+            "pnpm_version_mismatch_or_missing",
+        },
+        expected_parsers={"quality-gate": "quality-summary-v1"},
+    )
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 13),
+    reason="trusted Industry Resilience acceptance requires Python 3.13+",
+)
+def test_industry_resilience_catalog_routes_real_worker_then_reuses_exact_evidence(
+    tmp_path: Path,
+) -> None:
+    _run_catalog_profile_acceptance(
+        tmp_path,
+        repository_factory=_industry_repository,
+        repository_name="Nobodyworld/app-industry-resilience",
+        manifest_name="validate-industry-resilience",
+        pull_request_number=130,
+        expected_step_count=10,
+        expected_artifact_paths={
+            "build/reports/runtime-coverage.xml",
+            "build/reports/runtime-coverage.json",
+            "build/reports/full-src-coverage.xml",
+            "build/reports/full-src-coverage.json",
+            "build/reports/pip-audit.json",
+        },
+        mismatch_versions={"python_version": "0.0.0"},
+        expected_mismatch_reasons={"python_version_too_old_or_missing"},
+        expected_parsers={
+            "dependency-health": "dependency-health",
+            "runtime-coverage": "pytest-coverage",
+            "full-src-coverage": "pytest-coverage",
+            "dependency-audit": "dependency-audit",
+            "secret-scan": "secret-scan",
+        },
+    )
 
 
 def test_server_backed_local_record_failure_completes_once_and_releases_lease(

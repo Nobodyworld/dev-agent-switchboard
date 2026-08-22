@@ -33,10 +33,11 @@ from server.execution.evidence import (
     compute_reuse_identity_hash,
     finalize_evidence,
 )
-from server.execution.registry import TrustedArtifact
+from server.execution.registry import TrustedArtifact, get_trusted_manifest
 
 _NOW = dt.datetime(2026, 7, 1, tzinfo=dt.UTC)
 _ACCOUNTING_COVERAGE_PERCENT = 87.25
+_QUALITY_TEST_COVERAGE_PERCENT = 91.5
 
 
 def _store(tmp_path: Path, **limits: int):
@@ -343,6 +344,182 @@ def test_accounting_coverage_gate_parser_accepts_real_style_output(
     assert parsed.coverage.measured_percent == _ACCOUNTING_COVERAGE_PERCENT
 
 
+def _write_quality_reports(root: Path) -> None:
+    reports = root / "reports"
+    reports.mkdir()
+    operations = (
+        "format-check",
+        "lint",
+        "type",
+        "frontend-install",
+        "frontend-format",
+        "frontend-lint",
+        "frontend-typecheck",
+        "frontend-tests",
+        "frontend-build",
+        "repository-safety",
+        "snapshot-store",
+        "workspace-api",
+        "packaged-workspace",
+        "helper-surface",
+        "helper-boundary",
+        "helper-compatibility",
+        "bandit",
+        "audit",
+        "binary",
+        "tests",
+        "coverage",
+        "docs",
+        "editable-smoke",
+        "wheel",
+        "zipapp",
+        "diagnostics",
+    )
+    (reports / "quality-summary.json").write_text(
+        json.dumps(
+            {
+                "profile": "quality",
+                "status": "passed",
+                "coverage_threshold": 85,
+                "operations": [
+                    {
+                        "operation": operation,
+                        "status": "passed",
+                        "duration_seconds": 0.01,
+                        "details": {},
+                    }
+                    for operation in operations
+                ],
+                "duration_seconds": 1.0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (reports / "coverage.json").write_text(
+        json.dumps({"totals": {"percent_covered": _QUALITY_TEST_COVERAGE_PERCENT}}),
+        encoding="utf-8",
+    )
+    (reports / "diagnostics.json").write_text(
+        json.dumps({"telemetry": {"status": "inactive"}}), encoding="utf-8"
+    )
+
+
+def test_zscripts_quality_summary_parser_uses_only_fixed_bounded_reports(
+    tmp_path: Path,
+) -> None:
+    _write_quality_reports(tmp_path)
+    stdout = tmp_path / "quality.stdout.log"
+    stderr = tmp_path / "quality.stderr.log"
+    stdout.write_text("quality helper passed\n", encoding="utf-8")
+    stderr.write_text("", encoding="utf-8")
+
+    manifest = get_trusted_manifest("validate-zscripts", "1")
+    assert manifest is not None and manifest.result_contract is not None
+    contract = manifest.result_contract["steps"][0]["result_contract"]
+    assert isinstance(contract, dict)
+
+    parsed = parse_result(
+        "quality-summary-v1",
+        stdout_path=stdout,
+        stderr_path=stderr,
+        command_succeeded=True,
+        checkout=tmp_path,
+        result_contract=contract,
+    )
+
+    assert parsed.status == "parsed"
+    assert parsed.coverage is not None
+    assert parsed.coverage.measured_percent == _QUALITY_TEST_COVERAGE_PERCENT
+    assert parsed.audit is not None
+    assert parsed.audit.model_dump() == {
+        "kind": "quality",
+        "status": "passed",
+        "tool": "quality-gate",
+        "findings": 0,
+    }
+
+
+def test_zscripts_quality_contract_enforces_its_source_threshold(
+    tmp_path: Path,
+) -> None:
+    _write_quality_reports(tmp_path)
+    stdout = tmp_path / "quality.stdout.log"
+    stderr = tmp_path / "quality.stderr.log"
+    stdout.write_text("quality helper passed\n", encoding="utf-8")
+    stderr.write_text("", encoding="utf-8")
+    manifest = get_trusted_manifest("validate-zscripts", "1")
+    assert manifest is not None and manifest.result_contract is not None
+    contract = manifest.result_contract["steps"][0]["result_contract"]
+    assert isinstance(contract, dict)
+    stricter_contract = {
+        **contract,
+        "minimum_coverage_percent": 92,
+    }
+
+    parsed = parse_result(
+        "quality-summary-v1",
+        stdout_path=stdout,
+        stderr_path=stderr,
+        command_succeeded=True,
+        checkout=tmp_path,
+        result_contract=stricter_contract,
+    )
+
+    assert parsed.status == "parser_failed"
+    assert parsed.failure_reason == "declared_result_unavailable"
+
+
+def test_zscripts_quality_contract_enforces_its_operation_record_limit(
+    tmp_path: Path,
+) -> None:
+    _write_quality_reports(tmp_path)
+    stdout = tmp_path / "quality.stdout.log"
+    stderr = tmp_path / "quality.stderr.log"
+    stdout.write_text("quality helper passed\n", encoding="utf-8")
+    stderr.write_text("", encoding="utf-8")
+    manifest = get_trusted_manifest("validate-zscripts", "1")
+    assert manifest is not None and manifest.result_contract is not None
+    contract = manifest.result_contract["steps"][0]["result_contract"]
+    assert isinstance(contract, dict)
+
+    parsed = parse_result(
+        "quality-summary-v1",
+        stdout_path=stdout,
+        stderr_path=stderr,
+        command_succeeded=True,
+        checkout=tmp_path,
+        result_contract={**contract, "maximum_parsed_records": 25},
+    )
+
+    assert parsed.status == "parser_failed"
+
+
+def test_zscripts_quality_summary_parser_rejects_unreviewed_operation_order(
+    tmp_path: Path,
+) -> None:
+    _write_quality_reports(tmp_path)
+    summary_path = tmp_path / "reports" / "quality-summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["operations"][0]["operation"] = "caller-controlled-operation"
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    stdout = tmp_path / "quality.stdout.log"
+    stderr = tmp_path / "quality.stderr.log"
+    stdout.write_text("quality helper passed\n", encoding="utf-8")
+    stderr.write_text("", encoding="utf-8")
+
+    parsed = parse_result(
+        "quality-summary-v1",
+        stdout_path=stdout,
+        stderr_path=stderr,
+        command_succeeded=True,
+        checkout=tmp_path,
+    )
+
+    assert parsed.status == "parser_failed"
+    assert parsed.audit is None
+    assert parsed.coverage is None
+
+
 def _reusable_source(
     tmp_path: Path, *, content: bytes = b"verified evidence\n"
 ) -> tuple[Path, ReuseCandidate]:
@@ -519,18 +696,20 @@ def test_reuse_fails_closed_when_pruning_races_artifact_hash(
     artifact = root / "run-7" / "logs" / "step.stdout.log"
     original_sha256 = hashlib.sha256
 
-    def hash_then_prune(path: Path) -> str:
-        digest = original_sha256(path.read_bytes()).hexdigest()
-        path.unlink()
+    def hash_then_prune(descriptor: int, **_kwargs: object) -> str:
+        with os.fdopen(os.dup(descriptor), "rb") as handle:
+            digest = original_sha256(handle.read()).hexdigest()
+        artifact.unlink()
         return digest
 
     with patch(
-        "client.python.execution_worker.evidence._sha256", side_effect=hash_then_prune
+        "client.python.execution_worker.evidence._sha256_descriptor",
+        side_effect=hash_then_prune,
     ):
         result = _verify(root, candidate)
     assert not result.verified
-    assert result.reason == "source_evidence_pruned"
-    assert not artifact.exists()
+    assert result.reason == "source_artifact_unsafe"
+    assert artifact.exists() is (os.name == "nt")
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX symlink reuse coverage")
