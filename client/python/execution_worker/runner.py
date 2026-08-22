@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,6 +22,11 @@ from server.execution.evidence import ParsedResult, TerminalStatus
 from server.execution.registry import TrustedStep
 
 from .config import WorkerConfig
+from .containment import (
+    ContainmentCleanupError,
+    StrictHostProcess,
+    launch_strict_host,
+)
 from .parsers import parse_result
 
 _WINDOWS_ABSOLUTE_PATH = re.compile(r"(?i)\b[A-Z]:\\[^\s\r\n\"']+")
@@ -330,6 +336,48 @@ def _terminate(process: subprocess.Popen[bytes], *, grace_seconds: float = 2.0) 
     _terminate_posix(process, grace_seconds)
 
 
+def _terminate_active_step(
+    process: subprocess.Popen[bytes], strict_host: StrictHostProcess | None
+) -> bool:
+    """Terminate one step and report whether descendant quiescence is provable."""
+
+    try:
+        if strict_host is not None:
+            strict_host.terminate()
+        else:
+            _terminate(process)
+    except (ContainmentCleanupError, OSError, RuntimeError):
+        return False
+    return True
+
+
+def _reap_unexpected_descendants_after_exit(
+    process: subprocess.Popen[bytes], *, grace_seconds: float = 2.0
+) -> bool:
+    """Quiesce an exited command's process tree before reading target outputs.
+
+    A reviewed command is not allowed to detach background work.  On POSIX the
+    dedicated session gives us a precise group to inspect and terminate.  The
+    Windows task-tree command is the existing native containment mechanism;
+    its success means it found remaining descendants to reap.
+    """
+
+    if os.name == "nt":
+        terminated = subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],  # noqa: S607
+            shell=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return terminated.returncode == 0
+    alive, _details = _process_group_observation(process.pid)
+    if not alive:
+        return False
+    _terminate_posix(process, grace_seconds)
+    return True
+
+
 def _result(  # noqa: PLR0913 - immutable result records keep call-site context clear
     *,
     step: TrustedStep,
@@ -339,20 +387,27 @@ def _result(  # noqa: PLR0913 - immutable result records keep call-site context 
     started_at: dt.datetime,
     stdout_path: Path,
     stderr_path: Path,
+    checkout: Path,
     config: WorkerConfig,
     environment: dict[str, str],
     terminal_reason: str | None = None,
+    result_contract: Mapping[str, object] | None = None,
+    checkout_guard: Callable[[], None] | None = None,
 ) -> StepResult:
     limit = min(step.output_summary_limit, config.output_summary_limit)
     out, out_cut = _summary(stdout_path, limit, config)
     err, err_cut = _summary(stderr_path, limit, config)
     finished_at = dt.datetime.now(dt.UTC)
+    if checkout_guard is not None:
+        checkout_guard()
     parsed_result = (
         parse_result(
             step.parser_kind,
             stdout_path=stdout_path,
             stderr_path=stderr_path,
             command_succeeded=status == "succeeded",
+            checkout=checkout,
+            result_contract=result_contract,
         )
         if step.parser_kind is not None
         else None
@@ -376,7 +431,66 @@ def _result(  # noqa: PLR0913 - immutable result records keep call-site context 
     )
 
 
-def run_step(  # noqa: PLR0912, PLR0913, PLR0915 - trusted lifecycle inputs are explicit
+def _unquiescent_result(  # noqa: PLR0913 - preserves complete step provenance
+    *,
+    step: TrustedStep,
+    process: subprocess.Popen[bytes],
+    started: float,
+    started_at: dt.datetime,
+    stdout_path: Path,
+    stderr_path: Path,
+    config: WorkerConfig,
+    environment: dict[str, str],
+) -> StepResult:
+    """Return a fixed failure without consuming output from an unsafe source."""
+
+    return StepResult(
+        step_id=step.id,
+        title=step.title,
+        status="failed",
+        exit_code=process.returncode,
+        duration_seconds=time.monotonic() - started,
+        stdout_summary="",
+        stderr_summary="",
+        summaries_truncated=True,
+        stdout_log=stdout_path.name,
+        stderr_log=stderr_path.name,
+        environment_summary=environment_summary(environment, config),
+        started_at=started_at,
+        finished_at=dt.datetime.now(dt.UTC),
+        parsed_result=None,
+        terminal_reason="descendant_cleanup_failed",
+    )
+
+
+def _abort_after_launch_error(  # noqa: PLR0913 - preserves complete step provenance
+    *,
+    step: TrustedStep,
+    process: subprocess.Popen[bytes],
+    strict_host: StrictHostProcess | None,
+    started: float,
+    started_at: dt.datetime,
+    stdout_path: Path,
+    stderr_path: Path,
+    config: WorkerConfig,
+    environment: dict[str, str],
+) -> StepResult:
+    """Quarantine a launched target when monitoring cannot prove its state."""
+
+    _terminate_active_step(process, strict_host)
+    return _unquiescent_result(
+        step=step,
+        process=process,
+        started=started,
+        started_at=started_at,
+        stdout_path=stdout_path,
+        stderr_path=stderr_path,
+        config=config,
+        environment=environment,
+    )
+
+
+def run_step(  # noqa: PLR0911, PLR0912, PLR0913, PLR0915 - trusted lifecycle inputs are explicit
     step: TrustedStep,
     checkout: Path,
     logs: Path,
@@ -384,6 +498,10 @@ def run_step(  # noqa: PLR0912, PLR0913, PLR0915 - trusted lifecycle inputs are 
     deadline: float,
     *,
     cancellation: CancellationToken | None = None,
+    allowed_inherited_environment_keys: frozenset[str] | None = None,
+    result_contract: Mapping[str, object] | None = None,
+    strict_containment: bool = False,
+    checkout_guard: Callable[[], None] | None = None,
 ) -> StepResult:
     """Run one locally resolved reviewed step; no caller argv is accepted."""
 
@@ -396,6 +514,8 @@ def run_step(  # noqa: PLR0912, PLR0913, PLR0915 - trusted lifecycle inputs are 
         raise OverallDeadlineExceededError(
             f"execution cancelled before launch:{cancellation.reason}"
         )
+    if checkout_guard is not None:
+        checkout_guard()
     cwd = (checkout / step.working_directory).resolve(strict=True)
     if checkout.resolve() not in (cwd, *cwd.parents):
         raise ValueError("trusted working directory escaped checkout")
@@ -404,10 +524,15 @@ def run_step(  # noqa: PLR0912, PLR0913, PLR0915 - trusted lifecycle inputs are 
         logs / f"{step.id}.stdout.log",
         logs / f"{step.id}.stderr.log",
     )
+    configured_inherited_keys = config.inherited_environment_keys
+    if allowed_inherited_environment_keys is not None:
+        configured_inherited_keys = tuple(
+            key
+            for key in configured_inherited_keys
+            if key in allowed_inherited_environment_keys
+        )
     environment = {
-        key: os.environ[key]
-        for key in config.inherited_environment_keys
-        if key in os.environ
+        key: os.environ[key] for key in configured_inherited_keys if key in os.environ
     }
     environment.update(dict(step.environment))
     step_deadline = time.monotonic() + min(
@@ -416,56 +541,219 @@ def run_step(  # noqa: PLR0912, PLR0913, PLR0915 - trusted lifecycle inputs are 
     started = time.monotonic()
     started_at = dt.datetime.now(dt.UTC)
     with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
-        process = subprocess.Popen(
-            _runtime_argv(step.argv),
-            cwd=cwd,
-            env=environment,
-            shell=False,
-            stdout=stdout,
-            stderr=stderr,
-            start_new_session=os.name != "nt",
-        )
+        strict_host: StrictHostProcess | None = None
+        if not strict_containment:
+            # Preserve the established legacy execution path byte-for-byte in
+            # behavior.  New public profiles opt into the gated containment host
+            # separately so parser contracts remain independent per step.
+            process = subprocess.Popen(
+                _runtime_argv(step.argv),
+                cwd=cwd,
+                env=environment,
+                shell=False,
+                stdout=stdout,
+                stderr=stderr,
+                start_new_session=os.name != "nt",
+            )
+        else:
+            strict_host = launch_strict_host(
+                argv=_runtime_argv(step.argv),
+                cwd=cwd,
+                environment=environment,
+                stdout=stdout,
+                stderr=stderr,
+            )
+            process = strict_host.process
         status: TerminalStatus = "failed"
         reason: str | None = None
         while process.poll() is None:
             now = time.monotonic()
             if cancellation is not None and cancellation.cancelled:
                 status, reason = "cancelled", cancellation.reason
-                _terminate(process)
+                if not _terminate_active_step(process, strict_host):
+                    return _unquiescent_result(
+                        step=step,
+                        process=process,
+                        started=started,
+                        started_at=started_at,
+                        stdout_path=stdout_path,
+                        stderr_path=stderr_path,
+                        config=config,
+                        environment=environment,
+                    )
                 break
             if now >= deadline:
                 status, reason = "timed_out", "overall_timeout"
-                _terminate(process)
+                if not _terminate_active_step(process, strict_host):
+                    return _unquiescent_result(
+                        step=step,
+                        process=process,
+                        started=started,
+                        started_at=started_at,
+                        stdout_path=stdout_path,
+                        stderr_path=stderr_path,
+                        config=config,
+                        environment=environment,
+                    )
                 break
             if now >= step_deadline:
                 status, reason = "timed_out", "step_timeout"
-                _terminate(process)
+                if not _terminate_active_step(process, strict_host):
+                    return _unquiescent_result(
+                        step=step,
+                        process=process,
+                        started=started,
+                        started_at=started_at,
+                        stdout_path=stdout_path,
+                        stderr_path=stderr_path,
+                        config=config,
+                        environment=environment,
+                    )
                 break
-            total_output = _directory_size(logs)
+            try:
+                total_output = _directory_size(logs)
+            except OSError:
+                return _abort_after_launch_error(
+                    step=step,
+                    process=process,
+                    strict_host=strict_host,
+                    started=started,
+                    started_at=started_at,
+                    stdout_path=stdout_path,
+                    stderr_path=stderr_path,
+                    config=config,
+                    environment=environment,
+                )
             if total_output > config.total_output_limit:
                 status, reason = "failed", "total_output_limit_exceeded"
-                _terminate(process)
+                if not _terminate_active_step(process, strict_host):
+                    return _unquiescent_result(
+                        step=step,
+                        process=process,
+                        started=started,
+                        started_at=started_at,
+                        stdout_path=stdout_path,
+                        stderr_path=stderr_path,
+                        config=config,
+                        environment=environment,
+                    )
                 break
             run_directory = logs.parent
-            if _directory_size(run_directory) > config.disk_limit_bytes:
+            try:
+                run_directory_size = _directory_size(run_directory)
+            except OSError:
+                return _abort_after_launch_error(
+                    step=step,
+                    process=process,
+                    strict_host=strict_host,
+                    started=started,
+                    started_at=started_at,
+                    stdout_path=stdout_path,
+                    stderr_path=stderr_path,
+                    config=config,
+                    environment=environment,
+                )
+            if run_directory_size > config.disk_limit_bytes:
                 reason = (
                     "total_output_limit_exceeded"
-                    if _directory_size(logs) > config.total_output_limit
+                    if total_output > config.total_output_limit
                     else "disk_limit_exceeded"
                 )
                 status = "failed"
-                _terminate(process)
+                if not _terminate_active_step(process, strict_host):
+                    return _unquiescent_result(
+                        step=step,
+                        process=process,
+                        started=started,
+                        started_at=started_at,
+                        stdout_path=stdout_path,
+                        stderr_path=stderr_path,
+                        config=config,
+                        environment=environment,
+                    )
                 break
             time.sleep(0.02)
         if process.poll() is None:  # pragma: no cover - _terminate contract guard
             raise RuntimeError("trusted process did not terminate")
-        if reason is None:
-            if _directory_size(logs) > config.total_output_limit:
-                status, reason = "failed", "total_output_limit_exceeded"
-            elif _directory_size(logs.parent) > config.disk_limit_bytes:
-                status, reason = "failed", "disk_limit_exceeded"
-            else:
-                status = "succeeded" if process.returncode == 0 else "failed"
+        if strict_host is not None:
+            try:
+                outcome = strict_host.finalize_after_exit()
+            except (ContainmentCleanupError, OSError, RuntimeError):
+                return _abort_after_launch_error(
+                    step=step,
+                    process=process,
+                    strict_host=strict_host,
+                    started=started,
+                    started_at=started_at,
+                    stdout_path=stdout_path,
+                    stderr_path=stderr_path,
+                    config=config,
+                    environment=environment,
+                )
+            if not outcome.cleanup_verified:
+                return _abort_after_launch_error(
+                    step=step,
+                    process=process,
+                    strict_host=strict_host,
+                    started=started,
+                    started_at=started_at,
+                    stdout_path=stdout_path,
+                    stderr_path=stderr_path,
+                    config=config,
+                    environment=environment,
+                )
+            elif outcome.had_descendants:
+                status, reason = "failed", "unexpected_descendant_process"
+        elif status in {"succeeded", "failed"}:
+            try:
+                if _reap_unexpected_descendants_after_exit(process):
+                    status, reason = "failed", "unexpected_descendant_process"
+            except (OSError, RuntimeError):
+                return _unquiescent_result(
+                    step=step,
+                    process=process,
+                    started=started,
+                    started_at=started_at,
+                    stdout_path=stdout_path,
+                    stderr_path=stderr_path,
+                    config=config,
+                    environment=environment,
+                )
+        try:
+            if reason is None:
+                if _directory_size(logs) > config.total_output_limit:
+                    status, reason = "failed", "total_output_limit_exceeded"
+                elif _directory_size(logs.parent) > config.disk_limit_bytes:
+                    status, reason = "failed", "disk_limit_exceeded"
+                else:
+                    status = "succeeded" if process.returncode == 0 else "failed"
+        except OSError:
+            return _abort_after_launch_error(
+                step=step,
+                process=process,
+                strict_host=strict_host,
+                started=started,
+                started_at=started_at,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                config=config,
+                environment=environment,
+            )
+        if checkout_guard is not None:
+            try:
+                checkout_guard()
+            except Exception:
+                return _abort_after_launch_error(
+                    step=step,
+                    process=process,
+                    strict_host=strict_host,
+                    started=started,
+                    started_at=started_at,
+                    stdout_path=stdout_path,
+                    stderr_path=stderr_path,
+                    config=config,
+                    environment=environment,
+                )
     return _result(
         step=step,
         status=status,
@@ -474,9 +762,12 @@ def run_step(  # noqa: PLR0912, PLR0913, PLR0915 - trusted lifecycle inputs are 
         started_at=started_at,
         stdout_path=stdout_path,
         stderr_path=stderr_path,
+        checkout=checkout,
         config=config,
         environment=environment,
         terminal_reason=reason,
+        result_contract=result_contract,
+        checkout_guard=checkout_guard,
     )
 
 

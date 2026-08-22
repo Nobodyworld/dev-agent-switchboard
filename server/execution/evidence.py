@@ -24,6 +24,7 @@ ParserKind = Literal[
     "dependency-health",
     "critical-coverage",
     "secret-scan",
+    "quality-summary-v1",
 ]
 TerminalStatus = Literal["succeeded", "failed", "timed_out", "cancelled"]
 RedactionState = Literal["none", "redacted"]
@@ -205,6 +206,14 @@ class ParsedResult(EvidenceModel):
             self.audit is None or self.tests is not None or self.coverage is not None
         ):
             raise ValueError("audit parser result shape is invalid")
+        if self.parser == "quality-summary-v1" and (
+            self.tests is not None
+            or self.coverage is None
+            or self.audit is None
+            or self.audit.kind != "quality"
+            or self.audit.tool != "quality-gate"
+        ):
+            raise ValueError("quality summary parser result shape is invalid")
         return self
 
 
@@ -544,18 +553,22 @@ def compute_result_contract_hash(
     fixed_step_metadata: list[dict[str, Any]],
     artifact_declarations: list[dict[str, Any]],
     dependency_lock_paths: list[str] | tuple[str, ...],
+    result_contract: Mapping[str, Any] | None = None,
 ) -> str:
     """Hash parser/artifact/lock declarations independently of run values."""
 
     normalized_paths = [validate_relative_path(path) for path in dependency_lock_paths]
-    return canonical_payload_hash(
-        {
-            "artifact_declarations": artifact_declarations,
-            "dependency_lock_paths": sorted(normalized_paths),
-            "fixed_step_metadata": fixed_step_metadata,
-            "schema_version": 1,
-        }
-    )
+    payload: dict[str, Any] = {
+        "artifact_declarations": artifact_declarations,
+        "dependency_lock_paths": sorted(normalized_paths),
+        "fixed_step_metadata": fixed_step_metadata,
+        "schema_version": 1,
+    }
+    # Keep historical reuse hashes stable while binding factory-only parser,
+    # threshold, and resource-limit policy for new reviewed manifests.
+    if result_contract is not None:
+        payload["result_contract"] = dict(result_contract)
+    return canonical_payload_hash(payload)
 
 
 __all__ = [

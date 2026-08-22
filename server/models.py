@@ -534,6 +534,7 @@ class ExecutionWorker(Base):
     architecture: Mapped[str] = mapped_column(String(64), nullable=False)
     python_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     node_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pnpm_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     docker_available: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )

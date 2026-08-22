@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import datetime as dt
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 
 from sqlalchemy.exc import IntegrityError
 
@@ -16,7 +17,12 @@ from server.models import (
     WorkerRoutingProfile,
 )
 
-from .catalog import TRUSTED_REPOSITORIES, repository_allows_manifest
+from .catalog import (
+    TRUSTED_REPOSITORIES,
+    TrustedRepository,
+    iter_trusted_repositories,
+    repository_allows_manifest,
+)
 from .entities import (
     CheckoutResult,
     ExecutionCompletion,
@@ -61,8 +67,13 @@ from .exceptions import (
     RepositoryWritePolicyError,
     UnknownManifestError,
 )
-from .registry import get_trusted_manifest, iter_trusted_manifests
-from .repository import ExecutionRepository, LeaseSnapshot, RunLeaseWindow
+from .registry import TrustedManifest, get_trusted_manifest, iter_trusted_manifests
+from .repository import (
+    CatalogLatestRunProjection,
+    ExecutionRepository,
+    LeaseSnapshot,
+    RunLeaseWindow,
+)
 from .routing import (
     MAX_ROUTING_INTEGER,
     ROUTING_SCHEMA_VERSION,
@@ -73,8 +84,157 @@ from .routing import (
     rank_routing_candidates,
     unavailable_route_reason,
 )
+from .workload_profiles import iter_workload_profiles
 
 _SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
+_RUNTIME_VERSION_PATTERN = re.compile(r"^\d+(?:\.\d+){1,2}$")
+_MAX_CATALOG_RESULT_DURATION_SECONDS = 86_400
+_MAX_CATALOG_RESULT_STEPS = 128
+_LEGACY_CATALOG_EXCLUSIONS = {
+    "Nobodyworld/app-accounting-modular": (
+        "manual-semantic-review",
+        "publication",
+    ),
+    "Nobodyworld/dev-agent-switchboard": (
+        "manual-semantic-review",
+        "publication",
+    ),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogLatestResult:
+    """Bounded display-only state derived from one completed execution run."""
+
+    reuse_decision: str
+    duration_seconds: int | None
+    step_count: int
+    avoided_work_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogReadinessAssessment:
+    """One read-only catalog entry assembled from authoritative routing inputs."""
+
+    repository_full_name: str
+    display_name: str
+    manifest_name: str
+    manifest_version: str
+    manifest_digest: str
+    runtime_requirements: dict[str, str]
+    ready_count: int
+    primary_blocker_code: str
+    latest_result: CatalogLatestResult | None
+    exclusions: tuple[str, ...]
+
+
+def _safe_runtime_requirements(requirements: Mapping[str, object]) -> dict[str, str]:
+    """Normalize only reviewed Python, Node, and pnpm constraints for display."""
+
+    normalized: dict[str, str] = {}
+    for runtime in ("python", "node", "pnpm"):
+        requirement = requirements.get(runtime)
+        mode = "minimum"
+        version: object = requirement
+        if isinstance(requirement, Mapping):
+            if set(requirement) == {"exact"}:
+                mode = "exact"
+                version = requirement.get("exact")
+            elif set(requirement) == {"minimum"}:
+                version = requirement.get("minimum")
+            else:
+                continue
+        if isinstance(version, str) and _RUNTIME_VERSION_PATTERN.fullmatch(version):
+            normalized[runtime] = f"{'=' if mode == 'exact' else '>='}{version}"
+    return normalized
+
+
+def _catalog_primary_blocker(
+    *,
+    repository_full_name: str,
+    evaluations: list[RoutingEligibility],
+) -> str:
+    """Collapse evaluator reasons into the small public catalog vocabulary."""
+
+    if any(item.candidate is not None for item in evaluations):
+        return "ready"
+    if not evaluations:
+        return "no_registered_workers"
+
+    advertised = [
+        item
+        for item in evaluations
+        if repository_full_name
+        in (item.worker.repository_full_names or ["Nobodyworld/dev-agent-switchboard"])
+    ]
+    if not advertised:
+        return "repository_unavailable"
+    route_reason = unavailable_route_reason(
+        [reason for item in advertised for reason in item.reasons],
+        explicit_pin=False,
+    )
+    public_reasons = {
+        "worker_repository_unavailable": "repository_unavailable",
+        "routing_profile_missing": "profile_missing",
+        "routing_profile_invalid": "profile_invalid",
+        "routing_profile_disabled": "profile_disabled",
+        "worker_heartbeat_stale": "stale_worker",
+        "worker_checkout_poll_stale": "stale_worker",
+        "worker_not_available": "worker_unavailable",
+        "worker_concurrency_limit": "capacity_constrained",
+        "routing_cost_ceiling_exceeded": "maximum_cost_exceeded",
+        "routing_quota_insufficient": "insufficient_quota",
+        "preferred_executor_unavailable": "preferred_executor_unavailable",
+    }
+    return public_reasons.get(route_reason, "manifest_capability_mismatch")
+
+
+def _catalog_latest_result(
+    projection: CatalogLatestRunProjection | None,
+) -> CatalogLatestResult | None:
+    """Derive compact, bounded counters without exposing stored evidence detail."""
+
+    if projection is None:
+        return None
+    duration_seconds: int | None = None
+    if projection.started_at is not None and projection.finished_at is not None:
+        try:
+            duration = int(
+                (projection.finished_at - projection.started_at).total_seconds()
+            )
+        except TypeError:
+            duration = -1
+        if 0 <= duration <= _MAX_CATALOG_RESULT_DURATION_SECONDS:
+            duration_seconds = duration
+
+    steps = projection.evidence_metadata.get("steps")
+    step_count = (
+        len(steps)
+        if isinstance(steps, list)
+        and len(steps) <= _MAX_CATALOG_RESULT_STEPS
+        and all(isinstance(step, Mapping) for step in steps)
+        else 0
+    )
+    return CatalogLatestResult(
+        reuse_decision=projection.reuse_decision.value,
+        duration_seconds=duration_seconds,
+        step_count=step_count,
+        avoided_work_count=(
+            step_count if projection.reuse_decision == ReuseDecision.REUSED else 0
+        ),
+    )
+
+
+def _catalog_exclusions(repository_full_name: str) -> tuple[str, ...]:
+    """Return only bounded reviewed deterministic/manual exclusion identifiers."""
+
+    for profile in iter_workload_profiles():
+        if profile.repository_full_name == repository_full_name:
+            return profile.deterministic_exclusions[:16]
+    return _LEGACY_CATALOG_EXCLUSIONS.get(
+        repository_full_name,
+        ("manual-semantic-review", "publication"),
+    )
 
 
 class _CheckoutReservationConflictError(RuntimeError):
@@ -354,6 +514,7 @@ class ExecutionService:
                 "architecture": registration.architecture.lower(),
                 "python_version": registration.python_version,
                 "node_version": registration.node_version,
+                "pnpm_version": registration.pnpm_version,
                 "docker_available": registration.docker_available,
                 "browsers": list(registration.browsers),
                 "gpu_available": registration.gpu_available,
@@ -636,6 +797,75 @@ class ExecutionService:
             return evaluations, selected
         return evaluations, None
 
+    async def assess_catalog_readiness(
+        self,
+    ) -> tuple[CatalogReadinessAssessment, ...]:
+        """Return bounded public-catalog readiness without changing lifecycle state.
+
+        This deliberately avoids manifest synchronization, poll refreshes, source
+        resolution, and routing reservations.  A single authoritative worker/profile
+        snapshot and one bounded latest-result projection are shared across every
+        source-controlled catalog entry.
+        """
+
+        repositories = iter_trusted_repositories()
+        resolved: list[tuple[TrustedRepository, TrustedManifest]] = []
+        for repository in repositories:
+            reference = repository.default_manifest
+            manifest = get_trusted_manifest(reference.name, reference.version)
+            if manifest is None:
+                raise ManifestIntegrityError("trusted_manifest_not_found")
+            resolved.append((repository, manifest))
+
+        worker_snapshot = await self._repository.list_workers_with_profiles()
+        latest_results = await self._repository.list_latest_successful_catalog_runs(
+            (
+                (repository.full_name, manifest.name, manifest.version)
+                for repository, manifest in resolved
+            )
+        )
+        now = self._clock()
+        assessments: list[CatalogReadinessAssessment] = []
+        for repository, manifest in resolved:
+            request = RoutingEvaluationRequest(
+                repository_full_name=repository.full_name,
+                routing_policy=RoutingPolicy.FIRST_AVAILABLE,
+                preferred_executor=None,
+                maximum_cost_units=None,
+                required_quota_units=0,
+                manifest_requirements=manifest.required_capabilities,
+                requested_requirements={},
+                network_policy=manifest.network_policy,
+            )
+            evaluations = await self._routing_eligibilities(
+                request=request,
+                now=now,
+                worker_snapshot=worker_snapshot,
+            )
+            latest = latest_results.get(
+                (repository.full_name, manifest.name, manifest.version)
+            )
+            assessments.append(
+                CatalogReadinessAssessment(
+                    repository_full_name=repository.full_name,
+                    display_name=repository.display_name,
+                    manifest_name=manifest.name,
+                    manifest_version=manifest.version,
+                    manifest_digest=manifest.digest,
+                    runtime_requirements=_safe_runtime_requirements(
+                        manifest.required_capabilities
+                    ),
+                    ready_count=sum(item.candidate is not None for item in evaluations),
+                    primary_blocker_code=_catalog_primary_blocker(
+                        repository_full_name=repository.full_name,
+                        evaluations=evaluations,
+                    ),
+                    latest_result=_catalog_latest_result(latest),
+                    exclusions=_catalog_exclusions(repository.full_name),
+                )
+            )
+        return tuple(assessments)
+
     async def checkout(self, worker_id: str) -> CheckoutResult:
         """Atomically assign one capability-compatible queued work order."""
 
@@ -860,14 +1090,22 @@ class ExecutionService:
         *,
         request: RoutingEvaluationRequest,
         now: dt.datetime,
+        worker_snapshot: (
+            list[tuple[ExecutionWorker, WorkerRoutingProfile | None]] | None
+        ) = None,
     ) -> list[RoutingEligibility]:
-        """Evaluate the complete authoritative worker set without mutations."""
+        """Evaluate one authoritative worker set without mutations."""
 
         heartbeat_freshness_seconds, active_poll_freshness_seconds = (
             self._routing_freshness_seconds()
         )
         evaluations: list[RoutingEligibility] = []
-        for worker, profile in await self._repository.list_workers_with_profiles():
+        workers = (
+            worker_snapshot
+            if worker_snapshot is not None
+            else await self._repository.list_workers_with_profiles()
+        )
+        for worker, profile in workers:
             evaluations.append(
                 evaluate_routing_candidate(
                     worker,
@@ -1209,6 +1447,7 @@ class ExecutionService:
             fixed_step_metadata=definition.fixed_step_metadata,
             artifact_declarations=definition.artifact_declarations,
             dependency_lock_paths=definition.dependency_lock_paths,
+            result_contract=definition.result_contract,
         )
         if (
             identity.repository_full_name != order.repository_full_name

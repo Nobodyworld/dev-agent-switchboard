@@ -9,7 +9,7 @@ from typing import Any, Protocol
 
 from .enums import NetworkPolicy
 
-_VERSION_PATTERN = re.compile(r"^(\d+)(?:\.(\d+))?(?:\.(\d+))?")
+_VERSION_PATTERN = re.compile(r"^(\d+)(?:\.(\d+))?(?:\.(\d+))?$")
 _BOOLEAN_CAPABILITIES = {
     "docker": ("docker_available", "docker_not_available"),
     "gpu": ("gpu_available", "gpu_not_available"),
@@ -25,6 +25,7 @@ class WorkerCapabilitySource(Protocol):
     architecture: str
     python_version: str | None
     node_version: str | None
+    pnpm_version: str | None
     docker_available: bool
     browsers: list[str]
     gpu_available: bool
@@ -88,7 +89,7 @@ def _capability_mismatch(
             required,
             name="architecture",
         )
-    elif name in {"python", "node"}:
+    elif name in {"python", "node", "pnpm"}:
         mismatch = _version_mismatch(worker, name, required)
     elif name in _BOOLEAN_CAPABILITIES:
         mismatch = _boolean_capability_mismatch(worker, name, required)
@@ -115,11 +116,20 @@ def _platform_mismatch(actual: str, required: Any, *, name: str) -> str | None:
 def _version_mismatch(
     worker: WorkerCapabilitySource, name: str, required: Any
 ) -> str | None:
-    actual = worker.python_version if name == "python" else worker.node_version
-    minimum = _minimum_version(required)
-    if minimum is None:
+    actual = {
+        "python": worker.python_version,
+        "node": worker.node_version,
+        "pnpm": worker.pnpm_version,
+    }[name]
+    if _version_requirement(required) is None:
         return f"invalid_capability_requirement:{name}"
-    if not _at_least(actual, minimum):
+    if not runtime_version_matches(
+        actual,
+        required,
+        normalize_leading_v=name == "node",
+    ):
+        if name == "pnpm":
+            return "pnpm_version_mismatch_or_missing"
         return f"{name}_version_too_old_or_missing"
     return None
 
@@ -206,22 +216,70 @@ def _as_string_set(value: Any) -> set[str] | None:
     return None
 
 
-def _minimum_version(value: Any) -> str | None:
+def _version_requirement(value: Any) -> tuple[str, str] | None:
+    """Return one supported source-controlled runtime version constraint."""
+
     if isinstance(value, Mapping):
+        if set(value) == {"exact"} and isinstance(value["exact"], str):
+            return "exact", value["exact"]
+        if set(value) != {"minimum"}:
+            return None
         minimum = value.get("minimum")
-        return minimum if isinstance(minimum, str) else None
+        return ("minimum", minimum) if isinstance(minimum, str) else None
     if isinstance(value, str):
-        return value
+        # Plain versions are the legacy minimum-version representation.
+        return "minimum", value
     return None
 
 
-def _at_least(actual: str | None, minimum: str) -> bool:
-    if actual is None:
+def runtime_version_matches(
+    actual: str | None,
+    requirement: Any,
+    *,
+    normalize_leading_v: bool = False,
+) -> bool:
+    """Return whether a runtime version satisfies a reviewed constraint."""
+
+    constraint = _version_requirement(requirement)
+    if actual is None or constraint is None:
         return False
-    actual_match = _VERSION_PATTERN.match(actual)
-    minimum_match = _VERSION_PATTERN.match(minimum)
-    if actual_match is None or minimum_match is None:
+    mode, expected = constraint
+    actual_parts = _version_parts(actual, normalize_leading_v=normalize_leading_v)
+    expected_parts = _version_parts(expected, normalize_leading_v=normalize_leading_v)
+    if actual_parts is None or expected_parts is None:
         return False
-    actual_parts = tuple(int(part or 0) for part in actual_match.groups())
-    minimum_parts = tuple(int(part or 0) for part in minimum_match.groups())
-    return actual_parts >= minimum_parts
+    if mode == "exact":
+        return actual_parts == expected_parts
+    return _padded_version(actual_parts) >= _padded_version(expected_parts)
+
+
+def normalize_runtime_version(
+    value: str | None, *, allow_leading_v: bool = False
+) -> str | None:
+    """Return a safe canonical semantic version or ``None`` for probe noise."""
+
+    if value is None or not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if allow_leading_v and normalized[:1].lower() == "v":
+        normalized = normalized[1:]
+    elif normalized[:1].lower() == "v":
+        return None
+    parts = _version_parts(normalized, normalize_leading_v=False)
+    if parts is None or len(parts) not in {2, 3}:
+        return None
+    return ".".join(str(part) for part in parts)
+
+
+def _version_parts(value: str, *, normalize_leading_v: bool) -> tuple[int, ...] | None:
+    normalized = value.strip()
+    if normalize_leading_v and normalized[:1].lower() == "v":
+        normalized = normalized[1:]
+    match = _VERSION_PATTERN.fullmatch(normalized)
+    if match is None:
+        return None
+    return tuple(int(part) for part in match.groups() if part is not None)
+
+
+def _padded_version(value: tuple[int, ...]) -> tuple[int, ...]:
+    return (*value, 0, 0)[:3]

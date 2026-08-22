@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import case, delete, func, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +35,7 @@ from .registry import TrustedManifest
 
 _MAX_EXACT_REUSE_CANDIDATES = 32
 _MAX_ROUTING_REVISION = 2_147_483_647
+_MAX_CATALOG_LATEST_PROJECTIONS = 32
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +54,19 @@ class RunLeaseWindow:
 
     assigned_at: dt.datetime
     expires_at: dt.datetime
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogLatestRunProjection:
+    """One safe internal latest-result projection for a trusted catalog entry."""
+
+    repository_full_name: str
+    manifest_name: str
+    manifest_version: str
+    reuse_decision: ReuseDecision
+    started_at: dt.datetime | None
+    finished_at: dt.datetime | None
+    evidence_metadata: dict[str, Any]
 
 
 class ExecutionRepository:
@@ -731,6 +745,107 @@ class ExecutionRepository:
             statement = statement.where(ExecutionRun.work_order_id == work_order_id)
         result = await self.session.execute(statement)
         return list(result.scalars())
+
+    async def list_latest_successful_catalog_runs(
+        self,
+        identities: Iterable[tuple[str, str, str]],
+    ) -> dict[tuple[str, str, str], CatalogLatestRunProjection]:
+        """Project one latest fresh/reused completed run per trusted identity.
+
+        The caller supplies only source-controlled catalog default identities.  This
+        is intentionally a single bounded query rather than one lookup per
+        repository, and it never loads evidence bodies into API output models.
+        """
+
+        normalized = tuple(sorted(set(identities)))
+        if len(normalized) > _MAX_CATALOG_LATEST_PROJECTIONS or any(
+            not all(isinstance(value, str) and value for value in identity)
+            for identity in normalized
+        ):
+            raise ValueError("catalog latest-result identities are invalid")
+        if not normalized:
+            return {}
+
+        identity_filter = or_(
+            *(
+                and_(
+                    ExecutionWorkOrder.repository_full_name == repository_full_name,
+                    ExecutionWorkOrder.manifest_name == manifest_name,
+                    ExecutionWorkOrder.manifest_version == manifest_version,
+                )
+                for repository_full_name, manifest_name, manifest_version in normalized
+            )
+        )
+        ranked = (
+            select(
+                ExecutionWorkOrder.repository_full_name.label("repository_full_name"),
+                ExecutionWorkOrder.manifest_name.label("manifest_name"),
+                ExecutionWorkOrder.manifest_version.label("manifest_version"),
+                ExecutionRun.reuse_decision.label("reuse_decision"),
+                ExecutionRun.started_at.label("started_at"),
+                ExecutionRun.finished_at.label("finished_at"),
+                ExecutionRun.evidence_metadata.label("evidence_metadata"),
+                func.row_number()
+                .over(
+                    partition_by=(
+                        ExecutionWorkOrder.repository_full_name,
+                        ExecutionWorkOrder.manifest_name,
+                        ExecutionWorkOrder.manifest_version,
+                    ),
+                    order_by=(ExecutionRun.finished_at.desc(), ExecutionRun.id.desc()),
+                )
+                .label("catalog_rank"),
+            )
+            .join(
+                ExecutionWorkOrder,
+                ExecutionRun.work_order_id == ExecutionWorkOrder.id,
+            )
+            .where(
+                identity_filter,
+                ExecutionRun.status == ExecutionRunStatus.SUCCEEDED,
+                ExecutionRun.finished_at.is_not(None),
+                ExecutionRun.reuse_decision.in_(
+                    (ReuseDecision.FRESH, ReuseDecision.REUSED)
+                ),
+            )
+            .subquery()
+        )
+        result = await self.session.execute(
+            select(
+                ranked.c.repository_full_name,
+                ranked.c.manifest_name,
+                ranked.c.manifest_version,
+                ranked.c.reuse_decision,
+                ranked.c.started_at,
+                ranked.c.finished_at,
+                ranked.c.evidence_metadata,
+            ).where(ranked.c.catalog_rank == 1)
+        )
+        projections: dict[tuple[str, str, str], CatalogLatestRunProjection] = {}
+        for row in result.mappings():
+            repository_full_name = str(row["repository_full_name"])
+            manifest_name = str(row["manifest_name"])
+            manifest_version = str(row["manifest_version"])
+            reuse_decision = row["reuse_decision"]
+            if not isinstance(reuse_decision, ReuseDecision):
+                continue
+            evidence_metadata = row["evidence_metadata"]
+            projections[(repository_full_name, manifest_name, manifest_version)] = (
+                CatalogLatestRunProjection(
+                    repository_full_name=repository_full_name,
+                    manifest_name=manifest_name,
+                    manifest_version=manifest_version,
+                    reuse_decision=reuse_decision,
+                    started_at=row["started_at"],
+                    finished_at=row["finished_at"],
+                    evidence_metadata=(
+                        dict(evidence_metadata)
+                        if isinstance(evidence_metadata, dict)
+                        else {}
+                    ),
+                )
+            )
+        return projections
 
     async def get_lease_for_run(self, run_id: int) -> ExecutionLease | None:
         """Return the active lease attached to a run, if it still exists."""

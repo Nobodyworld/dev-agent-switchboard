@@ -5,10 +5,18 @@ from __future__ import annotations
 import datetime as dt
 import re
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
+from .capabilities import normalize_runtime_version
 from .catalog import TRUSTED_REPOSITORIES, validate_repository_full_name
 from .enums import (
     ApprovalPolicy,
@@ -167,6 +175,7 @@ class WorkerRegistrationIn(ExecutionInput):
     architecture: str = Field(min_length=1, max_length=64)
     python_version: str | None = Field(default=None, max_length=64)
     node_version: str | None = Field(default=None, max_length=64)
+    pnpm_version: str | None = Field(default=None, max_length=64)
     docker_available: bool = False
     browsers: list[str] = Field(default_factory=list, max_length=32)
     gpu_available: bool = False
@@ -182,6 +191,21 @@ class WorkerRegistrationIn(ExecutionInput):
     network_policy_capability: NetworkPolicy = NetworkPolicy.WORKER_RESTRICTED
     repository_write_capability: Literal[False] = False
     status: WorkerStatus = WorkerStatus.ONLINE
+
+    @field_validator("python_version", "node_version", "pnpm_version")
+    @classmethod
+    def validate_runtime_versions(
+        cls, value: str | None, info: ValidationInfo
+    ) -> str | None:
+        if value is None:
+            return None
+        normalized = normalize_runtime_version(
+            value,
+            allow_leading_v=info.field_name == "node_version",
+        )
+        if normalized is None:
+            raise ValueError("worker runtime version must be semantic and bounded")
+        return normalized
 
     @model_validator(mode="after")
     def reject_executable_capabilities(self) -> WorkerRegistrationIn:
@@ -411,6 +435,7 @@ class WorkerOut(BaseModel):
     architecture: str
     python_version: str | None
     node_version: str | None
+    pnpm_version: str | None = None
     docker_available: bool
     browsers: list[str]
     gpu_available: bool
@@ -426,6 +451,17 @@ class WorkerOut(BaseModel):
     last_heartbeat_at: dt.datetime
     last_checkout_poll_at: dt.datetime | None
     created_at: dt.datetime
+
+    @field_validator("python_version", "node_version", "pnpm_version")
+    @classmethod
+    def normalize_persisted_runtime_versions(
+        cls, value: str | None, info: ValidationInfo
+    ) -> str | None:
+        return normalize_runtime_version(
+            value,
+            allow_leading_v=info.field_name == "node_version",
+        )
+
     updated_at: dt.datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -451,7 +487,7 @@ class TrustedRepositoryOut(BaseModel):
         min_length=8, max_length=255, pattern=r"^docs/[A-Za-z0-9_./-]+\.md$"
     )
     manifests: list[TrustedManifestReferenceOut] = Field(min_length=1, max_length=32)
-    default_manifest: dict[str, str] | None
+    default_manifest: dict[str, str]
 
 
 class TrustedCatalogOut(BaseModel):
@@ -459,7 +495,88 @@ class TrustedCatalogOut(BaseModel):
 
     schema_version: Literal[1] = 1
     digest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    repositories: list[TrustedRepositoryOut] = Field(min_length=1, max_length=32)
+    repositories: list[TrustedRepositoryOut] = Field(min_length=4, max_length=4)
+
+
+CatalogRuntimeVersion = Annotated[
+    str,
+    Field(
+        min_length=4,
+        max_length=32,
+        pattern=r"^(?:>=|=)\d+(?:\.\d+){1,2}$",
+    ),
+]
+
+
+class CatalogReadinessManifestOut(BaseModel):
+    """Display-only default trusted manifest identity."""
+
+    name: str = Field(min_length=1, max_length=128, pattern=r"^[a-z0-9][a-z0-9-]*$")
+    version: str = Field(min_length=1, max_length=64)
+    digest_prefix: str = Field(min_length=8, max_length=16, pattern=r"^[0-9a-f]+$")
+
+
+class CatalogReadinessBlockerOut(BaseModel):
+    """One stable public explanation for current catalog readiness."""
+
+    code: Literal[
+        "ready",
+        "no_registered_workers",
+        "repository_unavailable",
+        "manifest_capability_mismatch",
+        "profile_missing",
+        "profile_invalid",
+        "profile_disabled",
+        "stale_worker",
+        "capacity_constrained",
+        "worker_unavailable",
+        "maximum_cost_exceeded",
+        "insufficient_quota",
+        "preferred_executor_unavailable",
+    ]
+    label: str = Field(min_length=1, max_length=160)
+
+
+class CatalogReadinessLatestResultOut(BaseModel):
+    """Bounded counters derived from one fresh or exact-reused success."""
+
+    reuse_decision: Literal["fresh", "reused"]
+    duration_seconds: int | None = Field(default=None, ge=0, le=86_400)
+    step_count: int = Field(ge=0, le=128)
+    avoided_work_count: int = Field(ge=0, le=128)
+
+
+class CatalogReadinessSourceAvailabilityOut(BaseModel):
+    """Caveat that the API never promises an arbitrary local checkout."""
+
+    status: Literal["requires_exact_source"]
+    caveat: str = Field(min_length=1, max_length=255)
+
+
+class CatalogReadinessEntryOut(BaseModel):
+    """One bounded, non-executable public catalog-readiness entry."""
+
+    repository: str = Field(min_length=3, max_length=201)
+    display_name: str = Field(min_length=1, max_length=120)
+    default_manifest: CatalogReadinessManifestOut
+    runtime_requirements: dict[
+        Literal["python", "node", "pnpm"], CatalogRuntimeVersion
+    ] = Field(default_factory=dict, max_length=3)
+    ready_count: int = Field(ge=0, le=100)
+    primary_blocker: CatalogReadinessBlockerOut
+    latest_result: CatalogReadinessLatestResultOut | None = None
+    source_availability: CatalogReadinessSourceAvailabilityOut
+    exclusions: list[str] = Field(default_factory=list, max_length=16)
+
+    _safe_text = field_validator("repository", "display_name", "exclusions")(
+        validate_no_absolute_local_paths
+    )
+
+
+class CatalogReadinessOut(BaseModel):
+    """Bounded readiness view for the four approved public repositories."""
+
+    entries: list[CatalogReadinessEntryOut] = Field(min_length=4, max_length=4)
 
 
 class RepositoryWorkerReadinessOut(BaseModel):

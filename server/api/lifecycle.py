@@ -142,6 +142,13 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915
                     column["name"]
                     for column in inspector.get_columns("execution_workers")
                 }
+                if "pnpm_version" not in worker_columns:
+                    sync_conn.execute(
+                        text(
+                            "ALTER TABLE execution_workers "
+                            "ADD COLUMN pnpm_version VARCHAR(64)"
+                        )
+                    )
                 if "last_checkout_poll_at" not in worker_columns:
                     sync_conn.execute(
                         text(

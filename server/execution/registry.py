@@ -12,10 +12,12 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, Literal
 
 from .enums import NetworkPolicy, RepositoryWritePolicy
 from .evidence import ParserKind, RedactionState, validate_relative_path
+
+TrustedParserKind = ParserKind | Literal["quality-summary-v1"]
 
 MAX_TRUSTED_STEP_ID_LENGTH = 80
 MAX_TRUSTED_STEP_OUTPUT_SUMMARY_BYTES = 64 * 1024
@@ -67,7 +69,7 @@ class TrustedStep:
     environment: tuple[tuple[str, str], ...] = ()
     capability_condition: dict[str, Any] | None = None
     diagnostic_only: bool = False
-    parser_kind: ParserKind | None = None
+    parser_kind: TrustedParserKind | None = None
     artifacts: tuple[TrustedArtifact, ...] = ()
 
     def __post_init__(self) -> None:
@@ -95,6 +97,7 @@ class TrustedStep:
             "dependency-audit",
             "dependency-health",
             "critical-coverage",
+            "quality-summary-v1",
             "secret-scan",
         }:
             raise ValueError("trusted step parser kind is unsupported")
@@ -171,6 +174,7 @@ class TrustedManifest:
     allowed_parameters: frozenset[str] = frozenset()
     execution_steps: tuple[TrustedStep, ...] = ()
     dependency_lock_paths: tuple[str, ...] = ()
+    result_contract: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if self.execution_steps:
@@ -181,6 +185,10 @@ class TrustedManifest:
                 )
         for path in self.dependency_lock_paths:
             validate_relative_path(path)
+        if self.result_contract is not None and not isinstance(
+            self.result_contract, dict
+        ):
+            raise ValueError("trusted manifest result contract is invalid")
 
     @property
     def digest(self) -> str:
@@ -209,6 +217,10 @@ class TrustedManifest:
             ]
         if self.dependency_lock_paths:
             payload["dependency_lock_paths"] = list(self.dependency_lock_paths)
+        # Omit the factory-only result contract for legacy manifests so their
+        # persisted identity payloads and literal digests remain unchanged.
+        if self.result_contract is not None:
+            payload["result_contract"] = self.result_contract
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
@@ -534,7 +546,7 @@ _VALIDATE_ACCOUNTING_ARTIFACTS = [
 ]
 
 
-_TRUSTED_MANIFESTS = (
+_LEGACY_TRUSTED_MANIFESTS = (
     TrustedManifest(
         name="validate-accounting-modular",
         version="1",
@@ -669,6 +681,18 @@ _TRUSTED_MANIFESTS = (
 )
 
 
+from .workload_profiles import compile_trusted_manifests  # noqa: E402
+
+_PROFILE_MANIFESTS = compile_trusted_manifests(
+    manifest_factory=TrustedManifest,
+    step_factory=TrustedStep,
+    artifact_factory=TrustedArtifact,
+    network_policy_factory=NetworkPolicy,
+    repository_write_policy_factory=RepositoryWritePolicy,
+)
+_TRUSTED_MANIFESTS = (*_LEGACY_TRUSTED_MANIFESTS, *_PROFILE_MANIFESTS)
+
+
 def iter_trusted_manifests() -> tuple[TrustedManifest, ...]:
     """Return all static trusted manifest definitions."""
 
@@ -697,6 +721,7 @@ __all__ = [
     "TRUSTED_REPOSITORIES",
     "TrustedArtifact",
     "TrustedManifest",
+    "TrustedParserKind",
     "TrustedStep",
     "get_trusted_manifest",
     "iter_trusted_manifests",

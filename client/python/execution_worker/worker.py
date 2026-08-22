@@ -10,10 +10,14 @@ import platform
 import threading
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
+from server.execution.capabilities import (
+    normalize_runtime_version,
+    runtime_version_matches,
+)
 from server.execution.evidence import (
     ArtifactRecord,
     DependencyLockHash,
@@ -34,6 +38,7 @@ from server.execution.registry import TrustedManifest, TrustedStep, get_trusted_
 from .capabilities import discover_worker_registration
 from .client import ExecutionClient, ExecutionOwnershipLostError
 from .config import WorkerConfig
+from .containment import ContainmentCleanupError
 from .evidence import (
     EvidenceLimits,
     EvidenceStore,
@@ -62,7 +67,55 @@ _ENVIRONMENT_TOOLS = ("ruff", "black", "mypy", "pytest", "coverage", "bandit")
 ReuseDecisionValue = Literal["fresh", "reused", "unavailable"]
 
 
-def _environment_identity() -> EnvironmentIdentity:
+def _allowed_inherited_environment_keys(manifest: TrustedManifest) -> frozenset[str]:
+    """Return only the reviewed inherited environment keys for a manifest.
+
+    Worker configuration narrows what this host is willing to provide; the
+    manifest policy narrows what trusted target code is allowed to receive.
+    A malformed persisted policy therefore fails closed to an empty set.
+    """
+
+    policy_keys = manifest.environment_policy.get("allowed_inherited_keys")
+    if not isinstance(policy_keys, list) or not all(
+        isinstance(key, str) for key in policy_keys
+    ):
+        return frozenset()
+    return frozenset(policy_keys)
+
+
+def _step_result_contract(
+    manifest: TrustedManifest, step_id: str
+) -> Mapping[str, object] | None:
+    """Select one closed source-controlled result descriptor or fail closed."""
+
+    contract = manifest.result_contract
+    if contract is None:
+        return None
+    steps = contract.get("steps")
+    if not isinstance(steps, list):
+        raise ValueError("trusted manifest result contract steps are invalid")
+    matches: list[Mapping[str, object]] = []
+    for item in steps:
+        if not isinstance(item, Mapping) or set(item) != {"id", "result_contract"}:
+            raise ValueError("trusted manifest result contract step is invalid")
+        if not isinstance(item["id"], str) or not isinstance(
+            item["result_contract"], Mapping
+        ):
+            raise ValueError("trusted manifest result contract step is invalid")
+        if item["id"] == step_id:
+            matches.append(item["result_contract"])
+    if len(matches) > 1:
+        raise ValueError("trusted manifest result contract step is ambiguous")
+    return matches[0] if matches else None
+
+
+def _environment_identity(
+    config: WorkerConfig,
+    *,
+    required_capabilities: tuple[Mapping[str, Any], ...],
+) -> EnvironmentIdentity:
+    """Capture result-affecting runtime versions in the local evidence identity."""
+
     tools: list[ToolIdentity] = []
     for name in _ENVIRONMENT_TOOLS:
         try:
@@ -70,6 +123,24 @@ def _environment_identity() -> EnvironmentIdentity:
         except importlib.metadata.PackageNotFoundError:
             continue
         tools.append(ToolIdentity(name=name, version=version))
+    runtime_names = {
+        {
+            "node_version": "node",
+            "pnpm_version": "pnpm",
+        }.get(str(name).lower(), str(name).lower())
+        for requirements in required_capabilities
+        for name in requirements
+    }
+    if runtime_names.intersection({"node", "pnpm"}):
+        registration = discover_worker_registration(config)
+        for name, field in (("node", "node_version"), ("pnpm", "pnpm_version")):
+            registered_version = registration[field]
+            runtime_version = normalize_runtime_version(
+                registered_version if isinstance(registered_version, str) else None,
+                allow_leading_v=name == "node",
+            )
+            if name in runtime_names and isinstance(runtime_version, str):
+                tools.append(ToolIdentity(name=name, version=runtime_version))
     architecture = platform.machine() or "unknown"
     operating_system = platform.system().lower() or "unknown"
     python_version = platform.python_version()
@@ -124,27 +195,24 @@ def _step_evidence(
     return evidence
 
 
-def _version_at_least(actual: str, minimum: str) -> bool:
-    def numbers(value: str) -> tuple[int, ...]:
-        return tuple(int(piece) for piece in value.split(".") if piece.isdigit())
-
-    return numbers(actual) >= numbers(minimum)
-
-
-def _requirement_satisfied(actual: object, expected: object) -> bool:
+def _requirement_satisfied(
+    actual: object,
+    expected: object,
+    *,
+    capability: str,
+) -> bool:
+    if capability in {"python", "node", "pnpm"}:
+        return runtime_version_matches(
+            actual if isinstance(actual, str) else None,
+            expected,
+            normalize_leading_v=capability == "node",
+        )
     if isinstance(expected, bool):
         return actual is expected
     if isinstance(expected, str):
         return actual == expected
     if isinstance(expected, list):
         return isinstance(actual, str) and actual in expected
-    if isinstance(expected, Mapping) and set(expected) == {"minimum"}:
-        minimum = expected["minimum"]
-        return (
-            isinstance(actual, str)
-            and isinstance(minimum, str)
-            and _version_at_least(actual, minimum)
-        )
     return False
 
 
@@ -171,6 +239,7 @@ def _local_capabilities(config: WorkerConfig) -> dict[str, object]:
             "architecture": registration["architecture"],
             "python": registration["python_version"],
             "node": registration["node_version"],
+            "pnpm": registration["pnpm_version"],
             "docker": registration["docker_available"],
             "gpu": registration["gpu_available"],
             "unity": registration["unity_available"],
@@ -189,6 +258,7 @@ def _validate_capabilities(
     aliases = {
         "python_version": "python",
         "node_version": "node",
+        "pnpm_version": "pnpm",
         "docker_available": "docker",
         "gpu_available": "gpu",
         "unity_available": "unity",
@@ -197,7 +267,7 @@ def _validate_capabilities(
     for name, expected in requirements.items():
         key = aliases.get(name, name)
         if key not in capabilities or not _requirement_satisfied(
-            capabilities[key], expected
+            capabilities[key], expected, capability=key
         ):
             raise ValueError(f"unsupported required capability: {name}")
 
@@ -261,6 +331,66 @@ def _validate_manifest(
     _validate_capabilities(manifest.required_capabilities, config)
     _validate_capabilities(order.required_capabilities, config)
     return manifest
+
+
+def _profile_evidence_policy(
+    manifest: TrustedManifest,
+    config: WorkerConfig,
+) -> tuple[int, EvidenceLimits]:
+    """Return the stricter of local and reviewed profile evidence ceilings.
+
+    Legacy manifests do not carry a factory result contract, so their evidence
+    behavior remains byte-for-byte compatible with the existing local worker
+    configuration.  A factory profile's contract is source-controlled and
+    digest-bound, but it is still parsed defensively here before it can govern
+    retained evidence.
+    """
+
+    local_limits = EvidenceLimits(
+        maximum_artifact_count=config.maximum_artifact_count,
+        maximum_artifact_bytes=config.maximum_artifact_bytes,
+        maximum_total_bytes=config.maximum_total_evidence_bytes,
+    )
+    if manifest.result_contract is None:
+        return config.evidence_retention_days, local_limits
+
+    contract = manifest.result_contract
+    if set(contract) != {"resource_limits", "schema_version", "steps"}:
+        raise ValueError("trusted manifest result contract is invalid")
+    resource_limits = contract.get("resource_limits")
+    if not isinstance(resource_limits, Mapping) or set(resource_limits) != {
+        "maximum_artifact_bytes",
+        "maximum_artifact_count",
+        "maximum_total_artifact_bytes",
+        "retention_days",
+    }:
+        raise ValueError("trusted manifest resource limits are invalid")
+
+    values: dict[str, int] = {}
+    for name, value in resource_limits.items():
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise ValueError("trusted manifest resource limit is invalid")
+        values[name] = value
+    if values["maximum_total_artifact_bytes"] < values["maximum_artifact_bytes"]:
+        raise ValueError("trusted manifest total evidence limit is invalid")
+
+    return (
+        min(config.evidence_retention_days, values["retention_days"]),
+        EvidenceLimits(
+            maximum_artifact_count=min(
+                config.maximum_artifact_count,
+                values["maximum_artifact_count"],
+            ),
+            maximum_artifact_bytes=min(
+                config.maximum_artifact_bytes,
+                values["maximum_artifact_bytes"],
+            ),
+            maximum_total_bytes=min(
+                config.maximum_total_evidence_bytes,
+                values["maximum_total_artifact_bytes"],
+            ),
+        ),
+    )
 
 
 @dataclass(slots=True)
@@ -442,8 +572,12 @@ class LocalWorker:
         return summary
 
     def _create_evidence_store(
-        self, run_id: int, created_at: dt.datetime
+        self,
+        run_id: int,
+        created_at: dt.datetime,
+        manifest: TrustedManifest,
     ) -> EvidenceStore:
+        retention_days, limits = _profile_evidence_policy(manifest, self.config)
         return create_evidence_store(
             evidence_root=self.config.evidence_root,
             worker_root=self.config.worker_root,
@@ -451,12 +585,8 @@ class LocalWorker:
             worker_id=self.config.worker_id,
             run_id=run_id,
             created_at=created_at,
-            retention_days=self.config.evidence_retention_days,
-            limits=EvidenceLimits(
-                maximum_artifact_count=self.config.maximum_artifact_count,
-                maximum_artifact_bytes=self.config.maximum_artifact_bytes,
-                maximum_total_bytes=self.config.maximum_total_evidence_bytes,
-            ),
+            retention_days=retention_days,
+            limits=limits,
         )
 
     @staticmethod
@@ -547,6 +677,7 @@ class LocalWorker:
                 fixed_step_metadata=manifest.fixed_step_metadata,
                 artifact_declarations=manifest.artifact_declarations,
                 dependency_lock_paths=manifest.dependency_lock_paths,
+                result_contract=manifest.result_contract,
             ),
         )
 
@@ -589,6 +720,8 @@ class LocalWorker:
         dependency_locks: list[DependencyLockHash] = []
         dependency_lock_status = "not_declared"
         artifact_status = "not_started"
+        source_quiescent = True
+        source_integrity_verified = True
         terminal: TerminalStatus = "failed"
         reason: str | None = "worker_initialization_failed"
         cleanup: str = "not_started"
@@ -637,8 +770,18 @@ class LocalWorker:
                 terminal, reason = "cancelled", token.reason
             else:
                 started_at = dt.datetime.now(dt.UTC)
-                environment = _environment_identity()
-                store = self._create_evidence_store(checkout.run_id, started_at)
+                environment = _environment_identity(
+                    self.config,
+                    required_capabilities=(
+                        manifest.required_capabilities,
+                        order.required_capabilities,
+                    ),
+                )
+                store = self._create_evidence_store(
+                    checkout.run_id,
+                    started_at,
+                    manifest,
+                )
                 worktree = create_worktree(
                     self.config.repository_path(order.repository_full_name),
                     self.config.worker_root,
@@ -646,13 +789,16 @@ class LocalWorker:
                     worker_id=self.config.worker_id,
                     execution_run_id=checkout.run_id,
                 )
+                worktree.verify_checkout_integrity()
                 terminal, reason, cleanup = "succeeded", None, "pending"
                 execute_fresh = True
                 if order.reuse_policy != "never":
                     if manifest.dependency_lock_paths:
+                        worktree.verify_checkout_integrity()
                         dependency_locks = self._hash_dependency_locks(
                             manifest, worktree.checkout
                         )
+                        worktree.verify_checkout_integrity()
                         dependency_lock_status = "succeeded"
                     reuse_identity = self._build_reuse_identity(
                         order=order,
@@ -717,6 +863,14 @@ class LocalWorker:
                                 self.config,
                                 deadline,
                                 cancellation=token,
+                                allowed_inherited_environment_keys=(
+                                    _allowed_inherited_environment_keys(manifest)
+                                ),
+                                result_contract=_step_result_contract(
+                                    manifest, step.id
+                                ),
+                                strict_containment=manifest.result_contract is not None,
+                                checkout_guard=worktree.verify_checkout_integrity,
                             )
                         except OverallDeadlineExceededError as error:
                             if token.cancelled:
@@ -726,13 +880,39 @@ class LocalWorker:
                             else:
                                 terminal, reason = "timed_out", str(error)
                             break
-                        except Exception:
+                        except ContainmentCleanupError:
+                            source_quiescent = False
+                            terminal, reason = "failed", "descendant_cleanup_failed"
+                            break
+                        except Exception as error:
+                            # Once a runner call has begun, an unexpected error
+                            # cannot prove whether target children survived.  This
+                            # deliberately drains the worker even for a pre-launch
+                            # failure: false-positive quarantine is safer than
+                            # recursive cleanup in a possibly live target context.
+                            source_quiescent = False
                             if token.cancelled:
                                 terminal, reason, skip_completion = (
                                     _cancellation_outcome(token)
                                 )
                                 break
-                            raise
+                            terminal, reason = (
+                                "failed",
+                                f"worker_error:{type(error).__name__}",
+                            )
+                            break
+                        if (
+                            manifest.result_contract is not None
+                            and result.parsed_result is not None
+                            and result.parsed_result.status == "parser_failed"
+                        ):
+                            result = replace(
+                                result,
+                                status="failed",
+                                terminal_reason="result_contract_parser_failed",
+                            )
+                        if result.terminal_reason == "descendant_cleanup_failed":
+                            source_quiescent = False
                         results.append(result)
                         if result.status != "succeeded" and step.required:
                             terminal = (
@@ -747,6 +927,9 @@ class LocalWorker:
                             break
                 if token.cancelled:
                     terminal, reason, skip_completion = _cancellation_outcome(token)
+        except ContainmentCleanupError:
+            source_quiescent = False
+            terminal, reason = "failed", "descendant_cleanup_failed"
         except ExecutionOwnershipLostError:
             skip_completion, terminal, reason = True, "cancelled", "ownership_lost"
         except LocalCommitUnavailableError:
@@ -761,21 +944,55 @@ class LocalWorker:
                 monitor.stop()
             with self._state_lock:
                 self._active_token = None
+            if not source_quiescent:
+                # A strict host could still have a live target descendant. Do
+                # not let this process accept a later work order in the same
+                # security context.  An operator must investigate/terminate
+                # the retained process or discard the worker host/VM; merely
+                # restarting this Python process cannot prove an orphan is gone.
+                self._shutdown.set()
             if worktree is not None and manifest is not None:
-                if (
+                if source_quiescent:
+                    try:
+                        worktree.verify_checkout_integrity()
+                    except Exception:
+                        source_integrity_verified = False
+                        if terminal == "succeeded":
+                            terminal, reason = "failed", "checkout_integrity_failed"
+                else:
+                    # This check invokes Git against a target-mutable checkout.
+                    # Once child quiescence is unproven, retain every target-owned
+                    # path and perform no further subprocess or filesystem I/O.
+                    source_integrity_verified = False
+                if not source_quiescent or not source_integrity_verified:
+                    if manifest.dependency_lock_paths:
+                        dependency_lock_status = (
+                            "skipped:source_quiescence_failed"
+                            if not source_quiescent
+                            else "skipped:checkout_integrity_failed"
+                        )
+                    if store is not None:
+                        artifact_status = (
+                            "skipped:source_quiescence_failed"
+                            if not source_quiescent
+                            else "skipped:checkout_integrity_failed"
+                        )
+                elif (
                     manifest.dependency_lock_paths
                     and dependency_lock_status != "succeeded"
                 ):
                     try:
+                        worktree.verify_checkout_integrity()
                         dependency_locks = self._hash_dependency_locks(
                             manifest, worktree.checkout
                         )
+                        worktree.verify_checkout_integrity()
                         dependency_lock_status = "succeeded"
                     except Exception as error:
                         dependency_lock_status = f"failed:{type(error).__name__}"
                         if terminal == "succeeded":
                             terminal, reason = "failed", "dependency_lock_hash_failed"
-                if store is not None:
+                if store is not None and source_quiescent and source_integrity_verified:
                     try:
                         declarations = tuple(
                             (step.id, artifact)
@@ -783,9 +1000,11 @@ class LocalWorker:
                             for artifact in step.artifacts
                         )
                         for _step_id, declaration in declarations:
+                            worktree.verify_checkout_integrity()
                             store.capture_declared_artifact(
                                 worktree.checkout, declaration
                             )
+                        worktree.verify_checkout_integrity()
                         artifacts = store.finalize_artifacts(declarations)
                         artifact_status = "succeeded"
                     except Exception as error:
@@ -793,15 +1012,24 @@ class LocalWorker:
                         if terminal == "succeeded":
                             terminal, reason = "failed", "artifact_finalization_failed"
             if worktree is not None:
-                try:
-                    worktree.cleanup()
-                    cleanup = "succeeded"
-                except (
-                    Exception
-                ) as error:  # cleanup failure is part of the terminal result
-                    cleanup = f"failed:{type(error).__name__}"
-                    if terminal == "succeeded":
-                        terminal, reason = "failed", "cleanup_failed"
+                # Do not recursively remove a path while process containment or
+                # checkout identity is unproven.  A surviving target process (or
+                # a replaced checkout) could otherwise race cleanup and turn a
+                # truthful execution failure into an unsafe filesystem action.
+                if not source_quiescent:
+                    cleanup = "skipped:source_quiescence_failed"
+                elif not source_integrity_verified:
+                    cleanup = "skipped:checkout_integrity_failed"
+                else:
+                    try:
+                        worktree.cleanup()
+                        cleanup = "succeeded"
+                    except (
+                        Exception
+                    ) as error:  # cleanup failure is part of the terminal result
+                        cleanup = f"failed:{type(error).__name__}"
+                        if terminal == "succeeded":
+                            terminal, reason = "failed", "cleanup_failed"
             if order is not None:
                 summary = self._summary(order, results)
             if (
@@ -809,10 +1037,18 @@ class LocalWorker:
                 and order is not None
                 and manifest is not None
                 and worktree is not None
+                and source_quiescent
+                and source_integrity_verified
             ):
                 try:
                     if environment is None:
-                        environment = _environment_identity()
+                        environment = _environment_identity(
+                            self.config,
+                            required_capabilities=(
+                                manifest.required_capabilities,
+                                order.required_capabilities,
+                            ),
+                        )
                     if reuse_identity is None:
                         reuse_identity = self._build_reuse_identity(
                             order=order,

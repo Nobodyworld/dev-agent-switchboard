@@ -73,6 +73,7 @@ class WorkerRegistration:
     repository_write_capability: bool
     status: WorkerStatus
     repository_full_names: tuple[str, ...] = ("Nobodyworld/dev-agent-switchboard",)
+    pnpm_version: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

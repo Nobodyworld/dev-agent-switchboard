@@ -9,6 +9,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from .workload_profiles import profile_catalog_mappings
+
 _REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
 _IDENTITY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,127}$")
 _VERSION_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
@@ -70,7 +72,7 @@ class TrustedRepository:
     support_status: str
     documentation_reference: str
     manifests: tuple[TrustedManifestReference, ...]
-    default_manifest: TrustedManifestReference | None
+    default_manifest: TrustedManifestReference
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> TrustedRepository:
@@ -99,15 +101,11 @@ class TrustedRepository:
         if len(manifests) != len(manifests_value):
             raise ValueError("trusted repository manifests are invalid")
         default_manifest = (
-            None
-            if default_value is None
-            else (
-                TrustedManifestReference.from_mapping(default_value)
-                if isinstance(default_value, Mapping)
-                else None
-            )
+            TrustedManifestReference.from_mapping(default_value)
+            if isinstance(default_value, Mapping)
+            else None
         )
-        if default_value is not None and default_manifest is None:
+        if default_manifest is None:
             raise ValueError("trusted repository default manifest is invalid")
         full_name = value["full_name"]
         display_name = value["display_name"]
@@ -154,10 +152,7 @@ class TrustedRepository:
             raise ValueError("trusted repository manifest count is invalid")
         if len(set(self.manifests)) != len(self.manifests):
             raise ValueError("trusted repository manifests must be unique")
-        if (
-            self.default_manifest is not None
-            and self.default_manifest not in self.manifests
-        ):
+        if self.default_manifest not in self.manifests:
             raise ValueError("trusted repository default manifest is not allowed")
 
     def safe_metadata(self) -> dict[str, Any]:
@@ -168,11 +163,7 @@ class TrustedRepository:
             "support_status": self.support_status,
             "documentation_reference": self.documentation_reference,
             "manifests": [item.safe_metadata() for item in self.manifests],
-            "default_manifest": (
-                self.default_manifest.safe_metadata()
-                if self.default_manifest is not None
-                else None
-            ),
+            "default_manifest": self.default_manifest.safe_metadata(),
         }
 
 
@@ -200,6 +191,10 @@ _TRUSTED_REPOSITORIES = tuple(
                     },
                 }
             ),
+            *(
+                TrustedRepository.from_mapping(mapping)
+                for mapping in profile_catalog_mappings()
+            ),
             TrustedRepository.from_mapping(
                 {
                     "full_name": "Nobodyworld/app-accounting-modular",
@@ -224,6 +219,7 @@ _TRUSTED_REPOSITORIES = tuple(
 )
 
 TRUSTED_REPOSITORIES = frozenset(item.full_name for item in _TRUSTED_REPOSITORIES)
+_PUBLIC_CATALOG_SIZE = 4
 
 
 def validate_catalog(
@@ -232,12 +228,25 @@ def validate_catalog(
 ) -> None:
     """Fail import when catalog entries are ambiguous or reference absent code."""
 
-    identities = set(manifest_identities)
+    is_public_catalog = repositories is _TRUSTED_REPOSITORIES
+    identity_values = tuple(manifest_identities)
+    identities = set(identity_values)
+    if len(identities) != len(identity_values):
+        raise ValueError("trusted manifest identities must be unique")
     definitions = tuple(repositories)
     names = [item.full_name.casefold() for item in definitions]
     if len(names) != len(set(names)):
         raise ValueError("trusted repository identities must be unique")
+    if is_public_catalog and (
+        len(definitions) != _PUBLIC_CATALOG_SIZE
+        or {item.full_name for item in definitions} != TRUSTED_REPOSITORIES
+    ):
+        raise ValueError(
+            "public trusted catalog must contain exactly four repositories"
+        )
     for repository in definitions:
+        if repository.default_manifest not in repository.manifests:
+            raise ValueError("trusted repository default manifest is not allowed")
         for reference in repository.manifests:
             if (reference.name, reference.version) not in identities:
                 raise ValueError("trusted repository references an unknown manifest")
