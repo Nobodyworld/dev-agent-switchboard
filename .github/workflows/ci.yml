@@ -129,6 +129,295 @@ jobs:
           print('Accounting acceptance reported exactly one passing test.')
           PY
 
+  zscripts-acceptance:
+    name: Zscripts workload acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: |
+            server/requirements.txt
+            server/requirements-dev.txt
+
+      - name: Set up Node 24.12.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.12.0'
+
+      - name: Set up pnpm 10.18.1
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+        with:
+          version: '10.18.1'
+
+      - name: Verify exact Zscripts runtime capabilities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = "v24.12.0"
+          test "$(pnpm --version)" = "10.18.1"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r server/requirements-dev.txt
+
+      - name: Run Zscripts real-worker acceptance
+        run: |
+          mkdir -p reports
+          pytest \
+            client/python/tests/test_execution_worker_server_smoke.py::test_zscripts_catalog_routes_real_worker_then_reuses_exact_evidence \
+            --junitxml=reports/pytest-zscripts.xml -rA
+
+      - name: Enforce exact Zscripts acceptance result
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse('reports/pytest-zscripts.xml').getroot()
+          cases = list(root.iter('testcase'))
+          failures = list(root.iter('failure'))
+          errors = list(root.iter('error'))
+          skipped = list(root.iter('skipped'))
+          if len(cases) != 1 or failures or errors or skipped:
+              raise SystemExit(
+                  'Zscripts acceptance must report exactly one passing test; '
+                  f'got tests={len(cases)}, failures={len(failures)}, '
+                  f'errors={len(errors)}, skipped={len(skipped)}.'
+              )
+          print('Zscripts acceptance reported exactly one passing test.')
+          PY
+
+  industry-resilience-acceptance:
+    name: Industry Resilience workload acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+          cache-dependency-path: |
+            server/requirements.txt
+            server/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r server/requirements-dev.txt
+
+      - name: Run Industry Resilience real-worker acceptance
+        run: |
+          mkdir -p reports
+          pytest \
+            client/python/tests/test_execution_worker_server_smoke.py::test_industry_resilience_catalog_routes_real_worker_then_reuses_exact_evidence \
+            --junitxml=reports/pytest-industry-resilience.xml -rA
+
+      - name: Enforce exact Industry Resilience acceptance result
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse('reports/pytest-industry-resilience.xml').getroot()
+          cases = list(root.iter('testcase'))
+          failures = list(root.iter('failure'))
+          errors = list(root.iter('error'))
+          skipped = list(root.iter('skipped'))
+          if len(cases) != 1 or failures or errors or skipped:
+              raise SystemExit(
+                  'Industry Resilience acceptance must report exactly one passing test; '
+                  f'got tests={len(cases)}, failures={len(failures)}, '
+                  f'errors={len(errors)}, skipped={len(skipped)}.'
+              )
+          print('Industry Resilience acceptance reported exactly one passing test.')
+          PY
+
+  workload-factory-coverage:
+    name: Workload factory coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: |
+            server/requirements.txt
+            server/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r server/requirements-dev.txt
+
+      - name: Validate source-controlled workload catalog offline
+        run: python scripts/dev.py validate-workload-catalog
+
+      - name: Measure source-controlled factory and catalog-readiness coverage
+        run: |
+          mkdir -p reports
+          pytest \
+            server/tests/test_workload_profiles.py \
+            server/tests/test_catalog_readiness.py \
+            --cov=server.execution.workload_profiles \
+            --cov=server.execution.service \
+            --cov-report=term-missing \
+            --cov-report=json:reports/workload-factory-coverage.json -rA
+
+      - name: Enforce reviewed factory and readiness coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import json
+          from pathlib import Path
+
+          REPORT = Path('reports/workload-factory-coverage.json')
+          TARGETS = {
+              'server/execution/workload_profiles.py': {
+                  'label': 'security-critical workload profile validation',
+                  'functions': {
+                      '_validate_relative_path',
+                      '_validate_fixed_argv',
+                      '_validate_environment',
+                      '_validate_capabilities',
+                      'ArtifactDeclaration.from_mapping',
+                      'ArtifactDeclaration.__post_init__',
+                      'ResultContract.from_mapping',
+                      'ResultContract._validate_source',
+                      'ResultContract._validate_numeric_limits',
+                      'ResultContract._validate_declared_fields',
+                      'ResultContract._validate_parser_rules',
+                      'ResourceLimits.from_mapping',
+                      'ResourceLimits.__post_init__',
+                      'WorkloadStep.from_mapping',
+                      'WorkloadStep.__post_init__',
+                      'WorkloadProfile.from_mapping',
+                      'WorkloadProfile.__post_init__',
+                      'validate_workload_profiles',
+                      '_profile_manifest_arguments',
+                      'compile_trusted_manifests',
+                  },
+              },
+              'server/execution/service.py': {
+                  'label': 'catalog-readiness projection',
+                  'functions': {
+                      '_safe_runtime_requirements',
+                      '_catalog_primary_blocker',
+                      '_catalog_latest_result',
+                      '_catalog_exclusions',
+                      'ExecutionService.assess_catalog_readiness',
+                  },
+              },
+          }
+          MINIMUM_PERCENT = 90.0
+          MAX_REPORT_BYTES = 2_000_000
+          MAX_SOURCE_BYTES = 1_000_000
+
+          class Definitions(ast.NodeVisitor):
+              def __init__(self):
+                  self.scope = []
+                  self.ranges = {}
+
+              def visit_ClassDef(self, node):
+                  self.scope.append(node.name)
+                  self.generic_visit(node)
+                  self.scope.pop()
+
+              def visit_FunctionDef(self, node):
+                  self._record(node)
+                  self.generic_visit(node)
+
+              def visit_AsyncFunctionDef(self, node):
+                  self._record(node)
+                  self.generic_visit(node)
+
+              def _record(self, node):
+                  self.ranges['.'.join([*self.scope, node.name])] = (
+                      node.lineno,
+                      node.end_lineno,
+                  )
+
+          if not REPORT.is_file() or REPORT.stat().st_size > MAX_REPORT_BYTES:
+              raise SystemExit('Coverage report is missing or exceeds the read limit.')
+          report = json.loads(REPORT.read_text(encoding='utf-8'))
+          files = report.get('files')
+          if not isinstance(files, dict):
+              raise SystemExit('Coverage report does not contain file data.')
+
+          for relative_path, specification in TARGETS.items():
+              info = next(
+                  (
+                      value
+                      for candidate, value in files.items()
+                      if candidate.replace('\\', '/').endswith(relative_path)
+                  ),
+                  None,
+              )
+              if not isinstance(info, dict):
+                  raise SystemExit(f'Missing coverage data for {relative_path}.')
+              executed = set(info.get('executed_lines', []))
+              missing = set(info.get('missing_lines', []))
+              statements = executed | missing
+              source = Path(relative_path)
+              if not source.is_file() or source.stat().st_size > MAX_SOURCE_BYTES:
+                  raise SystemExit(f'Coverage source is missing or exceeds the read limit: {relative_path}.')
+              definitions = Definitions()
+              definitions.visit(ast.parse(source.read_text(encoding='utf-8')))
+              expected = specification['functions']
+              absent = sorted(expected - set(definitions.ranges))
+              if absent:
+                  raise SystemExit(
+                      f'Coverage target changed without review: {relative_path}: {absent}'
+                  )
+              selected = set()
+              for name in expected:
+                  start, end = definitions.ranges[name]
+                  selected.update(
+                      line for line in statements if start <= line <= end
+                  )
+              if not selected:
+                  raise SystemExit(f'No executable coverage lines found for {relative_path}.')
+              covered = len(selected & executed)
+              percent = (100.0 * covered) / len(selected)
+              print(
+                  f"{specification['label']}: {covered}/{len(selected)} lines "
+                  f'({percent:.2f}%)'
+              )
+              if percent + 1e-6 < MINIMUM_PERCENT:
+                  raise SystemExit(
+                      f"{specification['label']} coverage {percent:.2f}% is below "
+                      f'the required {MINIMUM_PERCENT:.2f}%.'
+                  )
+          PY
+
   docs:
     name: Link check
     runs-on: ubuntu-latest
