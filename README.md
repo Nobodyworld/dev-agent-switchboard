@@ -10,8 +10,9 @@ Switchboard is a reference implementation for coordinating multiple agents again
 
 - **Dependency-aware coordination** — tasks become available as prerequisites complete.
 - **Lease-based ownership** — agents claim work with expiry and heartbeat semantics that reduce duplicate execution.
-- **Trusted local execution** — approved exact-SHA work orders are claimed by an outbound local worker using fixed reviewed argv, read-only disposable worktrees, bounded output, cancellation, and cleanup.
+- **Trusted local execution** — approved exact-SHA work orders are claimed by an outbound local worker using fixed reviewed argv, policy-governed disposable worktrees, bounded output, cancellation, and cleanup. Repository write prohibition is a cooperative trust and integrity-detection boundary, not an OS sandbox; live external targets require a least-privilege isolated worker host.
 - **Compact validation evidence** — `validate-switchboard@1` records strict step outcomes, parsed test/coverage/security summaries, dependency-lock hashes, retained artifact hashes, and a deterministic fingerprint without returning full local logs.
+- **Source-controlled workload factory** — four reviewed public catalog entries include the legacy Switchboard and Modular Accounting contracts plus `validate-zscripts@1` and `validate-industry-resilience@1`; profiles are compiled from typed repository source, never uploaded or target-authored configuration.
 - **Validation Broker workspace** — operators can configure local-worker routing, resolve a GitHub pull request to an exact head, approve and queue it, distinguish fresh execution from exact reuse, publish current or stale evidence, and inspect bounded history without assembling API calls by hand.
 - **Live state synchronization** — plan changes are broadcast to the dashboard and clients over WebSockets.
 - **Live-file hosting** — agents can fetch mutable documents by URL; mutation endpoints can be protected with an admin token.
@@ -117,7 +118,15 @@ The protected GitHub Actions matrix covers:
 - Bandit and dependency auditing;
 - full-history Gitleaks scanning;
 - documentation link validation;
-- strict browser UI tests that fail when skipped.
+- strict browser UI tests that fail when skipped;
+- isolated Python 3.11 / Node 24.12.0 / pnpm 10.18.1 Zscripts and Python 3.13
+  Industry Resilience synthetic real-worker acceptances, each guarded as exactly
+  one passing JUnit case with no skip, failure, or error.
+
+Those hosted acceptance jobs execute committed synthetic fixtures inside this
+repository only. They do not clone, execute, publish to, or retain artifacts
+from either external target repository. Live dogfood remains an operator-owned
+local exact-SHA activity with its own source and authorization preconditions.
 
 Exact counts, coverage percentages, workflow identifiers, and environment limitations change as the repository evolves. They are intentionally recorded in active pull requests, living ExecPlans, the [public status page](docs/reports/status.md), and [PUBLIC_RELEASE_AUDIT.md](PUBLIC_RELEASE_AUDIT.md) rather than duplicated here as permanent claims.
 
@@ -126,6 +135,13 @@ Formal release still requires the Linux symlink-containment regression to execut
 ## Security Model
 
 The public developer preview is intended for localhost or controlled trusted networks. Public repository visibility makes the source available for review; it does not make a running Switchboard instance safe for public hosting. Untrusted multi-tenant and direct internet-facing deployments are unsupported.
+
+Trusted external workload profiles are reviewed Python source under
+`server/execution/workload_profiles.py`. Their fixed argv, runtime requirements,
+result-affecting inputs, retained-artifact limits, parsers, and deterministic
+exclusions are digest-bound. The public API and dashboard expose only safe
+identity and readiness metadata; they never expose a canonical checkout path,
+command argv, environment value, full log, or artifact bytes.
 
 Before using Switchboard on a trusted shared network, review and configure:
 

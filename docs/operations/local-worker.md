@@ -102,8 +102,9 @@ will not take new work while draining or after shutdown begins.
 Before creating a worktree, the worker checks the exact local trusted manifest,
 name/version/digest, server-safe metadata, required capabilities, read-only
 policy, network policy, timeout, and output limits. The reviewed executable
-profiles are `worker-smoke@1`, `validate-switchboard@1`, and
-`validate-accounting-modular@1`. The Switchboard validation
+profiles are `worker-smoke@1`, `validate-switchboard@1`,
+`validate-accounting-modular@1`, `validate-zscripts@1`, and
+`validate-industry-resilience@1`. The Switchboard validation
 profile runs fixed, shell-free Python version, dependency consistency, Ruff,
 Black, Mypy, pytest-with-coverage, and Bandit steps. Dependency consistency is
 diagnostic-only because it describes the operator's shared environment; all
@@ -115,6 +116,44 @@ coverage gates, focused accounting controls, `pip check`, locked runtime and
 development dependency audits, and the repository secret scanner. It requires
 Python 3.12+, Git, a read-only worker, and three reviewed dependency inputs.
 Docker and attended browser gates remain separate worker types.
+
+The two external profiles are compiled from reviewed typed Switchboard source;
+no worker configuration, API request, database row, target file, or YAML can
+author a command. `validate-zscripts@1` runs exactly
+`python scripts/quality_gate.py quality` and requires Python 3.11+, Node
+24.12.0+, and pnpm exactly 10.18.1. It accepts only the fixed regular JSON
+reports `reports/quality-summary.json`, `reports/coverage.json`, and
+`reports/diagnostics.json`, validates the closed quality summary/coverage/
+diagnostics contract, and does not return their bodies to the server.
+
+`repository_write_policy=read_only` is a reviewed work-order policy and
+canonical-integrity detection, not an operating-system sandbox. The target runs
+under the worker account in a writable disposable checkout. Operators must use
+a least-privilege worker identity without canonical-source or publication
+credentials, and use a container, ACL, or read-only mount when filesystem
+prevention is required. Likewise, ordinary process-group cleanup is not a
+substitute for platform-managed process containment.
+
+`validate-industry-resilience@1` requires Python 3.13+ and runs ten direct
+reviewed steps: Python version, `pip check`, Black, Ruff, Mypy, required
+runtime coverage at 85% for `src/adapters`, `src/agents`, `src/application`,
+`src/core`, `src/extensions`, `src/infrastructure`, `src/interfaces/api`, and
+`src/interfaces/streamlit` (term-missing plus XML and JSON reports),
+informational full-`src` coverage, benchmark metrics, one combined
+`pip_audit` JSON report at `build/reports/pip-audit.json`, and
+`detect_secrets.pre_commit_hook --baseline config/.secrets.baseline`. The final
+step validates the declared baseline only; it is not a source secret scan. The
+profile does not require GNU Make and does not claim Docker, Edge, Playwright,
+screen-reader, release, publication, data-refresh, or provider acceptance.
+
+Node and pnpm capability discovery uses only fixed `node --version` and
+`pnpm --version` calls with `shell=False`, a short timeout, and bounded output.
+Node's leading `v` is normalized; a missing or non-exact pnpm tool makes a
+Zscripts worker ineligible rather than triggering installation or fallback.
+For factory profiles, the worker enforces the stricter of its local evidence
+limits and the reviewed retention/count/byte ceilings. Factory result contracts
+and result-affecting input hashes bind exact reuse, while legacy manifest
+digests and evidence behavior remain unchanged.
 
 For each owned run, the worker creates a detached exact-SHA checkout underneath
 the worker root. Its generated `ownership.json` binds the worker, server run,
@@ -308,12 +347,60 @@ reported as timeout/cancellation while ownership is known. Restart never
 infers lease ownership from residual run directories and never executes a local
 run ID twice in one worker process.
 
-On POSIX, the worker uses a separate process session, sends `SIGTERM` to the
-whole group, waits briefly, then sends `SIGKILL` if descendants remain. On
-Windows it invokes the fixed internal `taskkill /PID <trusted-launched-pid> /T
-/F` command with `shell=False`. No work-order value contributes to termination
-arguments.
+Legacy manifests use a separate process session on POSIX and the fixed internal
+Windows tree-termination path; no work-order value contributes to those
+termination arguments. Factory profiles use a stricter, gated execution host:
+
+- On Windows, the worker creates a non-breakaway Job Object with
+  `KILL_ON_JOB_CLOSE`, assigns the blocked trusted host before it receives the
+  reviewed argv, and terminates the Job Object for cancellation or deadlines.
+- On Linux, the trusted host becomes a child subreaper before it accepts the
+  reviewed argv. It terminates the target process group and checks/reaps
+  adopted descendants, including a target child that called `setsid()`, before
+  it returns control to parser or evidence code.
+
+If strict quiescence cannot be proved, Switchboard does not parse/capture target
+outputs, write a local result record, or recursively clean the target-owned
+worktree or evidence directory. It records a bounded containment/cleanup state
+for operator recovery instead. This is process containment for the reviewed
+workload, not a replacement for the least-privilege filesystem isolation
+boundary described above.
+
+> [!WARNING]
+> The strict host is defense in depth, not an execution sandbox. In particular,
+> it does not separate a public target from the worker OS identity, the worker's
+> bearer token, writable canonical Git metadata, or other same-account process
+> state. Linux subreaping cannot contain every kernel-parentage escape, and a
+> Windows Job Object does not create an account or filesystem boundary. Do not
+> use a worker that shares any source, publication, or control-plane credential
+> with a live public target. Live external dogfood requires an operator-managed
+> separate least-privilege identity plus a container, VM, or equivalent ACL/
+> mount boundary; absent that boundary, use only committed synthetic fixtures.
+
+> [!IMPORTANT]
+> A `source_quiescence_failed` result drains the worker. Retain its run directory
+> and investigate or terminate the surviving process, or discard the worker
+> host/VM. Restarting the Python worker alone does not prove that an orphaned
+> same-account process is gone.
 
 Artifact upload/download and server-side artifact-byte retention remain out of
 scope. The server persists only compact evidence and verified artifact metadata;
 reuse never transfers the retained bytes.
+
+## Revocation and external dogfood boundaries
+
+To stop accepting a workload, remove or replace its reviewed source mapping and
+deploy that reviewed change, then remove the corresponding local repository key
+or stop affected workers. Do not edit a historical manifest or bulk-delete
+evidence to simulate revocation: those records remain immutable proof of the
+prior run. A rollback restores a previously reviewed profile/catalog revision
+and still requires current capability and exact-SHA checks.
+
+Synthetic acceptance fixtures in Switchboard CI prove the worker and server
+path only; they never fetch or execute external target source. Live dogfood is
+separate. Zscripts PR #119 is merged, so its approved disposition is
+`TARGET-STATE-BLOCKED` and no replacement PR may be substituted. Industry
+Resilience PR #130 can be live-dogfooded only after its state/head are
+re-resolved and an operator supplies an approved canonical checkout containing
+that exact object. Without that checkout, record the blocker and do not clone,
+fetch, or claim live evidence.

@@ -66,6 +66,41 @@ authenticated request; the token is never returned by a projection or rendered
 into the workspace. Overview windows are request parameters bounded from 1
 through 365 days and do not mutate worker heartbeat or checkout-poll freshness.
 
+## Factory profiles and runtime discovery
+
+The public workload factory is source code, not a deployment setting: the typed
+definitions in `server/execution/workload_profiles.py` compile into the trusted
+registry and catalog at import time. The complete public catalog is fixed to
+`Nobodyworld/dev-agent-switchboard`, `Nobodyworld/app-accounting-modular`,
+`Nobodyworld/dev-logger-zscripts`, and
+`Nobodyworld/app-industry-resilience`. Operators enable only the repositories
+they have explicitly mapped in their local worker JSON; adding a JSON key does
+not create a profile or loosen the catalog.
+
+Worker registration discovers Node and pnpm with fixed `node --version` and
+`pnpm --version` subprocesses (`shell=False`, short timeout, and bounded
+combined output). Node's leading `v` is normalized before capability matching;
+pnpm is nullable when missing or invalid. Discovery neither installs tools nor
+executes target repository code. `validate-zscripts@1` requires Python 3.11+,
+Node 24.12.0+, and exactly pnpm 10.18.1; a mismatch is a safe
+`manifest_capability_mismatch` readiness outcome. `validate-industry-resilience@1`
+requires Python 3.13+.
+
+Factory profile result contracts are part of the manifest and exact-reuse
+identity. For a profile, the worker validates the source-controlled parser,
+declared artifact paths, result-affecting input hashes, and resource limits;
+the effective retention/count/byte policy is the stricter of local worker
+configuration and reviewed profile ceilings. Legacy manifests have no factory
+result contract, so their historical digests and local evidence behavior remain
+unchanged.
+
+The dashboard's catalog section reads only
+`GET /api/execution/catalog-readiness`. Its response is bounded to display
+identity, reviewed runtime requirements, ready count, one safe blocker,
+optional compact latest result, source-availability caveat, and exclusions. It
+does not expose paths or credentials and does not refresh worker state, reserve
+capacity/quota, resolve a PR, or create a work order.
+
 ## Outbound GitHub adapter
 
 The manual exact-PR adapter uses server-only environment configuration:

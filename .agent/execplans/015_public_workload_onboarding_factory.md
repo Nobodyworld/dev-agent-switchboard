@@ -35,22 +35,22 @@ The repository remains a **PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY**. 
 - [x] Canonical branch `feat/public-workload-onboarding-factory` created from the exact starting SHA.
 - [x] Governing issue #143 authorized as the active large slice.
 - [x] Current Zscripts and Industry Resilience contract sources inspected through GitHub.
-- [ ] Establish safe local worktree and isolated environments without disturbing unknown user work.
-- [ ] Record baseline tests and exact external target observations.
-- [ ] Implement the source-controlled profile factory and deterministic catalog validator.
-- [ ] Preserve the three existing manifest digests exactly.
-- [ ] Add reviewed `validate-zscripts@1` definition and catalog association.
-- [ ] Add reviewed `validate-industry-resilience@1` definition and catalog association.
-- [ ] Add truthful pnpm capability discovery and matching.
-- [ ] Add bounded read-only catalog readiness projection and API.
-- [ ] Extend the Validation Broker readiness UI and bounded history.
-- [ ] Add committed synthetic fresh/reuse production-path proofs for both new profiles.
-- [ ] Add isolated hosted acceptance jobs with exact result enforcement.
-- [ ] Attempt controlled read-only Industry Resilience live dogfood or record a precise blocker.
-- [ ] Record the Zscripts merged-target blocker without substituting another PR.
-- [ ] Complete adversarial security review.
-- [ ] Complete focused and full local validation.
-- [ ] Push the final branch and record exact local/remote SHA parity.
+- [x] Establish safe local worktree and isolated environments without disturbing unknown user work.
+- [x] Record baseline tests and initial exact external target observations.
+- [x] Implement the source-controlled profile factory and deterministic catalog validator.
+- [x] Preserve the three existing manifest digests exactly.
+- [x] Add reviewed `validate-zscripts@1` definition and catalog association.
+- [x] Add reviewed `validate-industry-resilience@1` definition and catalog association.
+- [x] Add truthful pnpm capability discovery and matching.
+- [x] Add bounded read-only catalog readiness projection and API.
+- [x] Extend the Validation Broker readiness UI and bounded history.
+- [x] Add committed synthetic fresh/reuse production-path proofs for both new profiles.
+- [x] Add isolated hosted acceptance jobs with exact result enforcement.
+- [x] Record the precise Industry Resilience live-dogfood blocker; do not execute it on this worker.
+- [x] Record the Zscripts merged-target blocker without substituting another PR.
+- [x] Complete adversarial security review and apply the bounded in-slice remediations.
+- [x] Complete every locally available final validation gate and record exact blockers: `pip-audit` stalled without a response, Docker is unavailable, `git fsck --full` cannot read the shared object store inside the sandbox, and the hostile-public-target isolation boundary remains unsatisfied.
+- [ ] Push the final branch normally and record exact local/remote SHA parity; publication is limited to source review on the existing draft PR and does not claim live-public-workload readiness.
 - [ ] Complete ultimate-head hosted validation and connector review.
 
 ## Surprises & Discoveries
@@ -58,17 +58,47 @@ The repository remains a **PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY**. 
 - Observation: `docs/reports/status.md` on the starting baseline still describes `83f84a7...` and draft PR #139 even though current `main` is `eef4df6...` and PR #144 has already merged.
   Evidence: The file at the starting SHA still contains the earlier PR #139 status block. This slice begins by reconciling the durable status document.
 
-- Observation: The originally planned Zscripts live target, PR #119, is closed and merged. Zscripts `main` has since advanced to `c96628e2409dbb4d184030fc29fd431050b3009c`.
-  Evidence: GitHub reports PR #119 merged and the protected current Zscripts `main` at `c96628e...`.
+- Observation: A read-only GitHub re-resolution at `2026-08-21T22:10:14Z` found the originally planned Zscripts live target, PR #119, closed and merged at head `5fbb3a219d04ea3631042ef3a98272e1b5fca579`; protected Zscripts `main` remains `c96628e2409dbb4d184030fc29fd431050b3009c`.
+  Evidence: GitHub branch and PR metadata report PR #119 merged at `2026-08-12T05:50:35Z` and protected current Zscripts `main` at `c96628e...`.
 
 - Observation: Zscripts now has a deterministic documentation-link validator and a protected quality helper with fixed named operations. Its current protected environment is Python 3.11, Node 24.12.0, and pnpm 10.18.1.
   Evidence: `scripts/quality_gate.py`, `.github/workflows/ci.yml`, `pyproject.toml`, and `workspace-ui/package.json` at `c96628e...`.
 
-- Observation: Industry Resilience PR #130 remains open, draft, and mergeable at `5e458da35accc9fedd9f29a521de5c27b757a8d0`; its CI Quality Gate and Docker Smoke are green.
-  Evidence: GitHub PR metadata and workflow runs `31553906171` and `31553906099`.
+- Observation: A read-only GitHub re-resolution at `2026-08-22T00:56:48Z` found Industry Resilience PR #130 still open, draft, cleanly mergeable, and unmerged at `e3fea89db624414fe3cad7980768f0265cf9570a`; exact-head CI and Docker Smoke remain green.
+  Evidence: GitHub PR metadata, CI run `32536731040`, and Docker Smoke run `32536731320`. The current head is three commits beyond the 2026-08-21 checkpoint `01c4ebf52fcae3cce8771371228723db772d1459` and six commits beyond historical head `5e458da35accc9fedd9f29a521de5c27b757a8d0`. The latest delta changes only Streamlit configuration/UI, public API/pipeline behavior, tests, and documentation. GitHub content metadata shows that all six reviewed profile-contract files retain identical blob IDs across both target movements.
 
 - Observation: The current Switchboard worker advertises Python and Node versions but does not independently discover a pnpm version.
   Evidence: `client/python/execution_worker/capabilities.py` at the starting SHA.
+
+- Observation: The protected primary checkout was clean on `main`, three commits behind the accepted base, and had no local-only commits. It was safely fast-forwarded; the feature work continues in one clean isolated worktree at the connector-prepared head.
+  Evidence: Exact `origin/main`, feature head, merge base, and `0 behind / 6 ahead` checks matched the accepted values; `git fsck --full --no-dangling` passed.
+
+- Observation: The machine-wide Python installation had unrelated dependency conflicts, so it is not valid validation evidence for this slice.
+  Evidence: Global `python -m pip check` reported unrelated `opencv-python`/NumPy and Streamlit/Pillow conflicts. Fresh campaign-scoped Python 3.11, 3.12, and 3.13 runtimes and isolated virtual environments were provisioned instead.
+
+- Observation: The connector's reuse clock fixture is tightly scoped to `test_execution_reuse` and injects the fixed July 30 synthetic instant into test-only service/module clocks.
+  Evidence: The exact selector passed once and the complete `server/tests/test_execution_reuse.py` module passed 15 tests on the connector-prepared head. Production retention code was not changed.
+
+- Observation: The literal Industry Resilience secret-baseline hook validates its baseline without scanning source paths when invoked with no positional filenames.
+  Evidence: The reviewed Make target and `detect-secrets` pre-commit entry point take no source-file arguments. This profile must record that bounded semantic exclusion rather than claim a full source secret audit.
+
+- Observation: Persisted JSON turns tuple-shaped source values into lists on a repeated application lifespan.
+  Evidence: The first factory compiler revision produced `trusted_manifest_digest_conflict` on a second startup; normalizing the compiled source mappings to JSON-shaped lists restored repeat-startup integrity without changing any legacy manifest.
+
+- Observation: The reviewed Zscripts helper's summary intentionally does not provide an authoritative test-count/skips field.
+  Evidence: The helper's `quality-summary.json` reports its fixed ordered operation inventory, status, coverage threshold, and duration. The closed parser validates those reports and does not infer a test count from helper details.
+
+- Observation: Strict host containment is not a sufficient public-target isolation boundary on a same-account worker.
+  Evidence: Native Windows Job Object and WSL/Linux subreaper regressions prove bounded ordinary-process cleanup, but an independently adversarial review found same-identity credential/Git-state exposure and a Linux `CLONE_PARENT` plus `setsid()` escape outside the host descendant tree. The current machine has no operator-provided separate identity/container/ACL boundary. Live public-target dogfood is therefore blocked rather than treated as safe evidence.
+
+- Observation: The first final full-suite run found a terminal-reason compatibility regression introduced by the conservative runner-exception quarantine path.
+  Evidence: `test_runner_exception_without_cancellation_remains_failed` expected the long-standing bounded `worker_error:RuntimeError` reason and received `worker_execution_error:RuntimeError`. Restoring the legacy reason retained quarantine while the final serial run passed `682` tests with `16` documented platform/fixture skips and no failures or errors.
+
+- Observation: The final publication `pip-audit` query did not produce an advisory response during its bounded 60-second attempt.
+  Evidence: The task-owned process was interrupted and confirmed absent afterward. This is an environment-limited scanner result, not a passing audit or a product assertion failure. It agrees with the earlier campaign attempt that remained live without an active socket until safely terminated.
+
+- Observation: `git fsck --full` cannot inspect the shared object store from this sandbox.
+  Evidence: The single required attempt failed with `Permission denied` while mmap-opening loose objects under the shared `.git/objects` directory. No permission, object-store, or repository repair was attempted; exact ref/diff/commit operations succeed when narrowly approved outside the sandbox.
 
 ## Decision Log
 
@@ -96,13 +126,81 @@ The repository remains a **PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY**. 
   Rationale: The generic worker must not require GNU Make on Windows, and the caller must not choose a command or target.
   Date/Author: 2026-08-15 / Issue #143 contract.
 
+- Decision: Retain the reviewed `validate-industry-resilience@1` source definition after re-resolving PR #130 at `e3fea89db624414fe3cad7980768f0265cf9570a`.
+  Rationale: The six commits since `5e458da...`, including the latest three since `01c4ebf...`, do not change `Makefile`, `.github/workflows/ci.yml`, `requirements.txt`, `requirements-dev.txt`, `config/.secrets.baseline`, or `src/scripts/benchmark_metrics.py`; GitHub reports identical blob IDs for every reviewed profile-contract file. The deterministic profile contract has therefore not moved. This does not authorize live execution; the target must be resolved again immediately before any later attempt.
+  Date/Author: 2026-08-21 / Owner contract and local implementation coordinator.
+
+- Decision: Treat PR #145's current body and issue #143's latest coordination comment as authoritative for external target disposition.
+  Rationale: Both current GitHub coordination surfaces supersede older target observations in this living plan. Their Zscripts `TARGET-STATE-BLOCKED` and Industry `ENVIRONMENT-BLOCKED` boundaries match the independent read-only GitHub re-resolution recorded above.
+  Date/Author: 2026-08-21 / Owner contract and local implementation coordinator.
+
 - Decision: Keep deterministic target validation separate from attended/manual gates.
   Rationale: The Industry profile must not claim Docker, Edge, Playwright, screen-reader, release, or publication acceptance; the Zscripts profile must not claim semantic correctness of performance conclusions.
   Date/Author: 2026-08-15 / Issue #143 contract.
 
+- Decision: Use campaign-scoped managed Python runtimes and browser assets for validation.
+  Rationale: It provides the requested Python 3.11/3.12/3.13 evidence without modifying the system toolchain or relying on unrelated global packages.
+  Date/Author: 2026-08-17 / Local implementation coordinator.
+
+- Decision: Preserve the connector's test-only fixed reuse clock fixture unchanged.
+  Rationale: Its containment is clear, the exact selector and full module pass, and changing it would not make the production retention contract safer or smaller.
+  Date/Author: 2026-08-17 / Local implementation coordinator.
+
+- Decision: Treat strict process containment as defense in depth and block live public-target execution on the current same-account worker.
+  Rationale: Job Objects and subreaping protect ordinary descendants, but they do not establish a separate OS identity, credential, Git configuration, or filesystem boundary. The implementation drains on unproven quiescence and skips target-path parsing, persistence, integrity subprocesses, and recursive cleanup; the required deployment boundary remains an operator-managed isolated account/container/VM/ACL setup.
+  Date/Author: 2026-08-17 / Local implementation coordinator and independent adversarial review.
+
+- Decision: Compile the two reviewed profiles into the existing registry/catalog surfaces, binding profile result-contract and resource-limit source data into only new manifest/reuse identities.
+  Rationale: This retains old persistence/wire shapes and the three legacy hashes while ensuring parser thresholds, declared artifacts, retention ceilings, and result-affecting inputs invalidate new-profile reuse.
+  Date/Author: 2026-08-17 / Local implementation coordinator.
+
+- Decision: Publish the validated source to the existing draft PR for connector review while retaining the live-public-workload blocker.
+  Rationale: The 2026-08-21 owner handoff explicitly authorizes logical commits and a normal push to the existing branch. Publication makes the implementation reviewable; it does not represent the same-account worker as safely isolated, authorize Industry live execution, or satisfy merge/release readiness.
+  Date/Author: 2026-08-21 / Owner handoff and local implementation coordinator.
+
 ## Outcomes & Retrospective
 
-No implementation outcome is claimed yet. This section must be replaced with exact final behavior, test counts, coverage, external target evidence, limitations, and lessons before the branch is declared ready for connector review.
+The local implementation compiles two reviewed source profiles into the existing
+trusted registry and catalog without moving legacy identities. The offline
+validator reports exactly four public repositories and catalog digest
+`8303bcc8c577557adccc7c299fc2816744f1c7a3c5f0f5ac39146d49c9643115`.
+The new Industry and Zscripts manifest digests are respectively
+`dfda235a1dda46fd144341e0105a9093396770698bf2a11c737bc7cfa5547ac6` and
+`c449d97cc63bb9c28c293e4798a116261fb01ece55cc92407dd4a8a330d3107e`.
+
+Synthetic production-path acceptance passed for Zscripts under Python 3.11,
+Industry Resilience under Python 3.13, and the existing Accounting profile
+under Python 3.12, each as exactly one passing JUnit case. The serial final
+Python 3.11 suite passed `682` tests with `16` known platform/fixture skips;
+the strict Playwright suite passed four cases with zero skips. The AST-scoped
+hosted coverage gate measured `240/240` source-profile validation lines and
+the catalog-readiness projection target remained above 90 percent. Native
+Windows stress passed 20 cancellation and five full runner-module iterations;
+WSL/Linux stress passed 30 cancellation and ten full runner-module iterations.
+The final publication audit additionally passed 43 focused
+profile/catalog/pnpm/capability tests and 16 native containment/finalization
+tests with three explicitly Linux-only skips. All-files pre-commit, the offline
+catalog validator, TODO policy, repository-wide diff check, Node syntax, full
+action-SHA pin validation, detect-secrets, and bounded public-hygiene scanning
+also passed on the final content.
+
+Zscripts PR #119 is confirmed closed/merged at
+`5fbb3a219d04ea3631042ef3a98272e1b5fca579`, so its live dogfood disposition
+is TARGET-STATE-BLOCKED. Industry PR #130 is still open and draft at
+`e3fea89db624414fe3cad7980768f0265cf9570a` as observed through GitHub at
+`2026-08-22T00:56:48Z`; CI run `32536731040` and Docker Smoke run
+`32536731320` succeeded on that exact head. The former `5e458da...` and
+`01c4ebf...` values are historical. No operator-approved exact canonical checkout or separate OS
+isolation boundary exists, so no controlled live execution was attempted. No
+external repository, pull request, publication, branch, or source was mutated.
+
+The implementation is authorized for normal publication to the existing draft
+PR for connector review, with no claim of live-public-workload readiness. Live
+execution remains **ENVIRONMENT-BLOCKED** until an operator provides a
+least-privilege separate identity and a container/VM or equivalent OS-enforced
+ACL/mount boundary. The final `pip-audit` advisory query also remains
+environment-limited, and Docker is unavailable locally. Ultimate-head hosted
+validation and connector review remain required before any merge decision.
 
 ## Context and Orientation
 

@@ -30,7 +30,12 @@ private URL, or claim of actual financial savings.
    workers are eligible for that exact manifest and current routing inputs.
    Changing the manifest, policy, maximum comparison units, required quota, or
    hard worker pin refreshes the same request-aware readiness projection. Then
-   enter the pull-request number and submit.
+   enter the pull-request number and submit. The catalog-readiness strip above
+   the form is a separate four-entry, source-controlled overview: it shows only
+   each default manifest/digest prefix, Python/Node/pnpm requirements, ready
+   count, one safe blocker, compact latest outcome, exact-source caveat, and
+   deterministic exclusions. It is a guide, not a source-availability or
+   execution-success claim.
 5. Request validation. Switchboard resolves the authenticated actor and the
    exact current PR head, then creates or returns one pending work order whose
    complete execution policy participates in adapter idempotency.
@@ -82,6 +87,7 @@ The workspace reads four authenticated projections:
 - `GET /api/execution/workers?limit=100&offset=0`
 - `GET /api/execution/github/requests?limit=25&offset=0`
 - `GET /api/execution/trusted-repositories`
+- `GET /api/execution/catalog-readiness`
 - `GET /api/execution/trusted-repositories/{owner}/{repository}/readiness`
 
 The readiness request carries `manifest_name`, `manifest_version`,
@@ -125,6 +131,23 @@ strict allowlist: Python/Node version, Docker, at most eight bounded browser
 names, GPU, Unity, desktop automation, network posture, and read-only repository
 support. The arbitrary capability document, host identity, paths, commands,
 argv, environments, and credentials are never returned to this surface.
+
+Catalog readiness is deliberately narrower than named readiness. It has no
+filters or lifecycle controls, takes a single worker/profile snapshot and a
+single latest-success projection for all four approved public catalog entries,
+and calls the same evaluator used by routing. It does not synchronize
+manifests, resolve a PR, fetch source, refresh poll freshness, reserve capacity
+or quota, create a work order/run, or promise that an exact SHA exists locally.
+The browser receives no worker ID, local path, command, argv, full capability
+document, routing profile, log, artifact bytes, credential, or private network
+data through this endpoint.
+
+For `validate-zscripts@1`, the runtime card shows Python 3.11+, Node 24.12.0+,
+and pnpm exactly 10.18.1; internally missing or nonmatching pnpm collapses to
+the safe public capability-mismatch blocker. `validate-industry-resilience@1`
+shows Python 3.13+. The cards disclose explicit deterministic exclusions so
+operators do not mistake readiness for Docker, browser, accessibility, release,
+publication, data-refresh, or provider validation.
 
 The request idempotency identity includes repository, stable PR identity, exact
 head, trusted manifest, authenticated actor, reuse policy, routing policy,
@@ -172,6 +195,12 @@ provider usage, actual spend, or measured savings.
   browser receives compact evidence only.
 - There is no MCP, paid-agent, provider, browser-worker, desktop/RPA, webhook,
   auto-approval, auto-publication, or production multi-tenant scope in this slice.
+- The browser's synthetic fixture tests lifecycle presentation and safe
+  projections; it is not proof of external target execution. The committed
+  LocalWorker fixture acceptances prove the fresh/reuse path without external
+  checkout or publication. Zscripts PR #119 is `TARGET-STATE-BLOCKED` because
+  it merged. Industry PR #130 needs a newly re-resolved exact head and an
+  operator-approved canonical checkout before any live dogfood can proceed.
 
 See [Local worker operations](local-worker.md),
 [GitHub exact pull-request validation](github-exact-pr-validation.md), and the
