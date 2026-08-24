@@ -123,8 +123,12 @@ author a command. `validate-zscripts@1` runs exactly
 `python scripts/quality_gate.py quality` and requires Python 3.11+, Node
 24.12.0+, and pnpm exactly 10.18.1. It accepts only the fixed regular JSON
 reports `reports/quality-summary.json`, `reports/coverage.json`, and
-`reports/diagnostics.json`, validates the closed quality summary/coverage/
-diagnostics contract, and does not return their bodies to the server.
+`reports/diagnostics.json`. The parser opens only the declared
+`quality-summary.json` result source and validates its closed ordered operation
+inventory, passed statuses, coverage details and threshold, and diagnostics
+success. The separate coverage and diagnostics files remain containment-checked,
+size-bounded, hashed retained evidence; they are not hidden parser inputs and
+their bodies are not returned to the server.
 
 `repository_write_policy=read_only` is a reviewed work-order policy and
 canonical-integrity detection, not an operating-system sandbox. The target runs

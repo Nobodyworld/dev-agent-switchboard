@@ -1,6 +1,6 @@
 # Public Developer Preview Status
 
-_Last reviewed: 2026-08-21_
+_Last reviewed: 2026-08-24_
 
 ## Classification
 
@@ -104,9 +104,54 @@ and was stopped after 60 seconds; Docker is unavailable locally. The single
 reading the shared object store. None of those three unavailable checks is
 claimed as passed.
 
+## PR #145 connector-review correction reconciliation
+
+The preserved canonical worktree fast-forwarded cleanly from
+`0f109a1584b8a8c3954e47fd6a4ccaa7098058ae` to connector commit
+`d62c524b34c196b3f46649ca6316aae863904949`. The connector's workflow repair
+removed the zero-job startup failure caused by the repository restriction on a
+third-party pnpm action. At that connector head, Commitlint run `32544593380`
+and Workload acceptance run `32544593403` succeeded; Main CI run `32544593483`
+started normally and failed on ordinary branch defects. No final hosted success
+is claimed until workflows complete on the next exact pushed head.
+
+The 2026-08-24 local correction reconciled all six review items:
+
+1. exact Black formatting and two narrow digest-literal allowlist annotations;
+2. Mypy-portable guarded Windows `WinDLL` loading;
+3. truthful platform-specific pruning-race denial while preserving fail-closed reuse;
+4. stable worker-ID-ordered catalog readiness capped at 101 queried rows, with a controlled `catalog_readiness_worker_limit_exceeded` response and no change to ordinary routing;
+5. one aggregate stdout/stderr parser byte budget with only one overflow-detection byte;
+6. `quality-summary-v1` parsing only `reports/quality-summary.json`, with exact ordered operations, passed statuses, coverage details/85% threshold, and diagnostics success. Separate coverage and diagnostics files remain bounded retained/hash evidence only.
+
+Exact final-content local evidence before publication:
+
+- focused profile/catalog/parser: `61` passed, `2` Windows platform skips;
+- bounded catalog overflow regression: passed, including one `ORDER BY`/`LIMIT 101` query, stable controlled failure, no response construction, no mutation, and unchanged ordinary checkout;
+- synthetic Accounting acceptance on Python 3.12: `1` passed;
+- synthetic Zscripts acceptance on Python 3.11 with task-isolated pnpm 10.18.1: `1` passed;
+- synthetic Industry Resilience acceptance on Python 3.13: `1` passed;
+- final serial full pytest: `698` passed, `12` documented platform/runtime skips, `0` failed;
+- configured coverage pytest: `698` passed, `12` skipped, `91%` aggregate; all 16 module thresholds passed (`79.23%` through `100.00%`);
+- selected workload-factory coverage: profile validation `240/240` (`100.00%`), catalog readiness `62/67` (`92.54%`), both above `90%`;
+- strict Playwright: `4` passed, `0` skipped;
+- Black, Ruff lint/format, Mypy (`189` source files), all-files pre-commit, TODO policy, offline catalog validation, Bandit, full-history Gitleaks (`283` commits, no leaks), Lychee, Node syntax, YAML/action-pin inspection, and `git diff --check`: passed.
+
+The bounded `pip-audit` attempt produced no output for 30 seconds and was
+stopped; it is environment/network-blocked, not passed. `git fsck --full`
+remains environment-blocked by denied mmap access to the shared object store.
+Docker is unavailable. WSL enumeration is access-denied in this environment.
+Zscripts live dogfood remains `TARGET-STATE-BLOCKED`; Industry live dogfood
+remains `ENVIRONMENT-BLOCKED`. No external checkout or execution occurred.
+
+After the authorized normal push, final publication acceptance requires
+`HEAD == origin/feat/public-workload-onboarding-factory`; the exact matching SHA
+is recorded in the final handoff. PR #145 must remain open, draft, unmerged, and
+await exact-head hosted inspection plus connector review.
+
 PR #145's current body and issue #143's latest coordination comment are the
 authoritative external-target dispositions for this slice. The exact states
-below were independently re-resolved read-only from GitHub on 2026-08-21.
+below were independently re-resolved read-only from GitHub on 2026-08-24.
 
 ## External target state
 
@@ -118,7 +163,7 @@ current reviewed main: c96628e2409dbb4d184030fc29fd431050b3009c
 planned live target: PR #119
 PR #119 state: closed and merged
 PR #119 merged head: 5fbb3a219d04ea3631042ef3a98272e1b5fca579
-final read-only re-resolution: 2026-08-21T22:10:14Z
+final read-only re-resolution: 2026-08-24T10:57:04Z
 live dogfood disposition: TARGET-STATE-BLOCKED
 ```
 
@@ -133,7 +178,7 @@ observed state: open, draft, mergeable
 observed head: e3fea89db624414fe3cad7980768f0265cf9570a
 CI: 32536731040 — success
 Docker Smoke: 32536731320 — success
-final read-only re-resolution: 2026-08-22T00:56:48Z
+final read-only re-resolution: 2026-08-24T10:57:04Z
 live dogfood disposition: ENVIRONMENT-BLOCKED
 ```
 

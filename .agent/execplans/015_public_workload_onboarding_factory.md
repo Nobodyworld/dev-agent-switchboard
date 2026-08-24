@@ -50,6 +50,9 @@ The repository remains a **PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY**. 
 - [x] Record the Zscripts merged-target blocker without substituting another PR.
 - [x] Complete adversarial security review and apply the bounded in-slice remediations.
 - [x] Complete every locally available final validation gate and record exact blockers: `pip-audit` stalled without a response, Docker is unavailable, `git fsck --full` cannot read the shared object store inside the sandbox, and the hostile-public-target isolation boundary remains unsatisfied.
+- [x] Fast-forward the preserved worktree from `0f109a1584b8a8c3954e47fd6a4ccaa7098058ae` to connector commit `d62c524b34c196b3f46649ca6316aae863904949` and preserve every other checkout, worktree, and stash.
+- [x] Reconcile the six connector-review corrections: exact Black/digest/Mypy/pruning fixes, a 101-row overflow-detecting catalog snapshot, one aggregate parser-byte budget, and one declared Zscripts summary input.
+- [x] Complete the 2026-08-24 correction matrix: focused regressions, three required Python-version synthetic acceptances, `698` passed/`12` skipped full pytest, `91%` aggregate coverage plus every configured module threshold, workload-factory coverage at `100.00%`/`92.54%`, and strict Playwright at `4` passed/zero skipped.
 - [ ] Push the final branch normally and record exact local/remote SHA parity; publication is limited to source review on the existing draft PR and does not claim live-public-workload readiness.
 - [ ] Complete ultimate-head hosted validation and connector review.
 
@@ -99,6 +102,12 @@ The repository remains a **PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY**. 
 
 - Observation: `git fsck --full` cannot inspect the shared object store from this sandbox.
   Evidence: The single required attempt failed with `Permission denied` while mmap-opening loose objects under the shared `.git/objects` directory. No permission, object-store, or repository repair was attempted; exact ref/diff/commit operations succeed when narrowly approved outside the sandbox.
+
+- Observation: Connector commit `d62c524b34c196b3f46649ca6316aae863904949` restored normal job creation by keeping the protected primary CI workflow intact and moving workload jobs to a separate full-SHA-pinned workflow without the repository-restricted third-party pnpm action.
+  Evidence: Commitlint run `32544593380` and Workload acceptance run `32544593403` succeeded. Main CI run `32544593483` started normally and failed on the four ordinary defects now corrected locally; final exact-head hosted success is not yet claimed.
+
+- Observation: Two existing reuse fixtures encoded evidence from 2026-08-08 with 14-day retention and therefore expired during the 2026-08-24 correction run.
+  Evidence: The GitHub lifecycle and strict browser suites returned `exact_candidate_not_found`. Test-only execution clocks now use the fixtures' explicit instant; production retention and reuse eligibility are unchanged. The Windows cancellation regression also now measures its unchanged four-second bound from the actual control-plane cancellation signal instead of including unrelated checkout and capability preparation.
 
 ## Decision Log
 
@@ -158,6 +167,14 @@ The repository remains a **PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY**. 
   Rationale: The 2026-08-21 owner handoff explicitly authorizes logical commits and a normal push to the existing branch. Publication makes the implementation reviewable; it does not represent the same-account worker as safely isolated, authorize Industry live execution, or satisfy merge/release readiness.
   Date/Author: 2026-08-21 / Owner handoff and local implementation coordinator.
 
+- Decision: Fail catalog readiness closed when a stable worker-ID-ordered query observes a 101st row.
+  Rationale: The public count is bounded to 100; returning a truncated total or loading every worker would be misleading or unbounded. Ordinary routing/readiness continues to use the complete worker set.
+  Date/Author: 2026-08-24 / Connector review contract and local implementation coordinator.
+
+- Decision: Treat `reports/quality-summary.json` as the sole `quality-summary-v1` parser input and enforce one aggregate stdout/stderr byte budget.
+  Rationale: Coverage and diagnostics remain bounded retained/hash-identified artifacts, but undeclared files cannot influence parsed results. The reviewed summary itself carries the exact operation order, passed statuses, coverage details, and diagnostics success.
+  Date/Author: 2026-08-24 / Connector review contract and local implementation coordinator.
+
 ## Outcomes & Retrospective
 
 The local implementation compiles two reviewed source profiles into the existing
@@ -201,6 +218,24 @@ least-privilege separate identity and a container/VM or equivalent OS-enforced
 ACL/mount boundary. The final `pip-audit` advisory query also remains
 environment-limited, and Docker is unavailable locally. Ultimate-head hosted
 validation and connector review remain required before any merge decision.
+
+The 2026-08-24 connector-correction reconciliation retained the four-repository
+catalog digest and both new manifest digests. Focused parser/readiness/profile
+tests passed `61` cases with two Windows platform skips; the bounded overflow
+regression proved one stable `ORDER BY`/`LIMIT 101` worker query, controlled
+`catalog_readiness_worker_limit_exceeded`, no oversized response construction,
+no mutation, and unchanged ordinary routing. Parser regressions proved stdout,
+stderr, combined overflow, exact-boundary, bounded-read, exact operation
+inventory, malformed coverage, missing diagnostics, and sole-summary-input
+behavior. The final serial Python 3.11 suite passed `698` with `12` documented
+platform/runtime skips and no failures; configured coverage passed at `91%`
+aggregate and every module threshold, while the selected profile/readiness gates
+measured `240/240` (`100.00%`) and `62/67` (`92.54%`). Strict Playwright passed
+four cases with zero skips. All-files pre-commit, Black, Ruff, Mypy, Bandit,
+full-history Gitleaks, Lychee, TODO, catalog, Node syntax, YAML/action pins, and
+diff checks passed. The bounded `pip-audit` attempt again produced no response
+and was stopped after 30 seconds; Docker, WSL access, `git fsck`, and live target
+execution retain their exact environment/target blockers.
 
 ## Context and Orientation
 
