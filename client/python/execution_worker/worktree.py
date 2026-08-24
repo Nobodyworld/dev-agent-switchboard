@@ -18,6 +18,7 @@ from typing import Any
 
 _SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 _MARKER_NAME = "ownership.json"
+_MAX_MARKER_BYTES = 4096
 
 
 class LocalCommitUnavailableError(ValueError):
@@ -50,6 +51,62 @@ def _assert_no_reparse_points(path: Path) -> None:
         reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
         if stat.S_ISLNK(metadata.st_mode) or attributes & reparse:
             raise ValueError(f"unsafe symlink or reparse-point path: {current}")
+
+
+def _is_reparse(metadata: os.stat_result) -> bool:
+    """Return whether a directory entry is a symlink or Windows reparse point."""
+
+    attributes = getattr(metadata, "st_file_attributes", 0)
+    reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return stat.S_ISLNK(metadata.st_mode) or bool(attributes & reparse)
+
+
+def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
+    same = (
+        first.st_dev,
+        first.st_ino,
+        first.st_size,
+        first.st_mtime_ns,
+    ) == (
+        second.st_dev,
+        second.st_ino,
+        second.st_size,
+        second.st_mtime_ns,
+    )
+    # Windows exposes different ctime precision through lstat and a handle.
+    return same and (os.name == "nt" or first.st_ctime_ns == second.st_ctime_ns)
+
+
+def _read_bounded_regular_text(path: Path) -> str:
+    """Read one owned marker without following a replacement link."""
+
+    before = os.lstat(path)
+    if _is_reparse(before) or not stat.S_ISREG(before.st_mode):
+        raise RuntimeError("worker ownership marker is not a regular file")
+    if before.st_size > _MAX_MARKER_BYTES:
+        raise RuntimeError("worker ownership marker exceeds its byte limit")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise RuntimeError("worker ownership marker is unreadable") from error
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode) or not _same_file_identity(before, opened):
+            raise RuntimeError("worker ownership marker changed while being opened")
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            data = handle.read(_MAX_MARKER_BYTES + 1)
+        if len(data) > _MAX_MARKER_BYTES:
+            raise RuntimeError("worker ownership marker exceeds its byte limit")
+        after = os.fstat(descriptor)
+        if not _same_file_identity(before, after):
+            raise RuntimeError("worker ownership marker changed while being read")
+    finally:
+        os.close(descriptor)
+    after_path = os.lstat(path)
+    if _is_reparse(after_path) or not _same_file_identity(before, after_path):
+        raise RuntimeError("worker ownership marker changed while being read")
+    return data.decode("utf-8")
 
 
 def _assert_contained(path: Path, root: Path, *, label: str) -> None:
@@ -134,6 +191,8 @@ class DisposableWorktree:
     execution_run_id: int
     run_identity: str
     _canonical_before: CanonicalSnapshot
+    _checkout_device: int | None
+    _checkout_inode: int | None
 
     @property
     def marker(self) -> Path:
@@ -160,11 +219,9 @@ class DisposableWorktree:
             raise RuntimeError("refusing to clean worker root")
         _assert_contained(self.run_directory, self.root, label="run directory")
         _assert_contained(self.checkout, self.run_directory, label="checkout")
-        if not self.marker.is_file():
-            raise RuntimeError("worker ownership marker is missing")
         try:
-            marker = json.loads(self.marker.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
+            marker = json.loads(_read_bounded_regular_text(self.marker))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
             raise RuntimeError("worker ownership marker is unreadable") from error
         if marker != self._expected_marker():
             raise RuntimeError("worker ownership marker does not match this run")
@@ -172,6 +229,27 @@ class DisposableWorktree:
     def verify_canonical_integrity(self) -> None:
         if _canonical_snapshot(self.canonical) != self._canonical_before:
             raise RuntimeError("canonical checkout integrity changed")
+
+    def verify_checkout_integrity(self) -> None:
+        """Reject replacement of the owned checkout before consuming target files."""
+
+        self._verify_ownership()
+        metadata = os.lstat(self.checkout)
+        if (
+            self._checkout_device is None
+            or self._checkout_inode is None
+            or _is_reparse(metadata)
+            or not stat.S_ISDIR(metadata.st_mode)
+            or (metadata.st_dev, metadata.st_ino)
+            != (self._checkout_device, self._checkout_inode)
+        ):
+            raise RuntimeError("worker checkout integrity changed")
+        if not _registered_worktree(self.canonical, self.checkout):
+            raise RuntimeError("worker checkout registration changed")
+        head = _git(self.checkout, "rev-parse", "HEAD").stdout.strip()
+        if head.lower() != self.sha.lower():
+            raise RuntimeError("worker checkout commit identity changed")
+        self.verify_canonical_integrity()
 
     def cleanup(self) -> None:
         """Remove only this registered disposable source run directory."""
@@ -229,6 +307,8 @@ def create_worktree(
         execution_run_id=execution_run_id,
         run_identity=run_identity,
         _canonical_before=before,
+        _checkout_device=None,
+        _checkout_inode=None,
     )
     worktree.marker.write_text(
         json.dumps(worktree._expected_marker(), sort_keys=True), encoding="utf-8"
@@ -236,9 +316,17 @@ def create_worktree(
     try:
         _git(canonical, "worktree", "add", "--detach", str(checkout), sha)
         _assert_contained(checkout, run, label="checkout")
+        checkout_metadata = os.lstat(checkout)
+        if _is_reparse(checkout_metadata) or not stat.S_ISDIR(
+            checkout_metadata.st_mode
+        ):
+            raise RuntimeError("worker checkout is not a regular directory")
+        worktree._checkout_device = checkout_metadata.st_dev
+        worktree._checkout_inode = checkout_metadata.st_ino
         head = _git(checkout, "rev-parse", "HEAD").stdout.strip()
         if head.lower() != sha.lower():
             raise RuntimeError("detached worktree HEAD mismatch")
+        worktree.verify_checkout_integrity()
     except BaseException:
         # Creation may have registered a worktree before a later verification fails.
         # Remove only that exact Git registration and its owned checkout directory.

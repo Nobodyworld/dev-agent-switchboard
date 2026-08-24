@@ -37,15 +37,17 @@ from server.models import (
 
 _SWITCHBOARD = "Nobodyworld/dev-agent-switchboard"
 _ACCOUNTING = "Nobodyworld/app-accounting-modular"
+_ZSCRIPTS = "Nobodyworld/dev-logger-zscripts"
+_INDUSTRY = "Nobodyworld/app-industry-resilience"
 _SHA256_LENGTH = 64
 _EXPECTED_MANIFEST_STEPS = 11
-_EXPECTED_REPOSITORIES = 2
+_EXPECTED_REPOSITORIES = 4
 _ACCOUNTING_MANIFEST_DIGEST = (
     # pragma: allowlist nextline secret
     "892f1269cdf2a6f4e0df4d86879e5dae980374d598faeadee77c2c32f33aa612"
 )
 # pragma: allowlist nextline secret
-_CATALOG_DIGEST = "3e8fe68e917d1afa5615e158f3ef69ac78193f356502c8e6fb071799edad5436"
+_CATALOG_DIGEST = "8303bcc8c577557adccc7c299fc2816744f1c7a3c5f0f5ac39146d49c9643115"
 
 _ACCOUNTING_COMMANDS = (
     ("python", "-m", "ruff", "check", "."),
@@ -153,7 +155,7 @@ def test_catalog_is_canonical_strict_and_preserves_existing_manifest_identities(
 ):
     repositories = iter_trusted_repositories()
     assert [item.full_name for item in repositories] == sorted(
-        [_ACCOUNTING, _SWITCHBOARD]
+        [_ACCOUNTING, _INDUSTRY, _SWITCHBOARD, _ZSCRIPTS]
     )
     assert len(trusted_catalog_digest()) == _SHA256_LENGTH
     assert trusted_catalog_digest() == _CATALOG_DIGEST
@@ -219,6 +221,7 @@ def test_catalog_definitions_fail_closed_for_duplicates_and_invalid_references()
         {"full_name": "missing-slash"},
         {"manifests": [base["manifests"][0], base["manifests"][0]]},
         {"default_manifest": {"name": "worker-smoke", "version": "1"}},
+        {"default_manifest": None},
     ):
         with pytest.raises(ValueError):
             TrustedRepository.from_mapping({**base, **changes})

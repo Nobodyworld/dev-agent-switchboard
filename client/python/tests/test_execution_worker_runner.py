@@ -332,3 +332,39 @@ def test_cancellation_terminates_parent_and_child_processes(tmp_path: Path) -> N
             text=True,
         )
         assert str(child) not in listed.stdout
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process-group assertion")
+def test_normal_exit_with_a_background_child_is_terminal_and_reaped(
+    tmp_path: Path,
+) -> None:
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    child_pid = tmp_path / "child.pid"
+    parent_pid = tmp_path / "parent.pid"
+    child_script = "import time; time.sleep(30)"
+    parent_script = (
+        "import os, pathlib, subprocess, sys; "
+        f"pathlib.Path({str(parent_pid)!r}).write_text(str(os.getpid())); "
+        f"child=subprocess.Popen([sys.executable, '-c', {child_script!r}]); "
+        f"pathlib.Path({str(child_pid)!r}).write_text(str(child.pid))"
+    )
+
+    result = run_step(
+        _step(sys.executable, "-c", parent_script, timeout=20),
+        checkout,
+        tmp_path / "logs",
+        _config(tmp_path),
+        time.monotonic() + 20,
+    )
+
+    assert result.status == "failed"
+    assert result.terminal_reason == "unexpected_descendant_process"
+    assert child_pid.is_file()
+    parent = int(parent_pid.read_text(encoding="utf-8"))
+    members = runner_module._linux_process_group_members(parent)
+    assert members is not None
+    assert all(
+        state in runner_module._LINUX_TERMINAL_PROCESS_STATES
+        for state in members.values()
+    )

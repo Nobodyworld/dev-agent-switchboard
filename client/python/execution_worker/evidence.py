@@ -25,6 +25,8 @@ _MARKER_NAME = "ownership.json"
 _MARKER_SCHEMA_VERSION = 1
 _HASH_CHUNK_BYTES = 1024 * 1024
 _MAX_RETENTION_DAYS = 3650
+_MAX_DECLARED_INPUT_BYTES = 2 * 1024 * 1024
+_MAX_MARKER_BYTES = 4096
 
 
 def _absolute(path: Path) -> Path:
@@ -78,24 +80,109 @@ def _safe_path(root: Path, relative_path: str) -> Path:
     return path
 
 
-def _sha256(path: Path) -> str:
+def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
+    same = (
+        first.st_dev,
+        first.st_ino,
+        first.st_size,
+        first.st_mtime_ns,
+    ) == (
+        second.st_dev,
+        second.st_ino,
+        second.st_size,
+        second.st_mtime_ns,
+    )
+    # Windows may report a different ctime precision for lstat and a file
+    # handle of the same regular file. Keep ctime in the POSIX identity while
+    # retaining the stable Windows file-index/size/mtime comparison.
+    return same and (os.name == "nt" or first.st_ctime_ns == second.st_ctime_ns)
+
+
+def _read_bounded_regular_text(path: Path) -> str:
+    """Read one ownership marker through a verified bounded descriptor."""
+
+    before = os.lstat(path)
+    if _is_reparse(before) or not stat.S_ISREG(before.st_mode):
+        raise ValueError("evidence ownership marker is not a regular file")
+    if before.st_size > _MAX_MARKER_BYTES:
+        raise ValueError("evidence ownership marker exceeds its byte limit")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise ValueError("evidence ownership marker is unreadable") from error
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode) or not _same_file_identity(before, opened):
+            raise ValueError("evidence ownership marker changed while being opened")
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            data = handle.read(_MAX_MARKER_BYTES + 1)
+        if len(data) > _MAX_MARKER_BYTES:
+            raise ValueError("evidence ownership marker exceeds its byte limit")
+        after = os.fstat(descriptor)
+        if not _same_file_identity(before, after):
+            raise ValueError("evidence ownership marker changed while being read")
+    finally:
+        os.close(descriptor)
+    after_path = os.lstat(path)
+    if _is_reparse(after_path) or not _same_file_identity(before, after_path):
+        raise ValueError("evidence ownership marker changed while being read")
+    return data.decode("utf-8")
+
+
+def _open_regular_contained(path: Path, root: Path) -> tuple[int, os.stat_result]:
+    """Open one checked regular file without following its final link on POSIX."""
+
+    before = _assert_regular_contained(path, root)
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise ValueError("evidence artifact could not be opened safely") from error
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode) or not _same_file_identity(before, opened):
+            raise ValueError("evidence artifact changed while being opened")
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor, before
+
+
+def _sha256_descriptor(descriptor: int, *, maximum_bytes: int | None = None) -> str:
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
+    total = 0
+    with os.fdopen(descriptor, "rb", closefd=False) as handle:
         while chunk := handle.read(_HASH_CHUNK_BYTES):
+            total += len(chunk)
+            if maximum_bytes is not None and total > maximum_bytes:
+                raise ValueError("declared file exceeds its byte limit")
             digest.update(chunk)
     return digest.hexdigest()
 
 
-def hash_declared_file(root: Path, relative_path: str) -> tuple[int, str]:
+def hash_declared_file(
+    root: Path,
+    relative_path: str,
+    *,
+    maximum_bytes: int = _MAX_DECLARED_INPUT_BYTES,
+) -> tuple[int, str]:
     """Hash one trusted relative regular file beneath a canonical root."""
 
     root = _absolute(root)
     _assert_no_reparse_ancestry(root)
     path = _safe_path(root, relative_path)
-    before = _assert_regular_contained(path, root)
-    digest = _sha256(path)
+    descriptor, before = _open_regular_contained(path, root)
+    if before.st_size > maximum_bytes:
+        os.close(descriptor)
+        raise ValueError("declared file exceeds its byte limit")
+    try:
+        digest = _sha256_descriptor(descriptor, maximum_bytes=maximum_bytes)
+    finally:
+        os.close(descriptor)
     after = _assert_regular_contained(path, root)
-    if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+    if not _same_file_identity(before, after):
         raise RuntimeError("declared file changed while being hashed")
     return after.st_size, digest
 
@@ -166,12 +253,11 @@ class EvidenceStore:
         ):
             raise RuntimeError("refusing ambiguous evidence directory")
         _assert_no_reparse_ancestry(self.run_directory)
-        metadata = os.lstat(self.marker)
-        if _is_reparse(metadata) or not stat.S_ISREG(metadata.st_mode):
-            raise RuntimeError("evidence ownership marker is not a regular file")
         try:
-            marker = json.loads(self.marker.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
+            marker = json.loads(_read_bounded_regular_text(self.marker))
+        except FileNotFoundError:
+            raise
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
             raise RuntimeError("evidence ownership marker is unreadable") from error
         if marker != self.expected_marker():
             raise RuntimeError("evidence ownership marker does not match this run")
@@ -191,19 +277,21 @@ class EvidenceStore:
         total = 0
         for step_id, declaration in declarations:
             path = _safe_path(self.run_directory, declaration.relative_path)
-            before = _assert_regular_contained(path, self.run_directory)
+            descriptor, before = _open_regular_contained(path, self.run_directory)
             size = before.st_size
             if size > self.limits.maximum_artifact_bytes:
                 raise ValueError("maximum bytes per artifact exceeded")
             total += size
             if total > self.limits.maximum_total_bytes:
                 raise ValueError("maximum total evidence bytes exceeded")
-            digest = _sha256(path)
+            try:
+                digest = _sha256_descriptor(
+                    descriptor, maximum_bytes=self.limits.maximum_artifact_bytes
+                )
+            finally:
+                os.close(descriptor)
             after = _assert_regular_contained(path, self.run_directory)
-            if (before.st_size, before.st_mtime_ns) != (
-                after.st_size,
-                after.st_mtime_ns,
-            ):
+            if not _same_file_identity(before, after):
                 raise RuntimeError("artifact changed while being hashed")
             records.append(
                 ArtifactRecord(
@@ -236,12 +324,31 @@ class EvidenceStore:
         source = _safe_path(source_root, declaration.relative_path)
         if not source.exists():
             raise ValueError("declared checkout artifact does not exist")
-        before = _assert_regular_contained(source, source_root)
+        descriptor, before = _open_regular_contained(source, source_root)
         if before.st_size > self.limits.maximum_artifact_bytes:
+            os.close(descriptor)
             raise ValueError("maximum bytes per artifact exceeded")
         destination.parent.mkdir(parents=True, exist_ok=True)
         _assert_no_reparse_ancestry(destination.parent)
-        shutil.copyfile(source, destination)
+        try:
+            output = destination.open("xb")
+        except FileExistsError:
+            os.close(descriptor)
+            _assert_regular_contained(destination, self.run_directory)
+            return
+        try:
+            with output, os.fdopen(descriptor, "rb", closefd=False) as source_handle:
+                copied = 0
+                while chunk := source_handle.read(_HASH_CHUNK_BYTES):
+                    copied += len(chunk)
+                    if copied > self.limits.maximum_artifact_bytes:
+                        raise ValueError("maximum bytes per artifact exceeded")
+                    output.write(chunk)
+        finally:
+            os.close(descriptor)
+        after = _assert_regular_contained(source, source_root)
+        if not _same_file_identity(before, after):
+            raise RuntimeError("declared checkout artifact changed while copied")
         _assert_regular_contained(destination, self.run_directory)
 
     def write_result(self, payload: dict[str, object]) -> None:
@@ -251,7 +358,30 @@ class EvidenceStore:
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         if len(encoded.encode("utf-8")) > self.limits.maximum_artifact_bytes:
             raise ValueError("local result record exceeds per-artifact limit")
-        self.result.write_text(encoded, encoding="utf-8")
+        _assert_no_reparse_ancestry(self.run_directory)
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        try:
+            descriptor = os.open(self.result, flags, 0o600)
+        except OSError as error:
+            raise RuntimeError(
+                "local result record could not be created safely"
+            ) from error
+        try:
+            opened = os.fstat(descriptor)
+            if not stat.S_ISREG(opened.st_mode):
+                raise RuntimeError("local result record is not a regular file")
+            with os.fdopen(descriptor, "w", encoding="utf-8", closefd=False) as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
         _assert_regular_contained(self.result, self.run_directory)
 
 
@@ -312,16 +442,19 @@ def create_evidence_store(  # noqa: PLR0913 - policy inputs remain explicit
 
 
 def _read_stable_json(path: Path, root: Path, *, maximum_bytes: int) -> object:
-    before = _assert_regular_contained(path, root)
+    descriptor, before = _open_regular_contained(path, root)
     if before.st_size > maximum_bytes:
+        os.close(descriptor)
         raise ValueError("local JSON record exceeds configured bound")
-    data = path.read_bytes()
+    try:
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            data = handle.read(maximum_bytes + 1)
+    finally:
+        os.close(descriptor)
+    if len(data) > maximum_bytes:
+        raise ValueError("local JSON record exceeds configured bound")
     after = _assert_regular_contained(path, root)
-    if (
-        before.st_size,
-        before.st_mtime_ns,
-        before.st_ctime_ns,
-    ) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+    if not _same_file_identity(before, after):
         raise RuntimeError("local JSON record changed while being read")
     return json.loads(data.decode("utf-8"))
 
@@ -416,21 +549,25 @@ def verify_reuse_candidate(  # noqa: PLR0911, PLR0912 - fail-closed reasons are 
             if record.retention_expires_at != candidate.retention_expires_at:
                 return ReuseVerificationResult(False, "source_retention_mismatch")
             path = _safe_path(store.run_directory, record.relative_path)
-            before = _assert_regular_contained(path, store.run_directory)
+            descriptor, before = _open_regular_contained(path, store.run_directory)
             if before.st_size != record.size_bytes:
+                os.close(descriptor)
                 return ReuseVerificationResult(False, "source_artifact_size_mismatch")
             if before.st_size > limits.maximum_artifact_bytes:
+                os.close(descriptor)
                 return ReuseVerificationResult(False, "source_artifact_oversized")
             total += before.st_size
             if total > limits.maximum_total_bytes:
+                os.close(descriptor)
                 return ReuseVerificationResult(False, "source_artifacts_oversized")
-            digest = _sha256(path)
+            try:
+                digest = _sha256_descriptor(
+                    descriptor, maximum_bytes=limits.maximum_artifact_bytes
+                )
+            finally:
+                os.close(descriptor)
             after = _assert_regular_contained(path, store.run_directory)
-            if (
-                before.st_size,
-                before.st_mtime_ns,
-                before.st_ctime_ns,
-            ) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+            if not _same_file_identity(before, after):
                 return ReuseVerificationResult(False, "source_artifact_unstable")
             if digest != record.sha256:
                 return ReuseVerificationResult(False, "source_artifact_hash_mismatch")
@@ -473,12 +610,7 @@ def prune_expired_evidence(
             ):
                 raise RuntimeError("candidate is not a contained direct descendant")
             marker_path = candidate / _MARKER_NAME
-            marker_metadata = os.lstat(marker_path)
-            if _is_reparse(marker_metadata) or not stat.S_ISREG(
-                marker_metadata.st_mode
-            ):
-                raise RuntimeError("candidate marker is not a regular file")
-            marker = json.loads(marker_path.read_text(encoding="utf-8"))
+            marker = json.loads(_read_bounded_regular_text(marker_path))
             if not isinstance(marker, dict) or set(marker) != {
                 "created_at",
                 "retention_expires_at",

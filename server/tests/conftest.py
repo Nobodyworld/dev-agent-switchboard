@@ -1,7 +1,8 @@
 import asyncio
+import datetime as dt
 import shutil
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ try:
     from server.api import AppConfig, create_app
     from server.application import (
         configuration_service as _configuration_service_module,
+        factory as application_factory,
     )
     from server.db import Base, engine
     from server.middleware import reset_all_rate_limit_middleware
@@ -84,6 +86,25 @@ def clean_state(files_root: Path):
     reset_all_rate_limit_middleware()
     asyncio.run(_reset_database())
     _reset_files(recreate=False)
+
+
+@pytest.fixture(autouse=True)
+def freeze_execution_reuse_clock(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[None]:
+    """Keep fixed reuse evidence inside its synthetic retention window."""
+
+    if request.module.__name__.rsplit(".", maxsplit=1)[-1] != "test_execution_reuse":
+        yield
+        return
+
+    # The module's synthetic evidence is fixed at this instant. Freeze the
+    # injected service clock so its 14-day retention contract never date-rots.
+    fixed_now = dt.datetime(2026, 7, 30, 12, tzinfo=dt.UTC).replace(tzinfo=None)
+    monkeypatch.setattr(application_factory, "utcnow_naive", lambda: fixed_now)
+    monkeypatch.setattr(request.module, "utcnow_naive", lambda: fixed_now)
+    yield
 
 
 @pytest.fixture

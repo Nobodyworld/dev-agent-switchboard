@@ -26,6 +26,7 @@ TRUSTED_EXECUTABLES = {
     "pytest",
     "ruff",
 }
+_PUBLIC_WORKLOAD_REPOSITORY_COUNT = 4
 
 
 def _resolve_executable(bin_name: str, venv_path: Path) -> Path:
@@ -379,6 +380,80 @@ def cmd_list_extensions(_args: argparse.Namespace) -> None:
         print("Observability registrations: none")
 
 
+def cmd_validate_workload_catalog(_args: argparse.Namespace) -> None:
+    """Validate only reviewed source definitions without touching runtime state."""
+
+    try:
+        repository_root = str(Path(__file__).resolve().parent.parent)
+        if repository_root not in sys.path:
+            sys.path.insert(0, repository_root)
+        from server.execution.catalog import (
+            iter_trusted_repositories,
+            trusted_catalog_digest,
+            validate_catalog,
+        )
+        from server.execution.registry import (
+            get_trusted_manifest,
+            iter_trusted_manifests,
+        )
+        from server.execution.workload_profiles import (
+            PUBLIC_WORKLOAD_REPOSITORIES,
+            validate_workload_profiles,
+        )
+
+        profiles = validate_workload_profiles()
+        manifests = iter_trusted_manifests()
+        validate_catalog((manifest.name, manifest.version) for manifest in manifests)
+        repositories = iter_trusted_repositories()
+        repository_names = frozenset(
+            repository.full_name for repository in repositories
+        )
+        if (
+            repository_names != PUBLIC_WORKLOAD_REPOSITORIES
+            or len(repositories) != _PUBLIC_WORKLOAD_REPOSITORY_COUNT
+        ):
+            raise ValueError("reviewed public repository set is invalid")
+
+        entries: list[dict[str, str]] = []
+        for repository in repositories:
+            if repository.default_manifest is None:
+                raise ValueError("reviewed repository default is missing")
+            reference = repository.default_manifest
+            manifest = get_trusted_manifest(reference.name, reference.version)
+            if manifest is None:
+                raise ValueError("reviewed repository references an unknown manifest")
+            entries.append(
+                {
+                    "manifest": f"{manifest.name}@{manifest.version}",
+                    "manifest_digest": manifest.digest,
+                    "repository": repository.full_name,
+                }
+            )
+        if {profile.manifest_identity for profile in profiles} - {
+            (manifest.name, manifest.version) for manifest in manifests
+        }:
+            raise ValueError("reviewed profile manifest is missing")
+    except (TypeError, ValueError):
+        # Do not echo a malformed source value: the command is designed for
+        # offline automation and must not turn a future bad definition into an
+        # environment, argv, or path disclosure.
+        print("workload catalog validation failed")
+        raise SystemExit(1) from None
+
+    print(
+        json.dumps(
+            {
+                "catalog_digest": trusted_catalog_digest(),
+                "repositories": entries,
+                "repository_count": len(entries),
+                "status": "valid",
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+
+
 _VERSION_RE = re.compile(r'version="(?P<version>\d+\.\d+\.\d+)"')
 
 
@@ -534,6 +609,12 @@ def build_parser() -> argparse.ArgumentParser:
         "extensions", help="List registered extensions and observability hooks"
     )
     extensions.set_defaults(func=cmd_list_extensions)
+
+    workload_catalog = subparsers.add_parser(
+        "validate-workload-catalog",
+        help="Validate the source-controlled workload catalog offline",
+    )
+    workload_catalog.set_defaults(func=cmd_validate_workload_catalog)
 
     bump = subparsers.add_parser(
         "bump-version", help="Bump server version and changelog stubs"

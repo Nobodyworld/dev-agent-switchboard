@@ -158,3 +158,29 @@ def test_cleanup_surfaces_canonical_checkout_mutation(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="canonical checkout integrity"):
         worktree.cleanup()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX checkout replacement coverage")
+def test_checkout_integrity_rejects_post_creation_symlink_replacement(
+    tmp_path: Path,
+) -> None:
+    canonical, sha = _repository(tmp_path)
+    worktree = create_worktree(
+        canonical,
+        tmp_path / "worker-root",
+        sha,
+        worker_id="worker-1",
+        execution_run_id=11,
+    )
+    original = worktree.run_directory / "checkout-original"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    worktree.checkout.rename(original)
+    worktree.checkout.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises((RuntimeError, ValueError), match=r"(integrity|symlink)"):
+        worktree.verify_checkout_integrity()
+
+    worktree.checkout.unlink()
+    original.rename(worktree.checkout)
+    worktree.cleanup()

@@ -7,6 +7,9 @@ import {
 
 const POLL_INTERVAL_MS = 4000;
 const HISTORY_LIMIT = 25;
+const CATALOG_READINESS_ENTRY_COUNT = 4;
+const CATALOG_TEXT_LIMIT = 180;
+const CATALOG_LIST_LIMIT = 4;
 const ACTIVE_WORK_ORDER_STATUSES = new Set([
   'pending_approval',
   'approved',
@@ -26,6 +29,8 @@ const TERMINAL_WORK_ORDER_STATUSES = new Set([
 const brokerState = {
   overview: null,
   catalog: null,
+  catalogReadiness: null,
+  catalogReadinessAvailable: null,
   repositoryReadiness: null,
   manifests: [],
   workers: [],
@@ -151,6 +156,176 @@ function renderMetrics() {
         </dl>
       `
     )
+    .join('');
+}
+
+function catalogText(value, fallback = 'Not reported') {
+  if (typeof value !== 'string' && typeof value !== 'number') return fallback;
+  const text = String(value).trim();
+  return text ? text.slice(0, CATALOG_TEXT_LIMIT) : fallback;
+}
+
+function catalogObjectText(value, fallback = 'Not reported') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return catalogText(value, fallback);
+  }
+  for (const key of ['label', 'code', 'status', 'reason']) {
+    const text = catalogText(value[key], '');
+    if (text) return text;
+  }
+  return fallback;
+}
+
+function firstCatalogRequirement(value, keys) {
+  for (const key of keys) {
+    const text = catalogText(value?.[key], '');
+    if (text) return text;
+  }
+  return '';
+}
+
+function formatCatalogRuntimeRequirements(requirements) {
+  if (Array.isArray(requirements)) {
+    const values = requirements
+      .slice(0, CATALOG_LIST_LIMIT)
+      .map((requirement) => {
+        if (typeof requirement === 'string' || typeof requirement === 'number') {
+          return catalogText(requirement, '');
+        }
+        if (!requirement || typeof requirement !== 'object') return '';
+        const runtime = catalogText(requirement.runtime ?? requirement.name, '');
+        const version = catalogText(requirement.version ?? requirement.requirement, '');
+        return [runtime, version].filter(Boolean).join(' ');
+      })
+      .filter(Boolean);
+    return values.length ? values.join(' · ') : 'No runtime requirements reported';
+  }
+  if (!requirements || typeof requirements !== 'object') {
+    return 'No runtime requirements reported';
+  }
+  const values = [
+    ['Python', ['python', 'python_version', 'required_python']],
+    ['Node', ['node', 'node_version', 'required_node']],
+    ['pnpm', ['pnpm', 'pnpm_version', 'required_pnpm']],
+  ]
+    .map(([label, keys]) => {
+      const version = firstCatalogRequirement(requirements, keys);
+      return version ? `${label} ${version}` : '';
+    })
+    .filter(Boolean);
+  return values.length ? values.join(' · ') : 'No runtime requirements reported';
+}
+
+function formatCatalogReadyCount(value) {
+  if (value === null || value === undefined || value === '') {
+    return 'Ready count not reported';
+  }
+  const count = Number(value);
+  if (!Number.isSafeInteger(count) || count < 0) return 'Ready count not reported';
+  return `${formatInteger(count)} ready worker${count === 1 ? '' : 's'}`;
+}
+
+function formatCatalogResult(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { label: catalogText(value, 'No completed result'), details: '' };
+  }
+  const label = catalogText(
+    value.reuse_decision ?? value.result ?? value.kind ?? value.status ?? value.outcome,
+    'No completed result'
+  );
+  const details = [];
+  if (Number.isFinite(Number(value.duration_seconds))) {
+    details.push(formatSeconds(value.duration_seconds));
+  }
+  if (Number.isSafeInteger(Number(value.step_count)) && Number(value.step_count) >= 0) {
+    details.push(`${formatInteger(value.step_count)} step${Number(value.step_count) === 1 ? '' : 's'}`);
+  }
+  if (
+    Number.isSafeInteger(Number(value.avoided_work_count)) &&
+    Number(value.avoided_work_count) >= 0
+  ) {
+    details.push(`${formatInteger(value.avoided_work_count)} avoided`);
+  }
+  return { label, details: details.join(' · ') };
+}
+
+function formatCatalogSourceAvailability(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return catalogText(value, 'Source availability not reported');
+  }
+  const rawStatus = catalogText(value.status, '');
+  const status = rawStatus ? formatLabel(rawStatus) : '';
+  const caveat = catalogText(value.caveat ?? value.reason, '');
+  return [status, caveat].filter(Boolean).join(' · ') || 'Source availability not reported';
+}
+
+function catalogExclusions(value) {
+  const values = (Array.isArray(value) ? value : [value])
+    .slice(0, CATALOG_LIST_LIMIT)
+    .map((item) => catalogText(item, ''))
+    .filter(Boolean);
+  return values.length ? values : ['No additional exclusions'];
+}
+
+function renderCatalogReadiness() {
+  const container = document.getElementById('brokerCatalogReadiness');
+  if (!container) return;
+  container.removeAttribute('aria-busy');
+  if (brokerState.catalogReadinessAvailable === null) {
+    container.innerHTML = '<p class="broker-empty">Loading public catalog readiness…</p>';
+    return;
+  }
+  if (!brokerState.catalogReadinessAvailable) {
+    container.innerHTML = '<p class="broker-empty">Catalog readiness is not available in this Switchboard version.</p>';
+    return;
+  }
+  const entries = Array.isArray(brokerState.catalogReadiness?.entries)
+    ? brokerState.catalogReadiness.entries.slice(0, CATALOG_READINESS_ENTRY_COUNT)
+    : [];
+  if (!entries.length) {
+    container.innerHTML = '<p class="broker-empty">No public catalog readiness entries are available.</p>';
+    return;
+  }
+  container.innerHTML = entries
+    .map((entry, index) => {
+      const item = entry && typeof entry === 'object' ? entry : {};
+      const repository = catalogText(item.repository, 'Catalog repository unavailable');
+      const displayName = catalogText(item.display_name, repository);
+      const manifest = item.default_manifest && typeof item.default_manifest === 'object'
+        ? item.default_manifest
+        : {};
+      const manifestName = catalogText(manifest.name, 'Manifest unavailable');
+      const manifestVersion = catalogText(manifest.version, '—');
+      const digestPrefix = catalogText(manifest.digest_prefix, 'Not reported');
+      const blocker = catalogObjectText(item.primary_blocker, 'No current blocker');
+      const blockerTone = ['ready', 'No current blocker'].includes(blocker)
+        ? 'success'
+        : 'warning';
+      const result = formatCatalogResult(item.latest_result);
+      const exclusions = catalogExclusions(item.exclusions);
+      return `
+        <section class="broker-catalog-card" data-catalog-repository="${escapeHtml(repository)}" aria-labelledby="catalog-entry-heading-${index}">
+          <header>
+            <div>
+              <h4 id="catalog-entry-heading-${index}">${escapeHtml(displayName)}</h4>
+              <p class="broker-code">${escapeHtml(repository)}</p>
+            </div>
+            ${badge(formatCatalogReadyCount(item.ready_count), Number(item.ready_count) > 0 ? 'success' : 'warning')}
+          </header>
+          <dl class="broker-catalog-details">
+            <div><dt>Default manifest</dt><dd>${escapeHtml(manifestName)} v${escapeHtml(manifestVersion)} <span class="broker-code">${escapeHtml(digestPrefix)}</span></dd></div>
+            <div><dt>Runtime requirements</dt><dd>${escapeHtml(formatCatalogRuntimeRequirements(item.runtime_requirements))}</dd></div>
+            <div><dt>Primary blocker</dt><dd>${badge(blocker, blockerTone)}</dd></div>
+            <div><dt>Latest result</dt><dd>${badge(result.label, stateTone(result.label))}${result.details ? ` <span class="broker-catalog-result-details">${escapeHtml(result.details)}</span>` : ''}</dd></div>
+            <div><dt>Source availability</dt><dd>${escapeHtml(formatCatalogSourceAvailability(item.source_availability))}</dd></div>
+          </dl>
+          <div class="broker-catalog-exclusions">
+            <p>Exclusions</p>
+            <ul>${exclusions.map((exclusion) => `<li>${escapeHtml(exclusion)}</li>`).join('')}</ul>
+          </div>
+        </section>
+      `;
+    })
     .join('');
 }
 
@@ -509,6 +684,29 @@ async function refreshCatalog() {
   await refreshRepositoryReadiness();
 }
 
+async function refreshCatalogReadiness() {
+  const container = document.getElementById('brokerCatalogReadiness');
+  if (container) container.setAttribute('aria-busy', 'true');
+  try {
+    const response = await fetch('/api/execution/catalog-readiness', {
+      headers: authorizedHeaders({ json: false }),
+    });
+    if (!response.ok) {
+      brokerState.catalogReadiness = null;
+      brokerState.catalogReadinessAvailable = false;
+      return;
+    }
+    const payload = await response.json();
+    brokerState.catalogReadiness = Array.isArray(payload?.entries) ? payload : null;
+    brokerState.catalogReadinessAvailable = Boolean(brokerState.catalogReadiness);
+  } catch (_error) {
+    brokerState.catalogReadiness = null;
+    brokerState.catalogReadinessAvailable = false;
+  } finally {
+    renderCatalogReadiness();
+  }
+}
+
 async function refreshRepositoryReadiness() {
   const repository = document.getElementById('validationRepository')?.value;
   const manifest = document.getElementById('validationManifest')?.value || '';
@@ -653,6 +851,7 @@ async function refreshBrokerWorkspace({ announce = false } = {}) {
   const results = await Promise.allSettled([
     refreshOverview(),
     refreshCatalog(),
+    refreshCatalogReadiness(),
     refreshManifests(),
     refreshWorkers(),
     refreshHistory(),
@@ -923,6 +1122,7 @@ function initializeBroker() {
   if (!document.getElementById('validation-broker')) return;
   initBrokerEvents();
   renderMetrics();
+  renderCatalogReadiness();
   renderWorkers();
   renderHistory();
   renderRequestDetail();

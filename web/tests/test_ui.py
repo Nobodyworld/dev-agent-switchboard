@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import socket
 import subprocess
@@ -410,6 +411,125 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
     page = browser.new_page(viewport={"width": 1440, "height": 1000})
     console_errors: list[str] = []
     readiness_requests: list[str] = []
+    catalog_readiness_requests: list[str] = []
+    catalog_readiness_fixture = {
+        "entries": [
+            {
+                "repository": "Nobodyworld/dev-agent-switchboard",
+                "display_name": "Switchboard",
+                "default_manifest": {
+                    "name": "validate-switchboard",
+                    "version": "1",
+                    "digest_prefix": "sha256:switc001",
+                },
+                "runtime_requirements": {"python": ">=3.11"},
+                "ready_count": 2,
+                "primary_blocker": "ready",
+                "latest_result": {
+                    "reuse_decision": "fresh",
+                    "duration_seconds": 7,
+                    "step_count": 3,
+                    "avoided_work_count": 0,
+                },
+                "source_availability": "Exact source is available at request time",
+                "exclusions": ["Manual publication approval"],
+                "argv": ["sentinel-catalog-argv"],
+            },
+            {
+                "repository": "Nobodyworld/app-accounting-modular",
+                "display_name": "Accounting Modular",
+                "default_manifest": {
+                    "name": "validate-accounting-modular",
+                    "version": "1",
+                    "digest_prefix": "sha256:acct0001",
+                },
+                "runtime_requirements": {"python": "=3.12"},
+                "ready_count": 0,
+                "primary_blocker": "python_version_mismatch",
+                "latest_result": {
+                    "reuse_decision": "reused",
+                    "duration_seconds": 0,
+                    "step_count": 0,
+                    "avoided_work_count": 8,
+                },
+                "source_availability": "Source checkout has not been claimed",
+                "exclusions": ["repository unavailable", "Target Docker acceptance"],
+                "environment": {"CATALOG_TOKEN": "catalog-token-sentinel"},
+            },
+            {
+                "repository": "Nobodyworld/dev-logger-zscripts",
+                "display_name": "Zscripts",
+                "default_manifest": {
+                    "name": "validate-zscripts",
+                    "version": "1",
+                    "digest_prefix": "sha256:zscr0001",
+                },
+                "runtime_requirements": {
+                    "python": ">=3.11",
+                    "node": ">=24.12.0",
+                    "pnpm": "=10.18.1",
+                },
+                "ready_count": 0,
+                "primary_blocker": "node_pnpm_version_mismatch",
+                "latest_result": "No completed result",
+                "source_availability": {
+                    "status": "exact_source_required",
+                    "caveat": (
+                        "Exact source availability is verified only when a worker "
+                        "claims the requested commit."
+                    ),
+                },
+                "exclusions": [
+                    "capacity constraint",
+                    "missing or invalid routing profile",
+                    "cost ceiling",
+                    "insufficient quota",
+                ],
+                "capabilities": {"private": "catalog-capability-sentinel"},
+            },
+            {
+                "repository": "Nobodyworld/app-industry-resilience",
+                "display_name": "Industry Resilience",
+                "default_manifest": {
+                    "name": "validate-industry-resilience",
+                    "version": "1",
+                    "digest_prefix": "sha256:indu0001",
+                },
+                "runtime_requirements": {"python": ">=3.13"},
+                "ready_count": 0,
+                "primary_blocker": "stale_worker",
+                "latest_result": {"reuse_decision": "fresh", "step_count": 5},
+                "source_availability": "Source availability is not a checkout promise",
+                "exclusions": ["disabled routing profile", "hard pin mismatch"],
+                "local_path": "C:\\catalog-private-sentinel",
+            },
+            {
+                "repository": "Nobodyworld/private-catalog-sentinel",
+                "display_name": "Private catalog sentinel",
+                "default_manifest": {
+                    "name": "private-manifest",
+                    "version": "1",
+                    "digest_prefix": "sha256:private",
+                },
+                "runtime_requirements": {"python": "99"},
+                "ready_count": 99,
+                "primary_blocker": "private",
+                "latest_result": "private",
+                "source_availability": "private",
+                "exclusions": ["private"],
+            },
+        ]
+    }
+
+    def fulfill_catalog_readiness(route) -> None:
+        catalog_readiness_requests.append(route.request.url)
+        route.fulfill(
+            status=HTTP_OK,
+            content_type="application/json",
+            body=json.dumps(catalog_readiness_fixture),
+        )
+
+    page.route("**/api/execution/catalog-readiness", fulfill_catalog_readiness)
     page.on(
         "console",
         lambda message: (
@@ -437,6 +557,35 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
             "() => document.querySelector('#brokerStatus')?.textContent"
             ".includes('refreshed')"
         )
+        catalog_cards = page.locator("#brokerCatalogReadiness .broker-catalog-card")
+        expect(catalog_cards).to_have_count(4)
+        expect(page.locator("#catalog-readiness-heading")).to_have_text(
+            "Catalog readiness"
+        )
+        expect(catalog_cards.nth(0)).to_contain_text("Switchboard")
+        expect(catalog_cards.nth(0)).to_contain_text("2 ready workers")
+        expect(catalog_cards.nth(0)).to_contain_text("ready")
+        expect(catalog_cards.nth(0)).to_contain_text("fresh")
+        expect(catalog_cards.nth(1)).to_contain_text("python version mismatch")
+        expect(catalog_cards.nth(1)).to_contain_text("reused")
+        expect(catalog_cards.nth(2)).to_contain_text("Node >=24.12.0")
+        expect(catalog_cards.nth(2)).to_contain_text("pnpm =10.18.1")
+        expect(catalog_cards.nth(2)).to_contain_text("node pnpm version mismatch")
+        expect(catalog_cards.nth(2)).to_contain_text("exact source required")
+        expect(catalog_cards.nth(3)).to_contain_text("stale worker")
+        expect(catalog_cards.nth(3)).to_contain_text("hard pin mismatch")
+        assert catalog_readiness_requests
+        catalog_text = page.locator("#brokerCatalogReadiness").inner_text()
+        catalog_html = page.locator("#brokerCatalogReadiness").inner_html()
+        for sentinel in (
+            "sentinel-catalog-argv",
+            "catalog-token-sentinel",
+            "catalog-capability-sentinel",
+            "catalog-private-sentinel",
+            "private-catalog-sentinel",
+        ):
+            assert sentinel not in catalog_text
+            assert sentinel not in catalog_html
         page.evaluate(
             "() => localStorage.setItem('switchboardAdminToken', 'ui-admin-sentinel')"
         )
@@ -614,7 +763,9 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
             "options => options.map(option => option.value)"
         ) == [
             "Nobodyworld/app-accounting-modular",
+            "Nobodyworld/app-industry-resilience",
             "Nobodyworld/dev-agent-switchboard",
+            "Nobodyworld/dev-logger-zscripts",
         ]
         page.select_option(
             "#validationRepository", "Nobodyworld/app-accounting-modular"
@@ -886,6 +1037,41 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
             ".forEach((toast) => toast.click())"
         )
         expect(page.locator(".toast.is-visible")).to_have_count(0)
+        assert console_errors == []
+    finally:
+        page.close()
+
+
+def test_catalog_readiness_is_nonfatal_when_the_optional_endpoint_is_unavailable(
+    app_server: str,
+    browser: object,
+) -> None:
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    console_errors: list[str] = []
+    page.on(
+        "console",
+        lambda message: (
+            console_errors.append(message.text)
+            if message.type == "error"
+            and "/api/execution/catalog-readiness"
+            not in message.location.get("url", "")
+            else None
+        ),
+    )
+    page.route(
+        "**/api/execution/catalog-readiness",
+        lambda route: route.fulfill(
+            status=404,
+            content_type="application/json",
+            body='{"detail":"not found"}',
+        ),
+    )
+    try:
+        page.goto(f"{app_server}/", wait_until="domcontentloaded")
+        expect(page.locator("#brokerCatalogReadiness")).to_contain_text(
+            "Catalog readiness is not available"
+        )
+        expect(page.locator("#validationRequestForm")).to_be_visible()
         assert console_errors == []
     finally:
         page.close()

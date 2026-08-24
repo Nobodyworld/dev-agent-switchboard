@@ -715,9 +715,9 @@ async def test_default_policy_finds_exact_legacy_key_without_mutating_it() -> No
 
 
 @pytest.mark.asyncio
-async def test_direct_completion_projects_fresh_then_reused_github_lifecycle() -> (  # noqa: PLR0915
-    None
-):
+async def test_direct_completion_projects_fresh_then_reused_github_lifecycle(  # noqa: PLR0915
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Exercise projection formulas without representing the local-worker trust path."""
 
     transport = FakeGitHubTransport()
@@ -726,6 +726,11 @@ async def test_direct_completion_projects_fresh_then_reused_github_lifecycle() -
     async with AsyncSessionLocal() as session:
         adapter = _service(session, transport)
         execution = adapter._execution
+        monkeypatch.setattr(
+            execution,
+            "_clock",
+            lambda: dt.datetime(2026, 8, 8, 12, tzinfo=dt.UTC).replace(tzinfo=None),
+        )
         await execution.register_worker(_worker(cheap_worker))
         await execution.register_worker(_worker(expensive_worker))
         await execution.create_routing_profile(

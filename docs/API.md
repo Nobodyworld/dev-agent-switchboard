@@ -20,6 +20,7 @@ Use this page as the concise endpoint index; use [ai-interface.md](ai-interface.
 | `/api/execution/manifests` | `GET` | List trusted, server-controlled manifest identities and non-executable metadata. |
 | `/api/execution/manifests/{name}/{version}` | `GET` | Read one immutable trusted manifest snapshot. |
 | `/api/execution/trusted-repositories` | `GET` | List the canonical trusted repository-to-manifest catalog with its deterministic digest and safe display metadata. |
+| `/api/execution/catalog-readiness` | `GET` | Read one bounded, read-only readiness summary for the four reviewed public catalog entries. |
 | `/api/execution/trusted-repositories/{owner}/{repository}` | `GET` | Read one bounded catalog repository and its allowed/default manifests. |
 | `/api/execution/trusted-repositories/{owner}/{repository}/readiness` | `GET` | Read bounded worker advertisement, activity, profile, quota, and capacity readiness without paths or mutation. |
 | `/api/execution/work-orders` | `GET`, `POST` | List or create separately persisted work orders. Creation accepts only a manifest identity and safe policy metadata. |
@@ -99,11 +100,41 @@ script, executable path, or manifest digest at any nesting depth.
 
 Catalog definitions are immutable reviewed source. Their public projection
 contains repository display metadata, allowed manifest identities, manifest
-digests/descriptions, and an optional default only. It excludes commands, argv,
+digests/descriptions, and one required default. The public catalog contains
+exactly four approved repositories. It excludes commands, argv,
 environment values, local paths, credentials, and arbitrary capability
 documents. Cross-repository manifest pairs fail before work-order or GitHub
 request persistence. The compatibility repository set is derived from this
 catalog rather than maintained independently.
+
+### Catalog readiness overview
+
+`GET /api/execution/catalog-readiness` is an authenticated, non-mutating
+overview for the exact four reviewed public repositories. It returns at most
+four stably ordered entries and deliberately has no query parameters. Each
+entry is limited to:
+
+- `repository` and `display_name`;
+- a `default_manifest` containing only `name`, `version`, and a short
+  `digest_prefix`;
+- normalized reviewed `runtime_requirements` for Python, Node, and pnpm only;
+- `ready_count` and one allowlisted `primary_blocker` code/label;
+- an optional latest successful `latest_result` with fresh/reused decision,
+  bounded duration, step count, and avoided-work count;
+- a `source_availability` caveat that exact source still requires an
+  operator-configured canonical checkout at the requested SHA; and
+- reviewed deterministic `exclusions`.
+
+The service uses one worker/profile snapshot and one latest-successful-run
+projection for the complete catalog, then invokes the same capability/routing
+evaluator as checkout and named readiness. It does not synchronize manifests,
+resolve GitHub, fetch source, refresh a worker poll, reserve capacity or quota,
+create work, alter a run, or promise that a requested commit is locally
+available. It never returns worker IDs, complete capability documents, routing
+profiles, local paths, commands, argv, environment values, logs, artifact
+bytes, credentials, or private network detail. The Validation Broker consumes
+only this safe summary for its catalog-readiness cards; request creation still
+uses the selected repository and named readiness flow.
 
 Repository readiness accepts the selected `manifest_name` and
 `manifest_version` as a complete pair (or uses the repository default), plus

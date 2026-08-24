@@ -40,6 +40,7 @@ from server.execution.enums import (
 from server.execution.evidence import ExecutionEvidence
 from server.execution.exceptions import (
     ApprovalDeniedError,
+    CatalogReadinessLimitError,
     ExecutionDomainError,
     ExecutionNotFoundError,
     LifecycleConflictError,
@@ -63,6 +64,12 @@ from server.execution.registry import get_trusted_manifest
 from server.execution.routing import MAX_ROUTING_INTEGER, RoutingEligibility
 from server.execution.schemas import (
     ApproveWorkOrderIn,
+    CatalogReadinessBlockerOut,
+    CatalogReadinessEntryOut,
+    CatalogReadinessLatestResultOut,
+    CatalogReadinessManifestOut,
+    CatalogReadinessOut,
+    CatalogReadinessSourceAvailabilityOut,
     CheckoutIn,
     CheckoutOut,
     CommandManifestOut,
@@ -94,6 +101,27 @@ from server.settings import get_execution_routing_settings
 
 router = APIRouter(dependencies=[Depends(require_admin_token)])
 _MAX_READINESS_WORKERS = 100
+_CATALOG_SOURCE_AVAILABILITY_CAVEAT = (
+    "Exact source availability requires an operator-configured canonical checkout "
+    "at the requested SHA."
+)
+_CATALOG_BLOCKER_LABELS = {
+    "ready": "No current blocker",
+    "no_registered_workers": "No registered workers",
+    "repository_unavailable": "No registered worker advertises this repository",
+    "manifest_capability_mismatch": (
+        "No worker satisfies the reviewed runtime requirements"
+    ),
+    "profile_missing": "Routing profile is missing",
+    "profile_invalid": "Routing profile is invalid",
+    "profile_disabled": "Routing profile is disabled",
+    "stale_worker": "Registered workers are stale",
+    "capacity_constrained": "Compatible workers are at capacity",
+    "worker_unavailable": "Compatible workers are unavailable",
+    "maximum_cost_exceeded": "Routing cost ceiling excludes compatible workers",
+    "insufficient_quota": "Routing quota is insufficient",
+    "preferred_executor_unavailable": "Preferred worker is unavailable",
+}
 RepositoryReadinessReason: TypeAlias = Literal[
     "ready",
     "repository_unavailable",
@@ -137,11 +165,7 @@ async def get_trusted_catalog() -> TrustedCatalogOut:
                 support_status=repository.support_status,
                 documentation_reference=repository.documentation_reference,
                 manifests=manifests,
-                default_manifest=(
-                    repository.default_manifest.safe_metadata()
-                    if repository.default_manifest is not None
-                    else None
-                ),
+                default_manifest=repository.default_manifest.safe_metadata(),
             )
         )
     return TrustedCatalogOut(
@@ -149,6 +173,60 @@ async def get_trusted_catalog() -> TrustedCatalogOut:
         digest=trusted_catalog_digest(),
         repositories=repositories,
     )
+
+
+@router.get(
+    "/api/execution/catalog-readiness",
+    response_model=CatalogReadinessOut,
+)
+async def get_catalog_readiness(
+    service: ExecutionServiceDependency,
+) -> CatalogReadinessOut:
+    """Return one bounded, non-mutating readiness summary for public workloads."""
+
+    try:
+        assessments = await service.assess_catalog_readiness()
+    except CatalogReadinessLimitError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    entries: list[CatalogReadinessEntryOut] = []
+    for assessment in assessments:
+        label = _CATALOG_BLOCKER_LABELS.get(assessment.primary_blocker_code)
+        if label is None:  # Source-controlled service state must fail closed.
+            raise HTTPException(status_code=500, detail="catalog_readiness_invalid")
+        latest_result = assessment.latest_result
+        entries.append(
+            CatalogReadinessEntryOut(
+                repository=assessment.repository_full_name,
+                display_name=assessment.display_name,
+                default_manifest=CatalogReadinessManifestOut(
+                    name=assessment.manifest_name,
+                    version=assessment.manifest_version,
+                    digest_prefix=assessment.manifest_digest[:12],
+                ),
+                runtime_requirements=dict(assessment.runtime_requirements),
+                ready_count=assessment.ready_count,
+                primary_blocker=CatalogReadinessBlockerOut(
+                    code=assessment.primary_blocker_code,
+                    label=label,
+                ),
+                latest_result=(
+                    CatalogReadinessLatestResultOut(
+                        reuse_decision=latest_result.reuse_decision,
+                        duration_seconds=latest_result.duration_seconds,
+                        step_count=latest_result.step_count,
+                        avoided_work_count=latest_result.avoided_work_count,
+                    )
+                    if latest_result is not None
+                    else None
+                ),
+                source_availability=CatalogReadinessSourceAvailabilityOut(
+                    status="requires_exact_source",
+                    caveat=_CATALOG_SOURCE_AVAILABILITY_CAVEAT,
+                ),
+                exclusions=list(assessment.exclusions),
+            )
+        )
+    return CatalogReadinessOut(entries=entries)
 
 
 @router.get(
@@ -891,6 +969,7 @@ async def register_worker(
         architecture=body.architecture,
         python_version=body.python_version,
         node_version=body.node_version,
+        pnpm_version=body.pnpm_version,
         docker_available=body.docker_available,
         browsers=tuple(body.browsers),
         gpu_available=body.gpu_available,

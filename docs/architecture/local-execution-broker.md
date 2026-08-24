@@ -73,9 +73,10 @@ A mismatch is a rejection, not an instruction for the worker to improvise.
 Repository trust is a strict version-controlled catalog rather than an
 independent global allowlist. Each immutable entry has one canonical
 `owner/repository`, bounded display metadata, explicit allowed manifest
-name/version references, and an optional allowed default. Import-time
-validation rejects unknown fields, duplicates, missing manifests, or an invalid
-default. Canonical safe JSON gives the complete catalog a deterministic SHA-256
+name/version references, and one required allowed default. The public catalog
+is exactly the four reviewed repositories. Import-time validation rejects
+unknown fields, duplicates, missing manifests, or an invalid default. Canonical
+safe JSON gives the complete catalog a deterministic SHA-256
 digest. Catalog metadata does not participate in existing manifest digests, so
 prior evidence identities remain stable.
 
@@ -101,7 +102,7 @@ Switchboard-owned values such as the disposable worktree path and run artifact
 directory. Manifest changes create a new version or digest, and evidence records
 the exact digest used.
 
-### Keep target repositories read-only
+### Keep target repositories policy-governed
 
 The worker may create and destroy worker-owned resources:
 
@@ -110,7 +111,7 @@ The worker may create and destroy worker-owned resources:
 - containers and networks;
 - logs, reports, screenshots, and other declared artifacts.
 
-The worker may not:
+The trusted manifest and routing policy prohibit the worker from:
 
 - edit the canonical checkout;
 - commit or stage source changes;
@@ -121,6 +122,22 @@ The worker may not:
 
 Any future write-capable workflow requires a separate product decision and an
 explicit approval model.
+
+This is not an operating-system-enforced filesystem sandbox. A target process
+runs under the worker account in a writable disposable checkout, and Switchboard
+detects canonical-checkout changes before/after the run rather than preventing a
+same-account process from accessing another writable path. Live external target
+execution therefore requires a least-privilege worker account with no source or
+publication credentials and, where prevention is required, an operator-managed
+container, ACL, or read-only mount outside this product slice.
+
+The strict factory-profile host adds bounded process-tree defense in depth (a
+non-breakaway Windows Job Object or Linux subreaper), but it does not change that
+same-account trust boundary. It is not sufficient evidence for live public
+target execution on a worker that retains the control-plane bearer token or can
+reach canonical Git state. Such dogfood is blocked until an operator supplies a
+separate identity and an OS-enforced container, VM, or equivalent ACL/mount
+boundary.
 
 ### Require explicit approval initially
 
@@ -275,6 +292,49 @@ routing inputs, project that shared evaluator into a bounded public reason set,
 and return at most 100 safe worker summaries. They never synchronize manifests,
 write heartbeat/poll/profile/quota state, create work orders or runs, or claim
 that a local checkout contains a requested commit.
+
+### Source-controlled public workload factory (#143)
+
+The workload factory adds typed `WorkloadProfile`, `WorkloadStep`,
+`ResultContract`, `ArtifactDeclaration`, and `ResourceLimits` definitions in
+reviewed Switchboard source. The compiler supplies concrete registry types only
+after the registry exists, keeping profile data acyclic and preventing a YAML,
+database, API, target repository, or runtime document from becoming executable.
+The public catalog remains exactly four repositories: Switchboard, Modular
+Accounting, Dev Logger Zscripts, and Industry Resilience.
+
+The two new manifests are `validate-zscripts@1` and
+`validate-industry-resilience@1`. Their identity binds fixed shell-free argv,
+reviewed capability requirements, input paths that affect results, bounded
+artifact declarations, per-step parser/result contracts, resource ceilings,
+network/read-only policies, and timeouts. The source-controlled result contract
+also participates in exact reuse identity. In contrast, the three legacy
+manifest identities retain their prior digest calculation and evidence behavior;
+adding the factory must not retroactively change legacy evidence identity.
+
+Worker registration discovers Node and pnpm only through fixed bounded
+`--version` calls with no shell. Capability matching normalizes a Node `v`
+prefix, supports reviewed minimum/exact version constraints, and treats missing
+or nonmatching pnpm as an internal mismatch. Readiness compresses that mismatch
+to the safe public `manifest_capability_mismatch` reason.
+
+`GET /api/execution/catalog-readiness` is a read-only summary layer over the
+same pure routing evaluator used by checkout and named readiness. It takes one
+worker/profile snapshot and one latest-success projection for all four entries,
+then returns only display identity, short manifest digest, Python/Node/pnpm
+requirements, ready count, a stable blocker, optional compact latest result,
+the exact-source caveat, and static exclusions. It does not sync manifests,
+poll workers, reserve capacity/quota, resolve source, create a work order, or
+leak workers, paths, full capabilities, commands, logs, artifacts, or secrets.
+The browser renders this safe projection rather than joining worker data.
+
+Revocation is source-controlled: remove or replace a reviewed profile/catalog
+mapping in a separately reviewed deployment, then stop or reconfigure workers
+that advertise it. A revocation blocks future routing; it does not rewrite a
+historical manifest, evidence digest, retained evidence, or published record.
+Rollback restores a previously reviewed source revision and requires the same
+post-deployment catalog and worker capability checks. Neither action grants
+target-source writes or expands the public developer preview boundary.
 
 ### Operator validation command center (#136)
 
@@ -470,8 +530,10 @@ The implementation must protect these boundaries:
   configured worker-owned roots after path resolution and symlink checks.
 - **Process execution:** direct argument-vector execution, timeouts, output
   limits, cancellation, and process-tree termination.
-- **Repository:** exact SHA, allowlisted origin, read-only policy, and disposable
-  checkout.
+- **Repository:** exact SHA, allowlisted origin, write-prohibited policy, and
+  disposable checkout. This is cooperative trust plus integrity detection, not
+  an OS filesystem isolation claim; operators supply any required container,
+  ACL, or read-only-mount boundary.
 - **Manifest:** trusted registry, immutable identity, digest, and no remote
   command injection.
 - **Evidence:** bounded summaries, artifact hashes, redaction, retention, and

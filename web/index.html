@@ -52,6 +52,18 @@
 
       <div id="brokerMetrics" class="broker-metrics" aria-label="Validation broker overview metrics"></div>
 
+      <article class="broker-panel broker-catalog-panel" aria-labelledby="catalog-readiness-heading">
+        <div class="broker-panel-heading">
+          <div>
+            <p class="broker-eyebrow">Bounded public catalog</p>
+            <h3 id="catalog-readiness-heading">Catalog readiness</h3>
+          </div>
+        </div>
+        <div id="brokerCatalogReadiness" class="broker-catalog-readiness" aria-live="polite" aria-busy="true">
+          <p class="broker-empty">Loading public catalog readiness…</p>
+        </div>
+      </article>
+
       <div class="broker-workspace-grid">
         <article class="broker-panel">
           <div class="broker-panel-heading">
