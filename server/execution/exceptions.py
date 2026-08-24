@@ -27,6 +27,10 @@ class ManifestIntegrityError(ExecutionDomainError):
     """Raised when a persisted identity differs from its trusted definition."""
 
 
+class CatalogReadinessLimitError(ExecutionDomainError):
+    """Raised when the bounded public worker snapshot cannot be represented."""
+
+
 class ManifestParameterError(ExecutionDomainError):
     """Raised when a caller supplies an unsupported manifest parameter."""
 

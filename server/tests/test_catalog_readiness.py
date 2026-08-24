@@ -6,9 +6,11 @@ import datetime as dt
 import json
 from collections.abc import Sequence
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import select
+from fastapi import HTTPException, status
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -16,6 +18,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from server.api.routers import execution as execution_router
 from server.api.routers.execution import get_catalog_readiness
 from server.db import Base
 from server.execution.entities import (
@@ -50,6 +53,7 @@ _INDUSTRY = "Nobodyworld/app-industry-resilience"
 _PUBLIC_CATALOG_ENTRY_COUNT = 4
 _DIGEST_PREFIX_LENGTH = 12
 _CHEAPEST_CANDIDATE_COUNT = 2
+_CATALOG_WORKER_LIMIT = 100
 
 
 def _service(session: AsyncSession) -> ExecutionService:
@@ -383,6 +387,108 @@ async def test_catalog_readiness_file_sqlite_is_safe_bounded_and_read_only(
         ):
             assert prohibited not in serialized
         assert await _snapshot(factory) == before
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_catalog_readiness_worker_overflow_is_bounded_stable_and_non_mutating(
+    tmp_path: Path,
+) -> None:
+    engine, factory = await _new_factory(tmp_path, "catalog-worker-overflow")
+    worker_ids = [f"worker-{index:03d}" for index in range(_CATALOG_WORKER_LIMIT + 1)]
+    try:
+        async with factory() as session:
+            service = _service(session)
+            for worker_id in reversed(worker_ids):
+                await service.register_worker(
+                    _worker(worker_id, repositories=(_SWITCHBOARD,))
+                )
+                await _record_active_poll(service, worker_id)
+            await session.commit()
+
+        async with factory() as session:
+            snapshot = await ExecutionRepository(
+                session
+            ).list_catalog_readiness_workers()
+        assert snapshot.limit_exceeded
+        assert len(snapshot.workers) == _CATALOG_WORKER_LIMIT
+        assert [worker.worker_id for worker, _profile in snapshot.workers] == sorted(
+            worker_ids
+        )[:_CATALOG_WORKER_LIMIT]
+
+        before = await _snapshot(factory)
+        worker_selects: list[tuple[str, object]] = []
+
+        def capture_worker_select(
+            _connection: object,
+            _cursor: object,
+            statement: str,
+            parameters: object,
+            _context: object,
+            _executemany: bool,
+        ) -> None:
+            if statement.lstrip().upper().startswith("SELECT") and (
+                "FROM execution_workers" in statement
+            ):
+                worker_selects.append((statement, parameters))
+
+        event.listen(engine.sync_engine, "before_cursor_execute", capture_worker_select)
+        try:
+            async with factory() as session:
+                with (
+                    patch.object(
+                        ExecutionRepository,
+                        "list_workers_with_profiles",
+                        new_callable=AsyncMock,
+                        side_effect=AssertionError(
+                            "catalog readiness must not use the unbounded worker read"
+                        ),
+                    ),
+                    patch.object(
+                        execution_router,
+                        "CatalogReadinessEntryOut",
+                        side_effect=AssertionError(
+                            "overflow must stop before response-model construction"
+                        ),
+                    ),
+                    pytest.raises(HTTPException) as error,
+                ):
+                    await get_catalog_readiness(_service(session))
+        finally:
+            event.remove(
+                engine.sync_engine, "before_cursor_execute", capture_worker_select
+            )
+
+        assert error.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert error.value.detail == "catalog_readiness_worker_limit_exceeded"
+        assert len(worker_selects) == 1
+        statement, parameters = worker_selects[0]
+        assert "ORDER BY execution_workers.worker_id" in statement
+        assert "LIMIT" in statement
+        assert _CATALOG_WORKER_LIMIT + 1 in parameters
+        assert await _snapshot(factory) == before
+
+        async with factory() as session:
+            service = _service(session)
+            evaluations, selected = await service.assess_repository_readiness(
+                repository_full_name=_SWITCHBOARD,
+                manifest_name="validate-switchboard",
+                manifest_version="1",
+                routing_policy=RoutingPolicy.FIRST_AVAILABLE,
+                maximum_cost_units=None,
+                required_quota_units=0,
+                preferred_executor=None,
+            )
+            assert len(evaluations) == len(worker_ids)
+            assert all(item.candidate is not None for item in evaluations)
+            assert selected is None
+
+            work_order = await service.create_work_order(_switchboard_draft())
+            await service.approve_work_order(work_order.id)
+            checkout = await service.checkout(worker_ids[0])
+            assert checkout.assigned
+            assert checkout.work_order_id == work_order.id
     finally:
         await engine.dispose()
 

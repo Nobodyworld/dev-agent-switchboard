@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from sqlalchemy.exc import IntegrityError
@@ -58,6 +58,7 @@ from .evidence import (
 )
 from .exceptions import (
     ApprovalDeniedError,
+    CatalogReadinessLimitError,
     ExecutionNotFoundError,
     LifecycleConflictError,
     MalformedEvidenceError,
@@ -817,7 +818,9 @@ class ExecutionService:
                 raise ManifestIntegrityError("trusted_manifest_not_found")
             resolved.append((repository, manifest))
 
-        worker_snapshot = await self._repository.list_workers_with_profiles()
+        worker_snapshot = await self._repository.list_catalog_readiness_workers()
+        if worker_snapshot.limit_exceeded:
+            raise CatalogReadinessLimitError("catalog_readiness_worker_limit_exceeded")
         latest_results = await self._repository.list_latest_successful_catalog_runs(
             (
                 (repository.full_name, manifest.name, manifest.version)
@@ -840,7 +843,7 @@ class ExecutionService:
             evaluations = await self._routing_eligibilities(
                 request=request,
                 now=now,
-                worker_snapshot=worker_snapshot,
+                worker_snapshot=worker_snapshot.workers,
             )
             latest = latest_results.get(
                 (repository.full_name, manifest.name, manifest.version)
@@ -1091,7 +1094,7 @@ class ExecutionService:
         request: RoutingEvaluationRequest,
         now: dt.datetime,
         worker_snapshot: (
-            list[tuple[ExecutionWorker, WorkerRoutingProfile | None]] | None
+            Sequence[tuple[ExecutionWorker, WorkerRoutingProfile | None]] | None
         ) = None,
     ) -> list[RoutingEligibility]:
         """Evaluate one authoritative worker set without mutations."""

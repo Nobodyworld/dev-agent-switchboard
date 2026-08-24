@@ -26,6 +26,7 @@ from server.execution.evidence import (
     finalize_evidence,
 )
 from server.execution.registry import get_trusted_manifest
+from server.execution.service import ExecutionService
 from server.github_adapter.repository import GitHubAdapterRepository
 from server.github_adapter.service import (
     GitHubAdapterDependencies,
@@ -152,13 +153,23 @@ offline_settings = GitHubSettings(
 )
 
 
+def _test_execution_service(session: SessionDependency) -> ExecutionService:
+    """Build the execution service with the fixture evidence clock."""
+
+    service = build_execution_service(session)
+    service._clock = lambda: dt.datetime(2026, 8, 8, 12, tzinfo=dt.UTC).replace(
+        tzinfo=None
+    )
+    return service
+
+
 def get_offline_github_adapter(session: SessionDependency) -> GitHubAdapterService:
     """Build the real adapter around a stateful no-network transport."""
 
     return GitHubAdapterService(
         dependencies=GitHubAdapterDependencies(
             repository=GitHubAdapterRepository(session),
-            execution=build_execution_service(session),
+            execution=_test_execution_service(session),
             transport=offline_transport,
         ),
         settings=offline_settings,
@@ -257,7 +268,7 @@ async def complete_offline_validation(
     request = await GitHubAdapterRepository(session).get(request_id)
     if request is None:
         raise HTTPException(status_code=404, detail="github_request_not_found")
-    execution = build_execution_service(session)
+    execution = _test_execution_service(session)
     await execution.checkout(EXPENSIVE_WORKER)
     assignment = await execution.checkout(CHEAP_WORKER)
     if assignment.run_id is None:

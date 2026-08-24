@@ -44,9 +44,11 @@ _LEGACY_DIGESTS = {
 _CATALOG_DIGEST = "8303bcc8c577557adccc7c299fc2816744f1c7a3c5f0f5ac39146d49c9643115"
 _NEW_MANIFEST_DIGESTS = {
     "validate-industry-resilience@1": (
+        # pragma: allowlist nextline secret
         "dfda235a1dda46fd144341e0105a9093396770698bf2a11c737bc7cfa5547ac6"
     ),
     "validate-zscripts@1": (
+        # pragma: allowlist nextline secret
         "c449d97cc63bb9c28c293e4798a116261fb01ece55cc92407dd4a8a330d3107e"
     ),
 }

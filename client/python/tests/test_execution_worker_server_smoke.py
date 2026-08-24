@@ -303,7 +303,11 @@ summary = {
             "operation": operation,
             "status": "passed",
             "duration_seconds": 0,
-            "details": {},
+            "details": (
+                {"coverage_percent": 100, "coverage_threshold": 85}
+                if operation == "coverage"
+                else {}
+            ),
         }
         for operation in OPERATIONS
     ],

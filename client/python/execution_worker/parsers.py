@@ -21,7 +21,6 @@ from server.execution.evidence import (
 _MAX_PARSE_BYTES = 1024 * 1024
 _MAX_QUALITY_SUMMARY_BYTES = 128 * 1024
 _MAX_QUALITY_COVERAGE_BYTES = 2 * 1024 * 1024
-_MAX_QUALITY_DIAGNOSTICS_BYTES = 1024 * 1024
 _MAX_RESULT_RECORDS = 10_000_000
 _MAX_COVERAGE_PERCENT = 100
 _QUALITY_COVERAGE_THRESHOLD = 85
@@ -86,17 +85,22 @@ _RESULT_CONTRACT_FAILURES = {
 }
 
 
-def _bounded_text(path: Path, maximum_bytes: int = _MAX_PARSE_BYTES) -> str:
-    with path.open("rb") as handle:
-        data = handle.read(maximum_bytes + 1)
-    return data[:maximum_bytes].decode("utf-8", errors="replace")
-
-
 def _combined(stdout_path: Path, stderr_path: Path, maximum_bytes: int) -> str:
-    return (
-        f"{_bounded_text(stdout_path, maximum_bytes)}\n"
-        f"{_bounded_text(stderr_path, maximum_bytes)}"
-    )
+    """Read both streams under one aggregate byte budget plus one overflow byte."""
+
+    chunks: list[bytes] = []
+    remaining = maximum_bytes + 1
+    for path in (stdout_path, stderr_path):
+        with path.open("rb") as handle:
+            chunk = handle.read(remaining)
+        chunks.append(chunk)
+        remaining -= len(chunk)
+        if remaining == 0:
+            break
+    if sum(len(chunk) for chunk in chunks) > maximum_bytes:
+        raise ValueError("declared result streams exceed their aggregate byte limit")
+    chunks.extend(b"" for _ in range(2 - len(chunks)))
+    return "\n".join(chunk.decode("utf-8", errors="replace") for chunk in chunks)
 
 
 def _pytest_counts(text: str) -> ParsedTestCounts | None:
@@ -391,8 +395,35 @@ def _enforce_result_contract(
     return parsed
 
 
+def _quality_operation_coverage(
+    operation_name: str,
+    details: dict[object, object],
+    summary_threshold: object,
+) -> float | None:
+    """Validate exact coverage/diagnostics details and return summary coverage."""
+
+    if operation_name == "coverage":
+        if set(details) != {"coverage_percent", "coverage_threshold"}:
+            raise ValueError("quality coverage operation details are invalid")
+        operation_threshold = _bounded_number(
+            details["coverage_threshold"],
+            minimum=_QUALITY_COVERAGE_THRESHOLD,
+            maximum=_QUALITY_COVERAGE_THRESHOLD,
+        )
+        if operation_threshold != summary_threshold:
+            raise ValueError("quality coverage thresholds are inconsistent")
+        return _bounded_number(
+            details["coverage_percent"],
+            minimum=_QUALITY_COVERAGE_THRESHOLD,
+            maximum=_MAX_COVERAGE_PERCENT,
+        )
+    if operation_name == "diagnostics" and details:
+        raise ValueError("quality diagnostics operation details are invalid")
+    return None
+
+
 def _quality_summary_result(checkout: Path, maximum_bytes: int) -> ParsedResult:
-    """Validate the reviewed Zscripts quality reports without retaining bytes."""
+    """Validate only the declared Zscripts summary without retaining its bytes."""
 
     summary = _json_report(
         checkout,
@@ -422,6 +453,7 @@ def _quality_summary_result(checkout: Path, maximum_bytes: int) -> ParsedResult:
     operations = summary["operations"]
     if not isinstance(operations, list) or len(operations) != len(_QUALITY_OPERATIONS):
         raise ValueError("quality summary operation inventory is invalid")
+    coverage_percent: float | None = None
     for expected_name, operation in zip(_QUALITY_OPERATIONS, operations, strict=True):
         if not isinstance(operation, dict) or set(operation) != {
             "operation",
@@ -433,35 +465,21 @@ def _quality_summary_result(checkout: Path, maximum_bytes: int) -> ParsedResult:
         if operation["operation"] != expected_name or operation["status"] != "passed":
             raise ValueError("quality operation did not satisfy the reviewed contract")
         _bounded_number(operation["duration_seconds"], minimum=0, maximum=86_400)
-        if not isinstance(operation["details"], dict):
+        details = operation["details"]
+        if not isinstance(details, dict):
             raise ValueError("quality operation details are invalid")
-
-    coverage = _json_report(
-        checkout,
-        "reports/coverage.json",
-        min(maximum_bytes, _MAX_QUALITY_COVERAGE_BYTES),
-    )
-    totals = coverage.get("totals")
-    if not isinstance(totals, dict):
-        raise ValueError("quality coverage totals are unavailable")
-    percent = _bounded_number(totals.get("percent_covered"), minimum=85, maximum=100)
-
-    diagnostics = _json_report(
-        checkout,
-        "reports/diagnostics.json",
-        min(maximum_bytes, _MAX_QUALITY_DIAGNOSTICS_BYTES),
-    )
-    telemetry = diagnostics.get("telemetry")
-    if not isinstance(telemetry, dict) or telemetry.get("status") not in {
-        "ok",
-        "inactive",
-    }:
-        raise ValueError("quality diagnostics telemetry status is invalid")
+        operation_coverage = _quality_operation_coverage(
+            expected_name, details, summary["coverage_threshold"]
+        )
+        if operation_coverage is not None:
+            coverage_percent = operation_coverage
+    if coverage_percent is None:  # pragma: no cover - fixed inventory contains it
+        raise ValueError("quality coverage operation is unavailable")
 
     return ParsedResult(
         parser="quality-summary-v1",
         status="parsed",
-        coverage=ParsedCoverage(measured_percent=percent),
+        coverage=ParsedCoverage(measured_percent=coverage_percent),
         audit=AuditSummary(
             kind="quality", status="passed", tool="quality-gate", findings=0
         ),

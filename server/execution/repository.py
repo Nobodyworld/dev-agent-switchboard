@@ -36,6 +36,7 @@ from .registry import TrustedManifest
 _MAX_EXACT_REUSE_CANDIDATES = 32
 _MAX_ROUTING_REVISION = 2_147_483_647
 _MAX_CATALOG_LATEST_PROJECTIONS = 32
+_MAX_CATALOG_READINESS_WORKERS = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +68,14 @@ class CatalogLatestRunProjection:
     started_at: dt.datetime | None
     finished_at: dt.datetime | None
     evidence_metadata: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogReadinessWorkerSnapshot:
+    """Stable bounded workers plus an explicit overflow signal for public output."""
+
+    workers: tuple[tuple[ExecutionWorker, WorkerRoutingProfile | None], ...]
+    limit_exceeded: bool
 
 
 class ExecutionRepository:
@@ -201,6 +210,25 @@ class ExecutionRepository:
             .execution_options(populate_existing=True)
         )
         return list(result.tuples())
+
+    async def list_catalog_readiness_workers(self) -> CatalogReadinessWorkerSnapshot:
+        """Read at most one overflow row for the fixed public readiness limit."""
+
+        result = await self.session.execute(
+            select(ExecutionWorker, WorkerRoutingProfile)
+            .outerjoin(
+                WorkerRoutingProfile,
+                WorkerRoutingProfile.worker_id == ExecutionWorker.worker_id,
+            )
+            .order_by(ExecutionWorker.worker_id)
+            .limit(_MAX_CATALOG_READINESS_WORKERS + 1)
+            .execution_options(populate_existing=True)
+        )
+        rows = list(result.tuples())
+        return CatalogReadinessWorkerSnapshot(
+            workers=tuple(rows[:_MAX_CATALOG_READINESS_WORKERS]),
+            limit_exceeded=len(rows) > _MAX_CATALOG_READINESS_WORKERS,
+        )
 
     async def upsert_worker(
         self, values: dict[str, Any], *, now: dt.datetime

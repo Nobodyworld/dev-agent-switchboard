@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import io
 import json
 import os
 import subprocess
@@ -13,7 +14,10 @@ from unittest.mock import patch
 
 import pytest
 
-from client.python.execution_worker import evidence as evidence_module
+from client.python.execution_worker import (
+    evidence as evidence_module,
+    parsers as parsers_module,
+)
 from client.python.execution_worker.evidence import (
     EvidenceLimits,
     create_evidence_store,
@@ -38,6 +42,34 @@ from server.execution.registry import TrustedArtifact, get_trusted_manifest
 _NOW = dt.datetime(2026, 7, 1, tzinfo=dt.UTC)
 _ACCOUNTING_COVERAGE_PERCENT = 87.25
 _QUALITY_TEST_COVERAGE_PERCENT = 91.5
+_QUALITY_OPERATIONS = (
+    "format-check",
+    "lint",
+    "type",
+    "frontend-install",
+    "frontend-format",
+    "frontend-lint",
+    "frontend-typecheck",
+    "frontend-tests",
+    "frontend-build",
+    "repository-safety",
+    "snapshot-store",
+    "workspace-api",
+    "packaged-workspace",
+    "helper-surface",
+    "helper-boundary",
+    "helper-compatibility",
+    "bandit",
+    "audit",
+    "binary",
+    "tests",
+    "coverage",
+    "docs",
+    "editable-smoke",
+    "wheel",
+    "zipapp",
+    "diagnostics",
+)
 
 
 def _store(tmp_path: Path, **limits: int):
@@ -347,34 +379,6 @@ def test_accounting_coverage_gate_parser_accepts_real_style_output(
 def _write_quality_reports(root: Path) -> None:
     reports = root / "reports"
     reports.mkdir()
-    operations = (
-        "format-check",
-        "lint",
-        "type",
-        "frontend-install",
-        "frontend-format",
-        "frontend-lint",
-        "frontend-typecheck",
-        "frontend-tests",
-        "frontend-build",
-        "repository-safety",
-        "snapshot-store",
-        "workspace-api",
-        "packaged-workspace",
-        "helper-surface",
-        "helper-boundary",
-        "helper-compatibility",
-        "bandit",
-        "audit",
-        "binary",
-        "tests",
-        "coverage",
-        "docs",
-        "editable-smoke",
-        "wheel",
-        "zipapp",
-        "diagnostics",
-    )
     (reports / "quality-summary.json").write_text(
         json.dumps(
             {
@@ -386,9 +390,16 @@ def _write_quality_reports(root: Path) -> None:
                         "operation": operation,
                         "status": "passed",
                         "duration_seconds": 0.01,
-                        "details": {},
+                        "details": (
+                            {
+                                "coverage_percent": _QUALITY_TEST_COVERAGE_PERCENT,
+                                "coverage_threshold": 85,
+                            }
+                            if operation == "coverage"
+                            else {}
+                        ),
                     }
-                    for operation in operations
+                    for operation in _QUALITY_OPERATIONS
                 ],
                 "duration_seconds": 1.0,
             }
@@ -404,28 +415,34 @@ def _write_quality_reports(root: Path) -> None:
     )
 
 
-def test_zscripts_quality_summary_parser_uses_only_fixed_bounded_reports(
-    tmp_path: Path,
-) -> None:
-    _write_quality_reports(tmp_path)
-    stdout = tmp_path / "quality.stdout.log"
-    stderr = tmp_path / "quality.stderr.log"
+def _parse_quality_result(root: Path):
+    stdout = root / "quality.stdout.log"
+    stderr = root / "quality.stderr.log"
     stdout.write_text("quality helper passed\n", encoding="utf-8")
     stderr.write_text("", encoding="utf-8")
-
     manifest = get_trusted_manifest("validate-zscripts", "1")
     assert manifest is not None and manifest.result_contract is not None
     contract = manifest.result_contract["steps"][0]["result_contract"]
     assert isinstance(contract, dict)
-
-    parsed = parse_result(
+    return parse_result(
         "quality-summary-v1",
         stdout_path=stdout,
         stderr_path=stderr,
         command_succeeded=True,
-        checkout=tmp_path,
+        checkout=root,
         result_contract=contract,
     )
+
+
+def test_zscripts_quality_summary_parser_uses_only_fixed_bounded_reports(
+    tmp_path: Path,
+) -> None:
+    _write_quality_reports(tmp_path)
+    original_reader = parsers_module._contained_regular_file
+    with patch.object(
+        parsers_module, "_contained_regular_file", wraps=original_reader
+    ) as reader:
+        parsed = _parse_quality_result(tmp_path)
 
     assert parsed.status == "parsed"
     assert parsed.coverage is not None
@@ -437,6 +454,23 @@ def test_zscripts_quality_summary_parser_uses_only_fixed_bounded_reports(
         "tool": "quality-gate",
         "findings": 0,
     }
+    assert [call.args[1] for call in reader.call_args_list] == [
+        "reports/quality-summary.json"
+    ]
+
+
+def test_zscripts_retained_artifacts_do_not_influence_summary_parsing(
+    tmp_path: Path,
+) -> None:
+    _write_quality_reports(tmp_path)
+    before = _parse_quality_result(tmp_path)
+    reports = tmp_path / "reports"
+    (reports / "coverage.json").write_text("not json", encoding="utf-8")
+    (reports / "diagnostics.json").unlink()
+    after = _parse_quality_result(tmp_path)
+
+    assert before == after
+    assert after.status == "parsed"
 
 
 def test_zscripts_quality_contract_enforces_its_source_threshold(
@@ -518,6 +552,131 @@ def test_zscripts_quality_summary_parser_rejects_unreviewed_operation_order(
     assert parsed.status == "parser_failed"
     assert parsed.audit is None
     assert parsed.coverage is None
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "malformed-coverage",
+        "missing-diagnostics",
+        "wrong-order",
+        "duplicate-operation",
+        "extra-operation",
+        "low-coverage",
+    ),
+)
+def test_zscripts_quality_summary_parser_rejects_invalid_fixed_inventory(
+    tmp_path: Path, mutation: str
+) -> None:
+    _write_quality_reports(tmp_path)
+    summary_path = tmp_path / "reports" / "quality-summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    operations = summary["operations"]
+    coverage_index = _QUALITY_OPERATIONS.index("coverage")
+    diagnostics_index = _QUALITY_OPERATIONS.index("diagnostics")
+    if mutation == "malformed-coverage":
+        operations[coverage_index]["details"] = {"coverage_percent": "91.5"}
+    elif mutation == "missing-diagnostics":
+        operations.pop(diagnostics_index)
+    elif mutation == "wrong-order":
+        operations[0], operations[1] = operations[1], operations[0]
+    elif mutation == "duplicate-operation":
+        operations[1]["operation"] = operations[0]["operation"]
+    elif mutation == "extra-operation":
+        operations.append(dict(operations[-1], operation="extra"))
+    else:
+        operations[coverage_index]["details"]["coverage_percent"] = 84.99
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    parsed = _parse_quality_result(tmp_path)
+
+    assert parsed.status == "parser_failed"
+    assert parsed.coverage is None
+    assert parsed.audit is None
+
+
+class _TrackedBytesIO(io.BytesIO):
+    def __init__(self, value: bytes, reads: list[tuple[int, int]]) -> None:
+        super().__init__(value)
+        self._reads = reads
+
+    def read(self, size: int = -1) -> bytes:
+        data = super().read(size)
+        self._reads.append((size, len(data)))
+        return data
+
+
+class _TrackedInput:
+    def __init__(self, value: bytes, reads: list[tuple[int, int]]) -> None:
+        self._value = value
+        self._reads = reads
+
+    def open(self, _mode: str) -> _TrackedBytesIO:
+        return _TrackedBytesIO(self._value, self._reads)
+
+
+@pytest.mark.parametrize(
+    ("stdout", "stderr"),
+    (
+        (b"x" * 9, b""),
+        (b"", b"x" * 9),
+        (b"x" * 5, b"y" * 4),
+    ),
+)
+def test_parser_rejects_aggregate_stream_byte_overflow(
+    stdout: bytes, stderr: bytes
+) -> None:
+    maximum_bytes = 8
+    reads: list[tuple[int, int]] = []
+    parsed = parse_result(
+        "dependency-audit",
+        stdout_path=_TrackedInput(stdout, reads),  # type: ignore[arg-type]
+        stderr_path=_TrackedInput(stderr, reads),  # type: ignore[arg-type]
+        command_succeeded=True,
+        result_contract={
+            "failure_conditions": [],
+            "maximum_parsed_bytes": maximum_bytes,
+            "maximum_parsed_records": 1,
+            "minimum_coverage_percent": None,
+            "minimum_test_count": None,
+            "parser_kind": "dependency-audit",
+            "required_summary_fields": [],
+            "source": "stdout",
+            "source_path": None,
+        },
+    )
+
+    assert parsed.status == "parser_failed"
+    assert all(requested >= 0 for requested, _actual in reads)
+    assert sum(actual for _requested, actual in reads) == maximum_bytes + 1
+
+
+def test_parser_accepts_exact_aggregate_stream_byte_boundary() -> None:
+    stdout = b"No broken requirements found."
+    stderr = b"bounded stderr"
+    maximum_bytes = len(stdout) + len(stderr)
+    reads: list[tuple[int, int]] = []
+    parsed = parse_result(
+        "dependency-audit",
+        stdout_path=_TrackedInput(stdout, reads),  # type: ignore[arg-type]
+        stderr_path=_TrackedInput(stderr, reads),  # type: ignore[arg-type]
+        command_succeeded=True,
+        result_contract={
+            "failure_conditions": [],
+            "maximum_parsed_bytes": maximum_bytes,
+            "maximum_parsed_records": 1,
+            "minimum_coverage_percent": None,
+            "minimum_test_count": None,
+            "parser_kind": "dependency-audit",
+            "required_summary_fields": [],
+            "source": "stdout",
+            "source_path": None,
+        },
+    )
+
+    assert parsed.status == "parsed"
+    assert all(requested >= 0 for requested, _actual in reads)
+    assert sum(actual for _requested, actual in reads) == maximum_bytes
 
 
 def _reusable_source(
@@ -708,7 +867,9 @@ def test_reuse_fails_closed_when_pruning_races_artifact_hash(
     ):
         result = _verify(root, candidate)
     assert not result.verified
-    assert result.reason == "source_artifact_unsafe"
+    assert result.reason == (
+        "source_artifact_unsafe" if os.name == "nt" else "source_evidence_pruned"
+    )
     assert artifact.exists() is (os.name == "nt")
 
 

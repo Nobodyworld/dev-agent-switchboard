@@ -321,9 +321,9 @@ class ResultContract:
             "result contract",
         )
         return cls(
-            parser_kind=value["parser_kind"]
-            if isinstance(value["parser_kind"], str)
-            else None,
+            parser_kind=(
+                value["parser_kind"] if isinstance(value["parser_kind"], str) else None
+            ),
             source=value["source"] if isinstance(value["source"], str) else "",
             source_path=(
                 value["source_path"] if isinstance(value["source_path"], str) else None

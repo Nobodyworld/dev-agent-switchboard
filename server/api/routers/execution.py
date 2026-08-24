@@ -40,6 +40,7 @@ from server.execution.enums import (
 from server.execution.evidence import ExecutionEvidence
 from server.execution.exceptions import (
     ApprovalDeniedError,
+    CatalogReadinessLimitError,
     ExecutionDomainError,
     ExecutionNotFoundError,
     LifecycleConflictError,
@@ -183,7 +184,10 @@ async def get_catalog_readiness(
 ) -> CatalogReadinessOut:
     """Return one bounded, non-mutating readiness summary for public workloads."""
 
-    assessments = await service.assess_catalog_readiness()
+    try:
+        assessments = await service.assess_catalog_readiness()
+    except CatalogReadinessLimitError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
     entries: list[CatalogReadinessEntryOut] = []
     for assessment in assessments:
         label = _CATALOG_BLOCKER_LABELS.get(assessment.primary_blocker_code)

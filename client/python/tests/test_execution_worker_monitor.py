@@ -148,11 +148,13 @@ class _CancellingClient(_FakeClient):
         super().__init__(order, manifest)
         self.mode = mode
         self.child_pid = child_pid
+        self.cancellation_requested_at: float | None = None
 
     def heartbeat_run(self, _run_id: int) -> dict[str, object]:
         self.heartbeat_count += 1
         if self.heartbeat_count == 1 or not self.child_pid.is_file():
             return {"id": 7, "status": "running"}
+        self.cancellation_requested_at = time.monotonic()
         if self.mode == "ownership":
             raise ExecutionOwnershipLostError(409)
         if self.mode == "terminal":
@@ -216,10 +218,10 @@ def test_control_plane_cancellation_stops_parent_and_child_without_stale_success
         client,  # type: ignore[arg-type]
     )
 
-    started = time.monotonic()
     assert worker.poll_once() is True
 
-    assert time.monotonic() - started < _CANCELLATION_SECONDS
+    assert client.cancellation_requested_at is not None
+    assert time.monotonic() - client.cancellation_requested_at < _CANCELLATION_SECONDS
     assert child_pid.is_file()
     child = int(child_pid.read_text(encoding="utf-8"))
     if os.name != "nt":

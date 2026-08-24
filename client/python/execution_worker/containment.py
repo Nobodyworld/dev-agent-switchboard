@@ -113,7 +113,10 @@ class _WindowsJob:
     def _kernel32() -> object:
         if os.name != "nt":  # pragma: no cover - platform guard
             raise ContainmentLaunchError("Windows Job Objects are unavailable")
-        return ctypes.WinDLL("kernel32", use_last_error=True)
+        win_dll = getattr(ctypes, "WinDLL", None)
+        if win_dll is None:
+            raise ContainmentLaunchError("Windows Job Objects are unavailable")
+        return win_dll("kernel32", use_last_error=True)
 
     @classmethod
     def create(cls) -> _WindowsJob:
