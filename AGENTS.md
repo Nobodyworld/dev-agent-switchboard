@@ -19,19 +19,20 @@ A work slice is not complete until every temporary workspace created for that sl
 Before removing an agent-owned worktree or disposable clone:
 
 1. Leave that directory so no process is operating from inside it.
-2. Record its path, branch or ref, exact `HEAD`, remotes, and `git status --short` output.
-3. Prove the working tree is clean, including no staged, unstaged, or untracked work.
-4. Prove the exact `HEAD` is already preserved by an approved destination such as a pushed branch, pull request, merged base, or explicitly retained rescue ref.
-5. Confirm the workspace was created by the current slice and is not used by another process.
+2. Record its path, branch or ref, exact `HEAD`, remotes, and `git status --short --untracked-files=all` output.
+3. Inventory the ignored paths that removal would delete, using `git status --short --ignored=matching` or an equivalent reviewed report. A clean ordinary status is not proof that ignored content is disposable. Preserve or explicitly classify every ignored environment file, database, user-data path, download, or unknown artifact before removal.
+4. Prove the working tree is clean, including no staged, unstaged, or untracked work.
+5. Prove the exact `HEAD` is already preserved by an approved destination such as a pushed branch, pull request, merged base, or explicitly retained rescue ref.
+6. Confirm the workspace was created by the current slice and is not used by another process.
 
-If any proof is missing, ownership is uncertain, deletion is blocked, or unique work exists, stop and retain the workspace. Report the blocker; do not force cleanup.
+If any proof is missing, ownership is uncertain, deletion is blocked, ignored content is unexplained, or unique work exists, stop and retain the workspace. Report the blocker; do not force cleanup.
 
 ### Prohibited cleanup shortcuts
 
 - Never use `git worktree remove --force`, `git clean -fd`, `git clean -fdx`, `git reset --hard`, or raw directory deletion to make a cleanup check pass.
 - Never delete a local or remote branch merely because its worktree was removed. Branch deletion requires separate proof that the work is merged or otherwise preserved and explicit authorization when repository policy requires it.
 - Never clear shared npm, pnpm, Yarn, Cargo, Rustup, NuGet, pip, Python, Playwright, browser, or operating-system caches during ordinary slice cleanup.
-- Never delete environment files, secrets, local databases, user data, fixtures, or unknown untracked paths.
+- Never delete environment files, secrets, local databases, user data, fixtures, or unknown untracked or ignored paths.
 - Do not run repository-wide garbage collection or aggressive Git maintenance as an incidental cleanup step.
 
 ### Allowed cleanup
@@ -48,6 +49,7 @@ The final slice report must include:
 - before-and-after `git worktree list --porcelain` inventories;
 - every temporary worktree or clone created by the slice and its disposition;
 - the exact SHA and branch, pull request, merged base, or rescue ref preserving its work;
+- the ignored-path inventory and classification used before removal;
 - cleanup commands and safety checks actually run;
 - any retained workspace or storage-heavy path, with the reason it was not removed.
 
