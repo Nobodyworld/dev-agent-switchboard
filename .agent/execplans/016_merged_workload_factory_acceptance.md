@@ -48,24 +48,24 @@ The final public/project authority must state the same current truth:
 - [x] Issue #146 created with the accepted scope and exclusions.
 - [x] Canonical branch `test/merged-workload-factory-acceptance` created from exact starting `main`.
 - [x] Living ExecPlan 016 created.
-- [ ] Open one draft PR linked to #146.
-- [ ] Safely fast-forward the canonical local `main` to the exact starting SHA.
-- [ ] Inventory local worktrees, local branches, stashes, unpublished commits, and dirty files.
-- [ ] Preserve `security-deferral-wip` and every uncertain user-owned resource.
-- [ ] Remove only clean, proven-merged campaign worktrees and local branch names.
-- [ ] Establish isolated acceptance server, database, worker root, evidence root, and exact repository mapping.
-- [ ] Execute one fresh exact-SHA `validate-switchboard@1` request through the real product path.
-- [ ] Verify exact identity, route, worktree, evidence, source integrity, cleanup, and no leaks.
-- [ ] Execute one distinct equivalent `allow_exact` request.
-- [ ] Prove same-worker retained-evidence verification and zero repeated deterministic steps.
-- [ ] Record fresh/reuse durations, retained evidence size, operator actions, and friction.
-- [ ] Reconcile issue #111 body and project status documentation.
-- [ ] Finalize ExecPlan 015 as completed historical evidence.
-- [ ] Add stable root `PROJECT_RULESET.md` with no moving status fields.
-- [ ] Reconcile README product quick start and historical release wording.
-- [ ] Add a current-versus-historical banner to `PUBLIC_RELEASE_AUDIT.md`.
-- [ ] Update affected documentation indexes and operations guides.
-- [ ] Run focused acceptance tests and the complete local validation matrix.
+- [x] Open draft PR #147 linked to #146.
+- [x] Safely fast-forward the canonical local `main` to the exact starting SHA.
+- [x] Inventory local worktrees, local branches, stashes, unpublished commits, and dirty files.
+- [x] Preserve `security-deferral-wip` and every uncertain user-owned resource.
+- [x] Safely disposition every audited worktree and branch by retaining uncertain or squash-merge-attached resources; no worktree was removed.
+- [x] Establish isolated acceptance server, database, worker root, evidence root, and exact repository mapping.
+- [x] Execute a real fresh exact-SHA `validate-switchboard@1` attempt through every deterministic product component; all seven reviewed steps passed.
+- [ ] Record an authoritative completed fresh run and clean control-plane lease/capacity state. Blocked by HTTP 422 completion-summary rejection after successful execution.
+- [ ] Execute one distinct equivalent `allow_exact` request. Not attempted because no authoritative successful source run exists.
+- [ ] Prove same-worker retained-evidence verification and zero repeated deterministic steps. No reuse claim exists.
+- [x] Record the measured fresh duration, retained evidence size, operator actions, retries, and friction; reuse measurements are not available.
+- [x] Reconcile issue #111 body through the connector and update project status documentation.
+- [x] Finalize ExecPlan 015 as completed historical evidence.
+- [x] Add stable root `PROJECT_RULESET.md` with no moving status fields.
+- [x] Reconcile README product quick start and historical release wording.
+- [x] Add a current-versus-historical banner to `PUBLIC_RELEASE_AUDIT.md`.
+- [x] Update affected documentation indexes and operations guides.
+- [x] Run focused acceptance tests and the complete locally available validation matrix; record bounded pip-audit and WSL dependency setup as environment-blocked.
 - [ ] Commit logical Conventional Commit units using exact-path staging.
 - [ ] Push normally and verify local/remote SHA parity.
 - [ ] Complete exact-head hosted validation and connector review.
@@ -331,8 +331,108 @@ This slice should not add a new execution interface unless a genuine acceptance 
 
 ## Surprises & Discoveries
 
-Record findings here during local work.
+- Observation: The documented direct-file worker launcher fails from a source
+  checkout before registration because Python does not place the repository root
+  on the import path.
+  Evidence: `python scripts/local_worker.py` raised `ModuleNotFoundError` for a
+  repository package; `python -m scripts.local_worker` is the working interface
+  and is now documented.
+
+- Observation: A shared machine Python environment is not valid evidence for
+  this profile, and the fixed nested acceptance tests need the reviewed Node and
+  pnpm capabilities even though `validate-switchboard@1` itself declares only
+  Python.
+  Evidence: The shared environment reported unrelated pip conflicts and an
+  older Ruff. A campaign-scoped Python 3.14 environment with exact development
+  requirements, Node 24.19.0, and pnpm 10.18.1 produced the successful seven-step
+  execution.
+
+- Observation: The final successful deterministic execution could not be
+  committed to the control plane because a relative Windows path became
+  UNC-shaped only after JSON string serialization.
+  Evidence: Work order `1` / run `1` completed seven steps and finalized local
+  evidence, then `POST /api/execution/runs/1/complete` returned HTTP 422. The
+  retained summary contains a relative `..\..` package path; JSON escaping
+  produces doubled backslashes that the server correctly rejects. A focused
+  regression reproduces the policy failure, and final summary serialization now
+  replaces literal backslashes with `[BACKSLASH]`.
+
+- Observation: The required 2026-08-25 external-target re-resolution found
+  Industry Resilience PR #130 closed and merged at reviewed head
+  `e3fea89db624414fe3cad7980768f0265cf9570a` and merge commit
+  `f99abbf42c898f0fe4a7494f09b4aae13bed5c40`.
+  Evidence: Current GitHub PR metadata plus successful exact-head Quality Gate
+  run `32536731040` and Docker Smoke run `32536731320`. Exact-PR dogfood is now
+  TARGET-STATE-BLOCKED. Zscripts PR #119 remains closed/merged and
+  TARGET-STATE-BLOCKED at current reviewed main `c96628e...`.
 
 ## Outcomes & Retrospective
 
-Complete this section after the final exact-head connector review. Record what the real run proved, where the operator flow was cumbersome, what local cleanup occurred, and what should be the next separately authorized slice.
+The campaign proved that merged `validate-switchboard@1` can traverse the real
+server, explicit approval, first-available routing, outbound worker, exact-SHA
+worktree, fixed runner, evidence finalization, canonical integrity, and source
+cleanup path. On exact `a21aa33cabd143dbfefebe4ba32572ddb5765752`, all seven
+steps succeeded in `801.538211` seconds. Pytest reported `700` passed, `10`
+skipped, no failures/errors, and `94%` measured server coverage. Fourteen
+retained artifacts totaled `16,980` bytes; fingerprint
+`b5509a847335785930b6d89536d9b31bfcb4f21bb71f0d08afbceb1cfc2e2957`
+and reuse identity hash
+`fdcbf853a6f045a5136ad812b6720fcd10e194ab09a6abfb382137de80a3a3dc`
+were finalized locally. The canonical source remained clean and unchanged, the
+disposable worktree was removed, and worker/server processes were stopped.
+
+The accepted outcome is nevertheless partial. The server rejected completion,
+so work order `1`, run `1`, its lease, and capacity remain stale `running` state
+inside the preserved isolated database. There is no authoritative successful
+source run, no distinct reuse request/run, no same-worker retained-evidence
+verification, no zero-step reuse proof, and no avoided-work duration or count.
+The narrow source correction has focused validation, but this campaign did not
+hide the stale state, edit the database, or spend another live attempt. A later
+authorized run must begin with a new isolated environment and prove both
+terminal fresh completion and distinct exact reuse.
+
+Final branch validation passed `702` tests with `10` documented Windows
+platform/fixture skips and no failures or errors. Aggregate `server` coverage
+was `94%`. The corrected `scripts/dev.py verify --skip-audit` gate measured
+`93%` across its selected sources and passed every configured module threshold,
+including `server/observability/overview.py` at `100.00%`. Strict Playwright
+passed four cases with zero skips. The required fresh/reuse/evidence/routing
+modules passed; four real-worker server-smoke cases that first failed beneath a
+deep Windows temporary path all passed under a fresh short task-owned temp root.
+All-files pre-commit, TODO policy, Ruff lint/format, Black, Mypy, production
+Bandit, Gitleaks across 291 commits, detect-secrets, TOML/YAML, Lychee links,
+Node syntax, full-SHA action pins, diff check, and public-path hygiene passed.
+The single bounded `pip-audit` attempt produced no advisory response within one
+minute and was stopped. WSL2 was present, but its Python lacked project
+dependencies and `ensurepip`; no system package was installed, so Linux-only
+containment execution is environment-blocked for this campaign.
+
+Two additional developer-gate defects were corrected without weakening policy:
+`scripts/dev.py verify` now excludes `server/tests` from Bandit exactly like the
+trusted manifest and protected workflow, and it now includes
+`server.observability.overview` in coverage because that same command enforces
+an overview threshold. A focused CLI regression binds both argv contracts.
+
+Operator friction was dominated by multi-process setup, configuration of one
+exact canonical mapping, manual API creation and approval, capability matching,
+and long feedback from the nested full suite. Four bounded attempts were
+preserved: one launcher failure before request creation, one invalid shared
+toolchain execution, one nested-suite failure plus completion rejection, and one
+successful deterministic execution plus the same completion rejection. The
+future supported operator command should compose server/worker lifecycle,
+preflight tool capabilities, request creation/approval observation, and bounded
+cleanup reporting. It must not infer repository authority, approval, tokens, or
+isolation trust decisions.
+
+All seven registered worktrees were clean and had no staged, unstaged, or
+untracked content. The primary remained on exact `main`; the campaign worktree
+remains required for PR #147. Merged feature worktrees were retained because
+their squash-merged branch tips are not ordinary ancestors of `main`, and the
+campaign does not authorize force deletion. The public-workload worktree was
+also retained because its local tip differs from the final reviewed PR #145
+head; the pull-worker branch/worktree was retained because its local tip differs
+from reviewed PR #119 head. The closed-unmerged security branch and
+`security-deferral-wip` stash were preserved. No worktree or uncertain branch
+was deleted. The unattached `codex/harden-public-release-readiness` branch was
+the sole normal deletion: its tip exactly matched PR #88's reviewed merge
+commit, and `git branch -d` succeeded without force.

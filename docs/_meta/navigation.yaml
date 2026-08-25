@@ -6,6 +6,10 @@ sections:
         path: "docs/navigation-index.md"
         summary: "Complete map of Switchboard documentation with module responsibilities and onboarding flow."
         keywords: ["index", "map", "overview"]
+      - title: "Project Ruleset"
+        path: "PROJECT_RULESET.md"
+        summary: "Stable repository governance, safety, validation, and delivery rules."
+        keywords: ["governance", "rules", "safety"]
       - title: "Architecture Deep Dive"
         path: "docs/architecture/architecture.md"
         summary: "Expanded explanation of backend, client, and UI components."

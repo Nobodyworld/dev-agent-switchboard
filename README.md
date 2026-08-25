@@ -67,7 +67,28 @@ not currency, provider credits, or measured savings. See the
 [command-center operations guide](docs/operations/validation-command-center.md)
 for the end-to-end workflow and trust boundaries.
 
-### 3. Create a task
+### 3. Validate an exact source revision
+
+For trusted deterministic validation, keep the server running, create the
+operator-owned worker configuration described in the
+[local-worker operations guide](docs/operations/local-worker.md), and start the
+outbound worker from a second repository-root terminal:
+
+```bash
+python -m scripts.local_worker --config /operator/path/local-worker.json
+```
+
+Open the dashboard's **Validation Broker**, select an allowlisted repository and
+the immutable reviewed manifest (for this repository,
+`validate-switchboard@1`), enter the exact full source SHA, review routing and
+policy, then explicitly approve and queue the request. The worker mapping must
+point to an operator-approved clean canonical checkout that already contains the
+exact commit. A fresh run remains the default; `allow_exact` may reuse retained
+evidence only after same-worker identity, ownership, expiry, containment, size,
+and SHA-256 verification. Approval and repository mapping are trust decisions,
+not setup steps to automate.
+
+### 4. Create a task
 
 ```bash
 curl -X POST http://localhost:8000/api/tasks \
@@ -75,7 +96,7 @@ curl -X POST http://localhost:8000/api/tasks \
   -d '{"title": "Demo", "description": "Test task"}'
 ```
 
-### 4. Run a demo agent
+### 5. Run a demo agent
 
 In another terminal with the virtual environment activated:
 
@@ -88,7 +109,7 @@ python scripts/local_runner.py \
 
 Watch the dashboard update as work is leased and completed.
 
-### 5. Review the two-agent flow
+### 6. Review the two-agent flow
 
 See [docs/visuals/TWO_AGENT_WORKFLOW.md](docs/visuals/TWO_AGENT_WORKFLOW.md), then run:
 
@@ -178,6 +199,7 @@ See [SECURITY.md](SECURITY.md) and [docs/configuration.md](docs/configuration.md
 - **[Trusted Workload Onboarding](docs/operations/trusted-workload-onboarding.md)** — reviewed catalog entries, fixed manifests, worker mapping, and acceptance evidence.
 - **[Validation Command Center](docs/operations/validation-command-center.md)** — browser workflow, bounded projections, exact-reuse metrics, and publication controls.
 - **[Public Status](docs/reports/status.md)** — current developer-preview posture and release boundaries.
+- **[Project Ruleset](PROJECT_RULESET.md)** — stable governance, safety, validation, and delivery rules.
 - **[Two-Agent Workflow](docs/visuals/TWO_AGENT_WORKFLOW.md)** — dependency-unlock sequence.
 - **[Documentation Index](docs/index.md)** — full navigation.
 
@@ -213,6 +235,11 @@ This classification distinguishes four separate decisions:
 
 Formal release authorization remains blocked until the Linux symlink-containment regression executes successfully against the selected release candidate, final clean-clone and Docker evidence is recorded, and the owner completes the release/settings review tracked in issues #95 and #104.
 
+The existing `v0.1.0-preview.1` tag is a historical developer-preview
+checkpoint. It predates current `main` and the merged execution-broker,
+exact-reuse, routing, Validation Broker, and workload-factory capabilities; it
+is not current-main release evidence or production authorization.
+
 ## Governance
 
 - [Apache License 2.0](LICENSE)
@@ -221,6 +248,7 @@ Formal release authorization remains blocked until the Linux symlink-containment
 - [Contributing Guide](CONTRIBUTING.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Support Guide](docs/guides/support.md)
+- [Project Ruleset](PROJECT_RULESET.md)
 
 ## Suggested Reviewer Path
 

@@ -1,6 +1,6 @@
 # Public Developer Preview Status
 
-_Last reviewed: 2026-08-24_
+_Last reviewed: 2026-08-25_
 
 ## Classification
 
@@ -105,6 +105,45 @@ The slice must execute:
 
 This slice adds no new execution architecture unless a real acceptance defect requires a narrow correction with regression coverage.
 
+### 2026-08-25 real acceptance result: partial, completion blocked
+
+The operator-controlled fresh request reached the real merged FastAPI server,
+explicit approval, `first_available` routing, outbound worker, exact-SHA
+disposable worktree, fixed runner, retained evidence, and source cleanup path.
+Work order `1` / run `1` selected the single eligible worker and exact
+`validate-switchboard@1` digest
+`10e99418e4e6f0e9f4a6e95fb5b9a267dab4eeac4671cf58533c8b9afe1fed98`.
+All seven reviewed steps succeeded in `801.538211` seconds. The test step
+reported `700` passed, `10` skipped, no failures or errors, and `94%` measured
+server coverage. Fourteen retained command-log artifacts totaled `16,980`
+bytes; local evidence fingerprint
+`b5509a847335785930b6d89536d9b31bfcb4f21bb71f0d08afbceb1cfc2e2957`
+was finalized, the canonical source remained clean at exact `a21aa33...`, and
+the disposable source worktree and worker/server processes were removed.
+
+This is not an authoritative succeeded control-plane run. Completion returned
+HTTP `422` because JSON serialization of a relative Windows path created a
+UNC-shaped text sequence rejected by the server's absolute-local-path policy.
+The preserved database therefore truthfully remains `running` with one stale
+lease/capacity claim; no distinct `allow_exact` request was created and no reuse
+or avoided-step claim exists. A narrow worker correction now normalizes literal
+backslashes to a safe marker at the final summary-serialization boundary, with
+focused regression coverage. The retained attempt payload passes that policy
+after the correction, but another live retry was not performed. Issue #146
+acceptance remains **PARTIAL / ACCEPTANCE-BLOCKED** pending a fresh completed
+run and distinct exact reuse on a later authorized attempt.
+
+The final branch-local validation matrix passed `702` tests with `10` documented
+Windows platform/fixture skips, no failures or errors, and `94%` aggregate
+`server` coverage. The configured module gate measured `93%` across its selected
+sources and passed every threshold. Strict Playwright passed four cases with zero
+skips. Pre-commit, TODO, Ruff lint/format, Black, Mypy, production Bandit,
+Gitleaks, detect-secrets, TOML/YAML, Lychee, Node syntax, action pins, diff, and
+public-path hygiene passed. The one-minute dependency-audit attempt received no
+advisory response and is environment-blocked. WSL2 lacked the dependencies and
+`ensurepip` needed for an isolated Linux test environment; no system package was
+installed, so Linux-only containment remains environment-blocked in this slice.
+
 ## External target state
 
 ### Zscripts
@@ -121,11 +160,17 @@ No substitute PR is authorized. Synthetic acceptance remains valid, but current-
 
 ```text
 repository: Nobodyworld/app-industry-resilience
-planned live PR #130: previously observed open, draft, mergeable
-live dogfood disposition: ENVIRONMENT-BLOCKED
+planned live PR #130: closed and merged
+reviewed head: e3fea89db624414fe3cad7980768f0265cf9570a
+merge commit: f99abbf42c898f0fe4a7494f09b4aae13bed5c40
+live dogfood disposition: TARGET-STATE-BLOCKED
 ```
 
-The generic profile is merged and synthetically proven. Live execution remains blocked until the operator supplies an exact canonical checkout and a separate least-privilege isolation boundary. Green target CI does not remove those preconditions.
+The exact reviewed-head Quality Gate run `32536731040` and Docker Smoke run
+`32536731320` succeeded. The generic profile is merged and synthetically proven,
+but no substitute current-main execution may be represented as live exact-PR
+dogfood. The earlier environment-isolation boundary also remains valid for any
+future external-target campaign; green target checks do not remove it.
 
 ## Security and execution boundary
 
@@ -162,7 +207,8 @@ The execution-broker roadmap is tracked in issue #111.
 
 The current sequence is:
 
-1. complete issue #146 through real merged-product fresh/reuse acceptance and truth reconciliation;
+1. complete issue #146's remaining authoritative fresh/reuse proof after the
+   completion-summary defect correction is reviewed;
 2. use the acceptance evidence to identify actual operator friction;
 3. define scoped worker identity and an accepted isolation mode before exposing broader remote request surfaces;
 4. define a separate typed MCP/Secure MCP Tunnel architecture only after local-first utility is proven;

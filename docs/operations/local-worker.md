@@ -1,6 +1,6 @@
 # Local execution worker operations
 
-`scripts/local_worker.py` is the Phase 1 outbound-only worker for approved,
+`scripts.local_worker` is the Phase 1 outbound-only worker module for approved,
 trusted execution manifests. It is not a remote shell: work orders never supply
 an executable, a script body, an argv element, or a filesystem path.
 
@@ -12,18 +12,24 @@ process environment:
 
 ```powershell
 $env:SWITCHBOARD_ADMIN_TOKEN = "operator-provisioned-token"
-python scripts/local_worker.py --config C:\worker\local-worker.json
+python -m scripts.local_worker --config C:\worker\local-worker.json
 ```
 
 Use `--once` for one deterministic checkout attempt:
 
 ```powershell
-python scripts/local_worker.py --config C:\worker\local-worker.json --once
+python -m scripts.local_worker --config C:\worker\local-worker.json --once
 ```
 
 The token is deliberately excluded from the JSON file. Do not pass it on the
 command line or place it in source control. Phase 1 reuses the admin token and
 does not provide an individual worker-identity system.
+
+Use the module form from a source checkout. Directly invoking
+`python scripts/local_worker.py` does not establish the repository root on
+Python's import path and can fail before registration with a package import
+error. Worker configuration remains an operator trust decision: repository
+mappings, the admin token, and approval must not be inferred or automated.
 
 The operator-owned JSON configuration has strict JSON types. A minimal example
 is:
