@@ -24,6 +24,7 @@ from client.python.tests.test_execution_worker_runtime import (
 )
 from server.execution.enums import NetworkPolicy, RepositoryWritePolicy
 from server.execution.registry import TrustedManifest, TrustedStep, get_trusted_manifest
+from server.execution.text_policy import contains_absolute_local_path
 
 _FAILED_EXIT_CODE = 17
 _ROUNDED_DURATION = 1.235
@@ -94,6 +95,20 @@ def test_large_result_compacts_fields_but_preserves_valid_required_metadata() ->
             f"logs/{step['id']}.stderr.log",
         ]
         assert step["environment"] == {"PATH": "[SET]", "TOKEN": "[REDACTED]"}
+
+
+def test_serialized_summary_normalizes_relative_windows_paths() -> None:
+    serialized = LocalWorker._serialize_summary(
+        {"stdout": r"warning from ..\..\venv\Lib\site-packages\module.py"}
+    )
+
+    assert not contains_absolute_local_path(serialized)
+    assert json.loads(serialized) == {
+        "stdout": (
+            "warning from ..[BACKSLASH]..[BACKSLASH]venv[BACKSLASH]Lib"
+            "[BACKSLASH]site-packages[BACKSLASH]module.py"
+        )
+    }
 
 
 def test_local_record_write_failure_downgrades_success_and_completes_once(

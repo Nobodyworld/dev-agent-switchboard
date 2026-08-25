@@ -25,7 +25,7 @@ from server.execution.registry import TrustedStep
 
 _TOKEN = "worker-test-token"  # noqa: S105 - non-secret test fixture
 _LARGE_LOG_BYTES = 100
-_EXPECTED_REDACTED_PATHS = 2
+_EXPECTED_REDACTED_PATHS = 3
 
 
 def _config(tmp_path: Path, **overrides: object) -> WorkerConfig:
@@ -117,7 +117,11 @@ def test_summary_redacts_absolute_local_paths(tmp_path: Path) -> None:
     step = _step(
         sys.executable,
         "-c",
-        f"print(r'C:\\worker\\secret.log'); print({posix_path!r})",
+        (
+            "print(r'C:\\worker\\secret.log'); "
+            "print('C:/worker/secret.log'); "
+            f"print({posix_path!r})"
+        ),
     )
 
     result = run_step(
@@ -130,6 +134,7 @@ def test_summary_redacts_absolute_local_paths(tmp_path: Path) -> None:
 
     assert result.status == "succeeded"
     assert "C:\\worker" not in result.stdout_summary
+    assert "C:/worker" not in result.stdout_summary
     assert str(PurePosixPath("var", "tmp")) not in result.stdout_summary
     assert result.stdout_summary.count("[LOCAL_PATH]") == _EXPECTED_REDACTED_PATHS
 

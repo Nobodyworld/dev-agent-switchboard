@@ -505,7 +505,16 @@ class LocalWorker:
 
     @staticmethod
     def _serialize_summary(summary: Mapping[str, Any]) -> str:
-        return json.dumps(summary, ensure_ascii=False, separators=(",", ":"))
+        def normalize(value: Any) -> Any:
+            if isinstance(value, str):
+                return value.replace("\\", "[BACKSLASH]")
+            if isinstance(value, Mapping):
+                return {key: normalize(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [normalize(item) for item in value]
+            return value
+
+        return json.dumps(normalize(summary), ensure_ascii=False, separators=(",", ":"))
 
     @classmethod
     def _summary(
