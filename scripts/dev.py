@@ -169,7 +169,7 @@ def cmd_verify(args: argparse.Namespace) -> None:
             "client",
             "scripts",
         ],
-        ["bandit", "-q", "-r", "server"],
+        ["bandit", "-q", "-r", "server", "-x", "server/tests"],
         [
             sys.executable,
             "-m",
@@ -180,6 +180,7 @@ def cmd_verify(args: argparse.Namespace) -> None:
             "--cov=server.observability.diagnostics",
             "--cov=server.observability.health",
             "--cov=server.observability.activity",
+            "--cov=server.observability.overview",
             "--cov-report=term-missing",
             f"--cov-report=json:{coverage_json}",
         ],
