@@ -7,6 +7,7 @@ import hashlib
 import importlib.metadata
 import json
 import platform
+import re
 import threading
 import time
 from collections.abc import Mapping
@@ -62,7 +63,13 @@ from .worktree import (
 
 _SERVER_TERMINAL_STATUSES = {"succeeded", "failed", "timed_out", "cancelled"}
 RESULT_SUMMARY_LIMIT = 8000
-_MIN_MONITOR_INTERVAL_SECONDS = 2.0
+LOCAL_DATABASE_URI_MARKER = "[LOCAL_DATABASE_URI]"
+_LOCAL_SQLITE_EXPRESSION = re.compile(
+    r"(?i)(?<![A-Za-z0-9+.-])sqlite(?:\+aiosqlite)?:///\{[^{}\r\n]*\}"
+)
+_LOCAL_SQLITE_URI = re.compile(
+    r"(?i)(?<![A-Za-z0-9+.-])sqlite(?:\+aiosqlite)?:///[^\s<>\"']*"
+)
 STEP_EVIDENCE_SUMMARY_LIMIT = 4096
 _ENVIRONMENT_TOOLS = ("ruff", "black", "mypy", "pytest", "coverage", "bandit")
 ReuseDecisionValue = Literal["fresh", "reused", "unavailable"]
@@ -442,11 +449,7 @@ class _RunMonitor:
         self._thread.start()
 
     def _run(self) -> None:
-        interval = max(
-            self.worker.config.heartbeat_interval_seconds,
-            _MIN_MONITOR_INTERVAL_SECONDS,
-        )
-        while not self._stop.wait(interval):
+        while not self._stop.wait(self.worker.config.heartbeat_interval_seconds):
             self.tick()
             if self.token.cancelled:
                 return
@@ -510,9 +513,20 @@ class LocalWorker:
 
     @staticmethod
     def _serialize_summary(summary: Mapping[str, Any]) -> str:
+        def sanitize_text(value: str) -> str:
+            without_expressions = _LOCAL_SQLITE_EXPRESSION.sub(
+                LOCAL_DATABASE_URI_MARKER,
+                value,
+            )
+            without_local_databases = _LOCAL_SQLITE_URI.sub(
+                LOCAL_DATABASE_URI_MARKER,
+                without_expressions,
+            )
+            return without_local_databases.replace("\\", "[BACKSLASH]")
+
         def normalize(value: Any) -> Any:
             if isinstance(value, str):
-                return value.replace("\\", "[BACKSLASH]")
+                return sanitize_text(value)
             if isinstance(value, Mapping):
                 return {key: normalize(item) for key, item in value.items()}
             if isinstance(value, list):
@@ -1186,4 +1200,4 @@ class LocalWorker:
         return True
 
 
-__all__ = ["RESULT_SUMMARY_LIMIT", "LocalWorker"]
+__all__ = ["LOCAL_DATABASE_URI_MARKER", "RESULT_SUMMARY_LIMIT", "LocalWorker"]

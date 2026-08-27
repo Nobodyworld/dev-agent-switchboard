@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import pytest
 
-from server.execution.text_policy import contains_absolute_local_path
+from server.execution.text_policy import (
+    contains_absolute_local_path,
+    validate_no_absolute_local_paths,
+)
 
 
 @pytest.mark.parametrize(
@@ -18,8 +21,10 @@ from server.execution.text_policy import contains_absolute_local_path
         "logs/tests.stdout.log",
         "./relative/path",
         "../relative/path",
-        "https://example.test/results/1",
+        "nested/relative.txt",
+        "https://example.invalid/path",
         "git://example.test/repository",
+        "urn:example:value",
     ],
 )
 def test_safe_slash_shapes_are_not_local_absolute_paths(value: str) -> None:
@@ -34,9 +39,25 @@ def test_safe_slash_shapes_are_not_local_absolute_paths(value: str) -> None:
         "/tmp/child.pid",
         "retained at /var/log/switchboard.log",
         r"C:\worker\result.json",
+        "C:/worker/result.json",
         r"\\server\share\result.json",
         "file:///tmp/result.json",
+        "sqlite:///tmp/result.db",
+        "sqlite+aiosqlite:///tmp/result.db",
     ],
 )
 def test_genuine_local_absolute_paths_remain_rejected(value: str) -> None:
     assert contains_absolute_local_path(value) is True
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"nested": {"path": "/tmp/result.json"}},
+        {"nested": ["safe", r"C:\worker\result.json"]},
+        ["safe", {"database": "sqlite+aiosqlite:///tmp/result.db"}],
+    ],
+)
+def test_recursive_policy_rejects_nested_local_values(value: object) -> None:
+    with pytest.raises(ValueError, match="absolute local path"):
+        validate_no_absolute_local_paths(value)

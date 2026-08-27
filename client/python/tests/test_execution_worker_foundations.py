@@ -117,17 +117,24 @@ def test_execution_client_checkout_and_completion_payloads_are_bounded() -> None
     }
 
 
-def test_execution_client_surfaces_heartbeat_ownership_loss() -> None:
+@pytest.mark.parametrize(
+    "status_code",
+    [HTTPStatus.NOT_FOUND, HTTPStatus.CONFLICT],
+)
+def test_execution_client_preserves_ownership_loss_for_completion(
+    status_code: HTTPStatus,
+) -> None:
     session = Mock(spec=requests.Session)
-    session.request.return_value = _response({}, status_code=HTTPStatus.CONFLICT)
+    session.request.return_value = _response({}, status_code=status_code)
     client = ExecutionClient(
         "http://example.com", "worker-1", _TEST_TOKEN, session=session
     )
 
     with pytest.raises(ExecutionOwnershipLostError) as captured:
-        client.heartbeat_run(7)
+        client.complete_run(7, status="succeeded", result_summary="safe")
 
-    assert captured.value.status_code == HTTPStatus.CONFLICT
+    assert captured.value.status_code == status_code
+    session.request.assert_called_once()
 
 
 def test_execution_client_surfaces_bounded_safe_validation_details() -> None:
@@ -223,6 +230,68 @@ def test_execution_client_excludes_oversized_and_sensitive_error_content() -> No
     assert sensitive_error.value.validation_errors[0].message == "[REDACTED]"
     assert "private-token-value" not in str(sensitive_error.value)
     assert r"C:\private" not in str(sensitive_error.value)
+    assert session.request.call_count == _TWO_REQUESTS
+
+
+def test_execution_client_drops_raw_html_and_local_database_error_content(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    unsafe_token = "raw-private-token-value"  # noqa: S105 - synthetic leak probe
+    session = Mock(spec=requests.Session)
+    html = Mock(spec=requests.Response)
+    html.status_code = HTTPStatus.INTERNAL_SERVER_ERROR
+    html.content = (
+        f"<html>{unsafe_token} sqlite:///C:/private/result.db</html>"
+    ).encode()
+    sqlite_validation = _response(
+        {
+            "detail": [
+                {
+                    "type": "value_error",
+                    "loc": ["body", "result_summary"],
+                    "msg": "sqlite+aiosqlite:///tmp/private-result.db",
+                    "input": unsafe_token,
+                    "ctx": {"error": unsafe_token},
+                }
+            ]
+        },
+        status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+    )
+    session.request.side_effect = [html, sqlite_validation]
+    client = ExecutionClient(
+        "http://example.com", "worker-1", _TEST_TOKEN, session=session
+    )
+
+    with pytest.raises(ExecutionHttpError) as html_error:
+        client.complete_run(9, status="failed", result_summary="safe")
+    with pytest.raises(ExecutionHttpError) as sqlite_error:
+        client.complete_run(10, status="failed", result_summary="safe")
+
+    assert html_error.value.reason == "execution_http_error"
+    assert html_error.value.validation_errors == ()
+    assert sqlite_error.value.validation_errors[0].message == "[REDACTED]"
+    retained_state = repr(
+        (
+            html_error.value.args,
+            html_error.value.reason,
+            html_error.value.validation_errors,
+            sqlite_error.value.args,
+            sqlite_error.value.reason,
+            sqlite_error.value.validation_errors,
+        )
+    )
+    for unsafe in (
+        unsafe_token,
+        _TEST_TOKEN,
+        "private-result.db",
+        "sqlite:///",
+        "sqlite+aiosqlite:///",
+        "<html>",
+    ):
+        assert unsafe not in retained_state
+        assert unsafe not in caplog.text
+    assert not hasattr(html_error.value, "response")
+    assert not hasattr(sqlite_error.value, "request")
     assert session.request.call_count == _TWO_REQUESTS
 
 

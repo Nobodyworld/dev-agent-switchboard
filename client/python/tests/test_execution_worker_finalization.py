@@ -14,7 +14,11 @@ from client.python.execution_worker.containment import ContainmentCleanupError
 from client.python.execution_worker.evidence import EvidenceStore
 from client.python.execution_worker.models import AssignedWorkOrder
 from client.python.execution_worker.runner import StepResult
-from client.python.execution_worker.worker import RESULT_SUMMARY_LIMIT, LocalWorker
+from client.python.execution_worker.worker import (
+    LOCAL_DATABASE_URI_MARKER,
+    RESULT_SUMMARY_LIMIT,
+    LocalWorker,
+)
 from client.python.execution_worker.worktree import DisposableWorktree
 from client.python.tests.execution_worker_test_support import work_order_payload
 from client.python.tests.test_execution_worker_runtime import (
@@ -109,6 +113,33 @@ def test_serialized_summary_normalizes_relative_windows_paths() -> None:
             "[BACKSLASH]site-packages[BACKSLASH]module.py"
         )
     }
+
+
+def test_serialized_summary_redacts_local_sqlite_uris_recursively() -> None:
+    source_expression = "sqlite+aiosqlite:///{tmp_path / 'worker-smoke.db'}"
+    windows_dsn = r"sqlite:///C:\worker\private\result.db"
+    posix_dsn = "sqlite:////srv/worker/private/result.db"
+    serialized = LocalWorker._serialize_summary(
+        {
+            "stdout": f'engine = create_async_engine(f"{source_expression}")',
+            "nested": {
+                "windows": windows_dsn,
+                "items": [posix_dsn, "ordinary safe text"],
+            },
+        }
+    )
+    parsed = json.loads(serialized)
+
+    assert parsed["stdout"] == (
+        f'engine = create_async_engine(f"{LOCAL_DATABASE_URI_MARKER}")'
+    )
+    assert parsed["nested"] == {
+        "windows": LOCAL_DATABASE_URI_MARKER,
+        "items": [LOCAL_DATABASE_URI_MARKER, "ordinary safe text"],
+    }
+    for unsafe in (source_expression, windows_dsn, posix_dsn, "worker-smoke.db"):
+        assert unsafe not in serialized
+    assert not contains_absolute_local_path(serialized)
 
 
 def test_local_record_write_failure_downgrades_success_and_completes_once(

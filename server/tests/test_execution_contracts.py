@@ -14,7 +14,11 @@ from sqlalchemy import func, select
 
 from client.python.execution_worker.models import AssignedWorkOrder
 from client.python.execution_worker.runner import StepResult
-from client.python.execution_worker.worker import RESULT_SUMMARY_LIMIT, LocalWorker
+from client.python.execution_worker.worker import (
+    LOCAL_DATABASE_URI_MARKER,
+    RESULT_SUMMARY_LIMIT,
+    LocalWorker,
+)
 from server.app import app
 from server.application import build_execution_service
 from server.db import AsyncSessionLocal
@@ -801,7 +805,7 @@ async def test_malformed_worker_nested_evidence_path_fails_before_persistence(
 
 
 @pytest.mark.asyncio
-async def test_serialized_windows_summary_completes_and_releases_execution() -> None:
+async def test_sanitized_worker_summary_completes_and_releases_execution() -> None:
     transport = ASGITransport(app=app)
     worker_id = "serialized-completion-worker"
 
@@ -821,13 +825,17 @@ async def test_serialized_windows_summary_completes_and_releases_execution() -> 
             duration_seconds=1,
             stdout_summary=(
                 r"warning from ..\..\venv\Lib\site-packages\module.py; "
-                'assert tmp_path / "child.pid"'
+                'assert tmp_path / "child.pid"; '
+                "sqlite+aiosqlite:///{tmp_path / 'worker-smoke.db'}"
             ),
-            stderr_summary="1 passed",
+            stderr_summary="1 passed; bounded stderr",
             summaries_truncated=False,
             stdout_log="tests.stdout.log",
             stderr_log="tests.stderr.log",
-            environment_summary={"PATH": "[SET]"},
+            environment_summary={
+                "PATH": "[SET]",
+                "STEP_METADATA": "nested bounded metadata",
+            },
             started_at=now,
             finished_at=now + dt.timedelta(seconds=1),
             parsed_result=None,
@@ -861,6 +869,14 @@ async def test_serialized_windows_summary_completes_and_releases_execution() -> 
         assert "\\" not in serialized_stdout
         assert "[BACKSLASH]" in serialized_stdout
         assert 'tmp_path / "child.pid"' in serialized_stdout
+        assert LOCAL_DATABASE_URI_MARKER in serialized_stdout
+        assert "sqlite+aiosqlite" not in serialized
+        assert "worker-smoke.db" not in serialized
+        assert serialized_payload["steps"][0]["stderr"] == ("1 passed; bounded stderr")
+        assert serialized_payload["steps"][0]["environment"] == {
+            "PATH": "[SET]",
+            "STEP_METADATA": "nested bounded metadata",
+        }
         assert len(serialized) <= RESULT_SUMMARY_LIMIT
         assert not contains_absolute_local_path(serialized)
         with pytest.raises(ValidationError, match="absolute local path"):
@@ -908,6 +924,8 @@ async def test_completion_paths_rejected_then_safe_references_persist() -> None:
         for field, value in (
             ("result_summary", r"result at C:\worker\result.json"),
             ("result_summary", "result at /srv/worker/result.json"),
+            ("result_summary", "sqlite:///tmp/result.db"),
+            ("result_summary", "sqlite+aiosqlite:///tmp/result.db"),
             ("terminal_reason", r"cleanup_failed:C:\worker\checkout"),
             ("terminal_reason", "cleanup_failed:/tmp/checkout"),
         ):

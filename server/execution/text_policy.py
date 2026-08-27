@@ -8,6 +8,9 @@ from collections.abc import Mapping, Sequence
 _WINDOWS_DRIVE_PATH = re.compile(r"(?i)(?<![A-Za-z0-9/\\])[A-Z]:[\\/]")
 _WINDOWS_UNC_PATH = re.compile(r"(?<![:/\\A-Za-z0-9])\\{2,}(?!\s)")
 _FILE_URI = re.compile(r"(?i)(?<![A-Za-z0-9+.-])file:")
+_LOCAL_DATABASE_URI = re.compile(
+    r"(?i)(?<![A-Za-z0-9+.-])sqlite(?:\+[A-Za-z0-9_.-]+)?:///"
+)
 _SAFE_NONLOCAL_URI = re.compile(
     r"(?i)(?<![A-Za-z0-9+.-])"
     r"(?:https?|wss?|ftps?|ssh|git|mailto|urn):"
@@ -31,6 +34,7 @@ def contains_absolute_local_path(value: str) -> bool:
 
     if (
         _FILE_URI.search(value)
+        or _LOCAL_DATABASE_URI.search(value)
         or _WINDOWS_DRIVE_PATH.search(value)
         or _WINDOWS_UNC_PATH.search(value)
     ):
