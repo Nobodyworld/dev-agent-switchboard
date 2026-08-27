@@ -14,20 +14,18 @@ The repository is public for source inspection, controlled local evaluation, and
 
 ```text
 repository: Nobodyworld/dev-agent-switchboard
-current merged main: a21aa33cabd143dbfefebe4ba32572ddb5765752
-source: squash merge of PR #145
-completed issue: #143
-active issue: #146
-active draft PR: #147
-active branch: test/merged-workload-factory-acceptance
-active ExecPlan: .agent/execplans/016_merged_workload_factory_acceptance.md
-implementation correction head: 0019f0cc3675696e897d5d8ce267a7300847c631
-implementation connector review: 5038453077 — no blocking implementation defect; target-state blocker remains
-documentation truth-sync commit: 647743c8c157cf96bb1c00baccf038297b583cc9
-docs-sync Commitlint: 33092875160 success
-docs-sync CI: 33092874959 success
-docs-sync Workload acceptance: 33092874903 success
-current PR head and newest hosted checks: GitHub PR #147 is authoritative and intentionally not self-referenced in this file
+current merged main: e9b56ac0d5936e39d811b240a8091a54e1b4ff26
+source: squash merge of PR #147
+completed predecessor issue: #146 — closed not_planned / TARGET-STATE-BLOCKED
+active issue: #149
+active draft PR: #150
+active branch: test/reviewed-main-fresh-reuse-acceptance
+active ExecPlan: .agent/execplans/017_reviewed_main_fresh_reuse_acceptance.md
+prepared planning head: f933464cb78b44e83c16408424908eaed256c681
+prepared-head Commitlint: 33104129597 success
+prepared-head Workload acceptance: 33104129604 success
+prepared-head CI: GitHub PR #150 is authoritative for the latest state
+current PR head and newest hosted checks: GitHub PR #150 is authoritative and intentionally not self-referenced after the documentation commit
 ```
 
 PR #145 merged the public workload onboarding factory after exact-head local validation, hosted validation, and connector review. The merge retained the repository’s developer-preview classification and did not authorize release, deployment, live external target execution, MCP, paid-provider routing, or expanded worker types.
@@ -57,7 +55,7 @@ Switchboard is a trusted local execution and evidence broker for AI-assisted dev
 
 Trusted workload profiles are reviewed Python source under `server/execution/workload_profiles.py`. Runtime YAML, JSON, TOML, database rows, API payloads, target metadata, or caller-provided values cannot author executable commands.
 
-## Latest merged validation evidence
+## Earlier workload-factory merge evidence
 
 The exact PR #145 head was:
 
@@ -90,9 +88,77 @@ The isolated workload workflow passed Zscripts, Industry Resilience, and focused
 
 The connector’s commit-associated workflow lookup currently filters to pull-request-triggered runs, so it cannot enumerate ordinary `main` push runs for the squash commit. This document therefore does not claim separate merged-main push-run identifiers.
 
-## Active acceptance and reconciliation slice
+## Reviewed-main acceptance and reconciliation slice
 
-Issue #146 / draft PR #147 must prove one real operator-controlled run against merged Switchboard itself:
+Issue #149 / draft PR #150 proved merged reviewed `main` itself:
+
+```text
+repository: Nobodyworld/dev-agent-switchboard
+commit: e9b56ac0d5936e39d811b240a8091a54e1b4ff26
+manifest: validate-switchboard@1
+manifest digest: 10e99418e4e6f0e9f4a6e95fb5b9a267dab4eeac4671cf58533c8b9afe1fed98
+worker: issue-149-acceptance-worker
+routing: first_available
+```
+
+Fresh direct-API request/work order `1` created run `1`. Explicit approval
+queued the exact target with `reuse_policy: never`. The one eligible worker ran
+all seven reviewed steps successfully. The accepted test result was `733`
+passed, `12` documented version-gated skips, zero failures, zero errors, and
+`93%` aggregate server coverage. Fresh execution took `888.262961` seconds and
+persisted `14` retained command-log artifacts totaling `16,006` bytes.
+
+The fresh evidence fingerprint is
+`532d18c17fad9ff94e0ad86f40f874bb088fa82ff7014eef97f06968ced1d600`.
+Its reuse identity hash is
+`6f48f28d30c2b1a17d3d56e3054dca749269a6b61ef076f5906aedd3acca3343`.
+The source retention expiry is `2026-09-10T21:39:04.718334Z`.
+
+Distinct direct-API request/work order `2` created run `2` with
+`reuse_policy: allow_exact`. The same worker verified the source ownership
+marker, local result identity, evidence fingerprint, containment, regular-file
+status, size, and SHA-256 of all 14 source artifacts. Run `2` linked exactly to
+run `1`, reused the same identity hash and source fingerprint, executed zero
+deterministic validation steps, created zero new artifacts, and did not fall
+back to fresh execution. Its evidence duration was `2.870935` seconds; worker
+wall time was `6.016` seconds. Seven deterministic steps were avoided. This is
+not a claim about money, credits, tokens, provider cost, or financial savings.
+The source expiry remained unchanged.
+
+Both work orders and both runs are authoritatively `succeeded`. Final lease
+count and worker active capacity are zero; quota was not required and reserved
+zero units; all acceptance processes exited; the server port was released; the
+worker source root is empty; and no transient source worktree remains. The
+canonical checkout stayed on clean `main` with unchanged tree
+`43fa13c666b12c6f1c27d090331f443a5ef58014`.
+
+Post-acceptance validation passed the `201`-case focused boundary suite with two
+documented version skips, the exact candidate command and independent full
+suite at `733` passed / `12` skipped, all 16 configured module thresholds,
+strict Playwright at four passed / zero skipped, all-files pre-commit, catalog,
+TODO policy, Ruff, Black, Mypy, Bandit, Gitleaks, detect-secrets, TOML/YAML,
+Node syntax, and diff checks. The isolated `pip-audit` reported no known
+vulnerabilities. Lychee is not installed locally, so exact-head hosted link
+validation remains required.
+
+The only material operator friction was in runtime-only verification: one
+missing import root, one overbroad drive-path matcher that treated sanitized
+HTTPS text as a drive, UTC expiry representation normalization, and a
+Windows console UTF-8 requirement. These did not create another fresh request,
+did not alter product source or retained evidence, and did not weaken any
+acceptance assertion. All predecessor failed environments and
+`security-deferral-wip` remain preserved.
+
+PR #150 remains draft and unmerged. The documentation-only acceptance record
+was pushed normally with exact local/remote feature-ref parity. The remaining
+steps are exact-head hosted validation and connector review, then a separate
+owner merge decision. No release, deployment, production, or expanded
+execution authority follows from this acceptance.
+
+## Historical issue #146 acceptance slice
+
+Issue #146 / draft PR #147 was intended to prove one real operator-controlled
+run against the then-current merged Switchboard target:
 
 ```text
 repository: Nobodyworld/dev-agent-switchboard
@@ -100,7 +166,7 @@ commit: a21aa33cabd143dbfefebe4ba32572ddb5765752
 manifest: validate-switchboard@1
 ```
 
-The slice must execute:
+The slice was intended to execute:
 
 1. one explicitly approved fresh run through the real FastAPI server, outbound worker, routing, leases, worktree, runner, evidence, and cleanup path;
 2. one distinct equivalent `allow_exact` request on the same worker;
@@ -226,13 +292,12 @@ The execution-broker roadmap is tracked in issue #111.
 
 The current sequence is:
 
-1. obtain a separate owner target/merge decision after completed exact-head
-   connector review of PR #147, including selection of any newly authorized
-   immutable target before later acceptance;
-2. use the acceptance evidence to identify actual operator friction;
-3. define scoped worker identity and an accepted isolation mode before exposing broader remote request surfaces;
-4. define a separate typed MCP/Secure MCP Tunnel architecture only after local-first utility is proven;
-5. keep paid-provider handoff, browser workers, Docker workers, Unity workers, desktop/RPA, and write-capable workers behind separate accepted issues and threat models.
+1. complete exact-head hosted validation and connector review of draft PR #150;
+2. obtain a separate owner merge decision for the documentation-only acceptance record;
+3. use the accepted fresh/reuse evidence and recorded operator friction to scope any later work;
+4. define scoped worker identity and an accepted isolation mode before exposing broader remote request surfaces;
+5. define a separate typed MCP/Secure MCP Tunnel architecture only after local-first utility is proven;
+6. keep paid-provider handoff, browser workers, Docker workers, Unity workers, desktop/RPA, and write-capable workers behind separate accepted issues and threat models.
 
 ## Release and deployment boundary
 

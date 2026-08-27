@@ -24,7 +24,7 @@ predecessor issue: #146 — closed not_planned / TARGET-STATE-BLOCKED
 predecessor PR: #147 — squash-merged
 active issue: #149
 starting main and immutable acceptance target: e9b56ac0d5936e39d811b240a8091a54e1b4ff26
-canonical branch: test/reviewed-main-fresh-reuse-acceptance
+campaign branch: test/reviewed-main-fresh-reuse-acceptance
 pull request: #150 — open draft
 manifest: validate-switchboard@1
 routing: first_available
@@ -60,19 +60,19 @@ The final evidence must establish:
 - [x] Canonical branch `test/reviewed-main-fresh-reuse-acceptance` created from exact target.
 - [x] Living ExecPlan 017 created.
 - [x] Draft PR #150 created and linked to issue #149.
-- [ ] Synchronize a clean local canonical `main` to exact target `e9b56ac0...`.
-- [ ] Create one clean local worktree for the canonical successor branch.
-- [ ] Verify all three predecessor failed environments and `security-deferral-wip` remain preserved.
-- [ ] Establish one brand-new short marker-owned runtime with isolated database, storage, worker, evidence, report, TEMP/TMP, tooling, and process-marker roots.
-- [ ] Complete focused preflight validation of completion, evidence sanitization, HTTP diagnostics, routing, reuse, finalization, and server-smoke behavior.
-- [ ] Start the reviewed server and one outbound worker with only the Switchboard repository mapping.
-- [ ] Create, explicitly approve, queue, and execute one fresh exact-target `validate-switchboard@1` request.
-- [ ] Prove seven-of-seven fresh steps, authoritative terminal success, accepted evidence, exact identity, and complete cleanup.
-- [ ] Create, explicitly approve, queue, and complete one distinct equivalent `allow_exact` request on the same worker.
-- [ ] Prove same-worker retained-evidence verification, exact source linkage, zero repeated deterministic steps, unchanged expiry, no fresh fallback, and truthful avoided-work count.
-- [ ] Run the complete locally available validation matrix after successful fresh/reuse proof.
-- [ ] Reconcile this ExecPlan and concise mutable status evidence without rewriting predecessor history.
-- [ ] Commit only exact reviewed documentation/evidence-summary paths, push normally, and verify local/remote SHA parity.
+- [x] Synchronize a clean local canonical `main` to exact target `e9b56ac0...`.
+- [x] Create one clean local worktree for the canonical successor branch.
+- [x] Verify all three predecessor failed environments and `security-deferral-wip` remain preserved.
+- [x] Establish one brand-new short marker-owned runtime with isolated database, storage, worker, evidence, report, TEMP/TMP, tooling, and process-marker roots.
+- [x] Complete focused preflight validation of completion, evidence sanitization, HTTP diagnostics, routing, reuse, finalization, and server-smoke behavior.
+- [x] Start the reviewed server and one outbound worker with only the Switchboard repository mapping.
+- [x] Create, explicitly approve, queue, and execute one fresh exact-target `validate-switchboard@1` request.
+- [x] Prove seven-of-seven fresh steps, authoritative terminal success, accepted evidence, exact identity, and complete cleanup.
+- [x] Create, explicitly approve, queue, and complete one distinct equivalent `allow_exact` request on the same worker.
+- [x] Prove same-worker retained-evidence verification, exact source linkage, zero repeated deterministic steps, unchanged expiry, no fresh fallback, and truthful avoided-work count.
+- [x] Run the complete locally available validation matrix after successful fresh/reuse proof.
+- [x] Reconcile this ExecPlan and concise mutable status evidence without rewriting predecessor history.
+- [x] Commit only exact reviewed documentation/evidence-summary paths, push normally, and verify local/remote SHA parity.
 - [ ] Complete exact-head hosted validation and connector review.
 - [ ] Keep the PR draft and unmerged pending separate explicit owner authorization.
 
@@ -279,10 +279,121 @@ No new execution interface is authorized by this issue.
   Rationale: They are truthful historical evidence and must not be repaired, reused, or collapsed into the successor result.
   Date/Author: 2026-08-27 / Owner and GitHub coordinator.
 
+- Decision: Use direct work-order API identities for both requests.
+  Rationale: The immutable target is reviewed `main`, not a pull-request head. The direct API persists each request as its work order, so request IDs and work-order IDs are intentionally the same while the two requests and their runs remain distinct.
+  Date/Author: 2026-08-27 / Codex acceptance operator.
+
+- Decision: Continue to exact reuse only after read-only proof that the fresh product run succeeded despite a runtime-only verifier import fault.
+  Rationale: Work order 1, run 1, seven step records, compact evidence, retained artifacts, lease deletion, and zero worker capacity were already authoritatively successful. No second fresh request was created; runtime-only verification was corrected before request 2 existed.
+  Date/Author: 2026-08-27 / Codex acceptance operator.
+
 ## Surprises & Discoveries
 
-Record new observations only as they occur. Do not copy predecessor failures as new evidence.
+- The fresh worker exited successfully after `892.69` wall-clock seconds. The accepted evidence records `888.262961` seconds of execution, including a `847.547`-second test-with-coverage step.
+- The runtime-only post-run verifier initially lacked the repository root on `sys.path`. After read-only database inspection proved the product run had succeeded and cleanup was complete, the verifier was corrected without creating another fresh request.
+- Two additional runtime-only comparisons needed representation fixes before reuse was allowed: a drive-path regex falsely matched a scheme suffix in sanitized HTTPS text, and UTC expiry equality needed normalization across `Z`, `+00:00`, and database-naive UTC forms. These were operator-harness friction, not product or evidence failures.
+- `scripts/dev.py verify` needed `PYTHONUTF8=1` on the Windows console before it could print its progress arrow. The first launch executed no gate. Ruff/Mypy cache writes and Gitleaks launch also required the already-authorized successor-worktree boundary after sandbox-only access denials.
+- Lychee is not installed locally, so the optional local documentation-link check remains environment-blocked. Hosted link validation remains required on the final exact pushed head.
 
 ## Outcomes & Retrospective
 
-Pending authoritative fresh and exact-reuse completion.
+The reviewed-main acceptance completed successfully against immutable target
+`e9b56ac0d5936e39d811b240a8091a54e1b4ff26` with marker-owned runtime identity
+`sb149r1` and worker `issue-149-acceptance-worker`.
+
+### Fresh execution
+
+```text
+request identity: direct API work order 1
+work order: 1 — succeeded
+run: 1 — succeeded
+repository: Nobodyworld/dev-agent-switchboard
+target: e9b56ac0d5936e39d811b240a8091a54e1b4ff26
+manifest: validate-switchboard@1
+manifest digest: 10e99418e4e6f0e9f4a6e95fb5b9a267dab4eeac4671cf58533c8b9afe1fed98
+routing: first_available
+route result: one eligible worker; issue-149-acceptance-worker selected
+quota: not_required; required 0; reserved 0
+reuse decision: fresh / reuse_policy_never
+duration: 888.262961 seconds
+steps: 7 selected, 7 executed, 7 succeeded
+tests-with-coverage: 733 passed, 12 skipped, 0 failed, 0 errors, 93% aggregate server coverage
+artifacts: 14 regular contained files; 16,006 total bytes
+evidence fingerprint: 532d18c17fad9ff94e0ad86f40f874bb088fa82ff7014eef97f06968ced1d600
+reuse identity hash: 6f48f28d30c2b1a17d3d56e3054dca749269a6b61ef076f5906aedd3acca3343
+retention expiry: 2026-09-10T21:39:04.718334Z
+cleanup: lease 0; active capacity 0; worker source root empty; port released
+```
+
+The seven successful step identities were `python-version`,
+`dependency-health`, `lint`, `format`, `typecheck`, `tests-with-coverage`, and
+`security-audit`. The canonical checkout stayed on clean `main` with unchanged
+tree `43fa13c666b12c6f1c27d090331f443a5ef58014` before and after execution.
+
+Retained artifact inventory:
+
+| Relative identity | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `logs/python-version.stdout.log` | 16 | `c8bfaebe12ee1d81f5cc48ec07f6a8a069a4e60d24d2e804d021c7b9e2951b9f` |
+| `logs/python-version.stderr.log` | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `logs/dependency-health.stdout.log` | 31 | `672aec65a45bed50e70229c70934a7eebf0462595c459b83023027645d57cccf` |
+| `logs/dependency-health.stderr.log` | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `logs/lint.stdout.log` | 19 | `82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18` |
+| `logs/lint.stderr.log` | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `logs/format.stdout.log` | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `logs/format.stderr.log` | 58 | `42952929f98ff284b84ffc33f5fca4e517620f9b2ceb3fca1375e504affa8195` |
+| `logs/typecheck.stdout.log` | 46 | `beaa3345701198b68e01172d3e9e674acdb3dab008cf820a98ea334e88439456` |
+| `logs/typecheck.stderr.log` | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `logs/tests-with-coverage.stdout.log` | 14,954 | `4647481ae03a36c3f8348a86b2f70fa0e4367e6c95f63c84eda63f3d673350c7` |
+| `logs/tests-with-coverage.stderr.log` | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `logs/security-audit.stdout.log` | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `logs/security-audit.stderr.log` | 882 | `ed5ba05e0e6fd04ac43042c03ea06b0490619bf7c995267f02253ee9fb1b75fa` |
+
+### Exact reuse
+
+```text
+request identity: direct API work order 2
+work order: 2 — succeeded
+run: 2 — succeeded
+source run: 1
+worker: issue-149-acceptance-worker
+reuse decision: reused
+reuse identity hash: 6f48f28d30c2b1a17d3d56e3054dca749269a6b61ef076f5906aedd3acca3343
+source evidence fingerprint: 532d18c17fad9ff94e0ad86f40f874bb088fa82ff7014eef97f06968ced1d600
+duration: 2.870935 seconds
+worker wall time: 6.016 seconds
+deterministic steps: 0
+fresh fallback: none
+avoided deterministic step count: 7
+source expiry after reuse: 2026-09-10T21:39:04.718334Z (unchanged)
+cleanup: lease 0; active capacity 0; worker source root empty; port released
+```
+
+The worker verified the source ownership marker, local result identity, evidence
+fingerprint, containment, regular-file status, size, and SHA-256 for every
+retained artifact before accepting reuse. Run 2 is a distinct auditable record;
+its evidence contains zero steps and zero new artifacts and links exactly to
+run 1. Avoided work is seven deterministic validation steps, not money,
+credits, tokens, provider cost, or measured financial savings.
+
+### Post-acceptance validation
+
+- Focused execution boundary: `201 passed`, `2` documented version-gated skips.
+- Exact candidate command: `733 passed`, `12 skipped`, `1` warning; `93%` aggregate server coverage.
+- `scripts/dev.py verify`: `733 passed`, `12 skipped`, `1` warning; `91%` targeted aggregate coverage; isolated `pip-audit` reported no known vulnerabilities.
+- Independent `python -m pytest`: `733 passed`, `12 skipped`, `1` warning.
+- All 16 configured module thresholds passed, from `79.23%` to `100%` against their individual gates.
+- Strict Playwright: `4 passed`, `0 skipped`.
+- Catalog, all-files pre-commit, TODO policy, Ruff lint/format, Black, Mypy, Bandit, Gitleaks, detect-secrets, TOML/YAML, Node syntax, and diff checks passed.
+- Local Lychee documentation-link validation was not available; final exact-head hosted link validation and connector review remain pending.
+
+Four control-plane operator lifecycle actions were required: create and
+explicitly approve fresh work order 1, then create and explicitly approve reuse
+work order 2. The retained runtime and all predecessor evidence remain
+preserved. No production source, tests, workflows, dependencies, manifests,
+configuration, or product documentation changed. The documentation-only
+evidence commit was pushed normally and exact local/remote feature-ref parity
+was verified after publication; the final commit SHA is reported externally to
+avoid self-reference. Remaining work is exact-head hosted validation, connector
+review, and a separate owner merge decision while PR #150 remains draft and
+unmerged.
