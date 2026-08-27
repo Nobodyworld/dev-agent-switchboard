@@ -8,12 +8,20 @@ from collections.abc import Mapping, Sequence
 _WINDOWS_DRIVE_PATH = re.compile(r"(?i)(?<![A-Za-z0-9/\\])[A-Z]:[\\/]")
 _WINDOWS_UNC_PATH = re.compile(r"(?<![:/\\A-Za-z0-9])\\{2,}(?!\s)")
 _FILE_URI = re.compile(r"(?i)(?<![A-Za-z0-9+.-])file:")
+_LOCAL_DATABASE_URI = re.compile(
+    r"(?i)(?<![A-Za-z0-9+.-])sqlite(?:\+[A-Za-z0-9_.-]+)?:///"
+)
 _SAFE_NONLOCAL_URI = re.compile(
     r"(?i)(?<![A-Za-z0-9+.-])"
     r"(?:https?|wss?|ftps?|ssh|git|mailto|urn):"
     r"[^\s\r\n<>\"']+"
 )
-_POSIX_ROOTED_PATH = re.compile(r"(?<![/A-Za-z0-9])/")
+# A rooted POSIX path starts with a slash that is neither part of a relative
+# ``./``/``../`` reference nor followed by whitespace.  Requiring the next
+# character to be non-whitespace keeps ordinary rendered expressions such as
+# ``tmp_path / "child.pid"`` and ``1 / 2`` out of the local-path policy while
+# still rejecting ``/``, ``/tmp``, and prose such as ``retained at /var/log``.
+_POSIX_ROOTED_PATH = re.compile(r"(?<![/A-Za-z0-9.])/(?!\s)")
 
 
 def contains_absolute_local_path(value: str) -> bool:
@@ -26,6 +34,7 @@ def contains_absolute_local_path(value: str) -> bool:
 
     if (
         _FILE_URI.search(value)
+        or _LOCAL_DATABASE_URI.search(value)
         or _WINDOWS_DRIVE_PATH.search(value)
         or _WINDOWS_UNC_PATH.search(value)
     ):

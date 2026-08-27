@@ -29,7 +29,7 @@ from .containment import (
 )
 from .parsers import parse_result
 
-_WINDOWS_ABSOLUTE_PATH = re.compile(r"(?i)\b[A-Z]:\\[^\s\r\n\"']+")
+_WINDOWS_ABSOLUTE_PATH = re.compile(r"(?i)\b[A-Z]:[\\/][^\s\r\n\"']+")
 _POSIX_ABSOLUTE_PATH = re.compile(r"(?<![:A-Za-z0-9])/(?:[^\s\r\n\"']+/?)+")
 _LINUX_TERMINAL_PROCESS_STATES = frozenset({"X", "x", "Z"})
 _LINUX_STAT_MIN_FIELDS = 3

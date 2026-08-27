@@ -1,5 +1,9 @@
 # Build a repeatable public workload onboarding factory
 
+> **Completed historical ExecPlan.** This document preserves the evidence and
+> decisions for issue #143 and PR #145. It is not an active implementation plan
+> or a current-main acceptance record.
+
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 This repository implements the Switchboard service. This plan must be maintained in accordance with `.agent/PLANS.md`.
@@ -53,8 +57,8 @@ The repository remains a **PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY**. 
 - [x] Fast-forward the preserved worktree from `0f109a1584b8a8c3954e47fd6a4ccaa7098058ae` to connector commit `d62c524b34c196b3f46649ca6316aae863904949` and preserve every other checkout, worktree, and stash.
 - [x] Reconcile the six connector-review corrections: exact Black/digest/Mypy/pruning fixes, a 101-row overflow-detecting catalog snapshot, one aggregate parser-byte budget, and one declared Zscripts summary input.
 - [x] Complete the 2026-08-24 correction matrix: focused regressions, three required Python-version synthetic acceptances, `698` passed/`12` skipped full pytest, `91%` aggregate coverage plus every configured module threshold, workload-factory coverage at `100.00%`/`92.54%`, and strict Playwright at `4` passed/zero skipped.
-- [ ] Push the final branch normally and record exact local/remote SHA parity; publication is limited to source review on the existing draft PR and does not claim live-public-workload readiness.
-- [ ] Complete ultimate-head hosted validation and connector review.
+- [x] Push the final branch normally and record exact local/remote SHA parity at final reviewed PR head `aa4d236ae3c8d54ead03d00fcaf920d26b18f374`.
+- [x] Complete ultimate-head hosted validation and connector review, then squash-merge PR #145 as `a21aa33cabd143dbfefebe4ba32572ddb5765752` on 2026-08-24.
 
 ## Surprises & Discoveries
 
@@ -69,6 +73,14 @@ The repository remains a **PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY**. 
 
 - Observation: A read-only GitHub re-resolution at `2026-08-22T00:56:48Z` found Industry Resilience PR #130 still open, draft, cleanly mergeable, and unmerged at `e3fea89db624414fe3cad7980768f0265cf9570a`; exact-head CI and Docker Smoke remain green.
   Evidence: GitHub PR metadata, CI run `32536731040`, and Docker Smoke run `32536731320`. The current head is three commits beyond the 2026-08-21 checkpoint `01c4ebf52fcae3cce8771371228723db772d1459` and six commits beyond historical head `5e458da35accc9fedd9f29a521de5c27b757a8d0`. The latest delta changes only Streamlit configuration/UI, public API/pipeline behavior, tests, and documentation. GitHub content metadata shows that all six reviewed profile-contract files retain identical blob IDs across both target movements.
+
+- Observation: The required 2026-08-25 re-resolution found Industry Resilience
+  PR #130 closed and merged at the same reviewed head
+  `e3fea89db624414fe3cad7980768f0265cf9570a`, with merge commit
+  `f99abbf42c898f0fe4a7494f09b4aae13bed5c40`; exact-head Quality Gate run
+  `32536731040` and Docker Smoke run `32536731320` remain successful.
+  Evidence: Current GitHub PR metadata and check runs. Exact-PR live dogfood is
+  now `TARGET-STATE-BLOCKED`; no substitute current-main run is exact-PR proof.
 
 - Observation: The current Switchboard worker advertises Python and Node versions but does not independently discover a pnpm version.
   Evidence: `client/python/execution_worker/capabilities.py` at the starting SHA.
@@ -203,21 +215,20 @@ also passed on the final content.
 
 Zscripts PR #119 is confirmed closed/merged at
 `5fbb3a219d04ea3631042ef3a98272e1b5fca579`, so its live dogfood disposition
-is TARGET-STATE-BLOCKED. Industry PR #130 is still open and draft at
-`e3fea89db624414fe3cad7980768f0265cf9570a` as observed through GitHub at
-`2026-08-22T00:56:48Z`; CI run `32536731040` and Docker Smoke run
-`32536731320` succeeded on that exact head. The former `5e458da...` and
-`01c4ebf...` values are historical. No operator-approved exact canonical checkout or separate OS
-isolation boundary exists, so no controlled live execution was attempted. No
+is TARGET-STATE-BLOCKED. Industry PR #130 subsequently closed and merged at
+reviewed head `e3fea89db624414fe3cad7980768f0265cf9570a` as observed through GitHub on
+2026-08-25; Quality Gate run `32536731040` and Docker Smoke run `32536731320`
+succeeded on that exact head. Its exact-PR dogfood is now also
+TARGET-STATE-BLOCKED. The former `5e458da...` and `01c4ebf...` values are
+historical. No controlled external live execution was attempted, and no
 external repository, pull request, publication, branch, or source was mutated.
 
-The implementation is authorized for normal publication to the existing draft
-PR for connector review, with no claim of live-public-workload readiness. Live
-execution remains **ENVIRONMENT-BLOCKED** until an operator provides a
-least-privilege separate identity and a container/VM or equivalent OS-enforced
-ACL/mount boundary. The final `pip-audit` advisory query also remains
-environment-limited, and Docker is unavailable locally. Ultimate-head hosted
-validation and connector review remain required before any merge decision.
+The implementation was published to the existing draft PR, passed exact-head
+hosted validation and connector review, and squash-merged as
+`a21aa33cabd143dbfefebe4ba32572ddb5765752`. That completion does not claim
+live-public-workload readiness: both planned exact PR targets are now
+TARGET-STATE-BLOCKED. The final `pip-audit` advisory query remained
+environment-limited, and Docker was unavailable locally.
 
 The 2026-08-24 connector-correction reconciliation retained the four-repository
 catalog digest and both new manifest digests. Focused parser/readiness/profile

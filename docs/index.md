@@ -61,11 +61,13 @@ See [Architecture](architecture.md) for diagrams and deeper discussion, and
 consult the top-level [Architecture Overview](architecture/architecture-overview.md) for a
 component map of the updated extension pipeline.
 
-The accepted [Local Execution Broker Architecture](architecture/local-execution-broker.md)
-defines the next product stage: approved work orders, pull-based local workers,
-trusted command manifests, exact-SHA validation, and structured evidence. The
-example [validate-switchboard manifest](examples/execution/validate-switchboard-v1.yaml)
-is a contract reference only until implementation issues #112-#114 are complete.
+The implemented [Local Execution Broker Architecture](architecture/local-execution-broker.md)
+defines approved work orders, pull-based local workers, trusted command
+manifests, exact-SHA validation, and structured evidence. The
+[validate-switchboard manifest](examples/execution/validate-switchboard-v1.yaml)
+is a stable contract reference; use the Validation Broker and
+[local-worker operations guide](operations/local-worker.md) for the current
+operator path.
 
 ## Message Schema
 
@@ -148,6 +150,7 @@ Follow these steps to process a task locally:
 
 ## Additional Resources
 
+- [Project ruleset](../PROJECT_RULESET.md)
 - [Architecture](architecture.md)
 - [API reference](API.md)
 - [Architecture overview](architecture/architecture-overview.md)

@@ -1,5 +1,10 @@
 # Public Developer Preview Audit — Formal Release Still Blocked
 
+> **Historical immutable-candidate evidence.** This audit applies only to
+> candidate `b79aba1aaf72ffd20f0221bdf0fd77552541073f`. It is not a current-main
+> release audit, does not show that later `main` commits were released, and must
+> not be used as production or deployment authorization.
+
 **Classification:** `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY`
 **Validated candidate:** `b79aba1aaf72ffd20f0221bdf0fd77552541073f`
 **Public visibility disposition:** `ALLOWED FOR SOURCE PUBLICATION`

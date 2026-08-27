@@ -191,6 +191,16 @@ def _process_manifest(child_pid: Path) -> TrustedManifest:
         timeout_seconds=20,
         artifact_declarations=[],
         execution_steps=(step,),
+        result_contract={
+            "schema_version": 1,
+            "resource_limits": {
+                "maximum_artifact_count": 1,
+                "maximum_artifact_bytes": 4096,
+                "maximum_total_artifact_bytes": 4096,
+                "retention_days": 1,
+            },
+            "steps": [],
+        },
     )
 
 

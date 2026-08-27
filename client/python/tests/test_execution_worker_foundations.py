@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from http import HTTPStatus
 from pathlib import Path
 from unittest.mock import Mock
@@ -11,18 +12,23 @@ import requests
 
 from client.python.execution_worker import (
     ExecutionClient,
+    ExecutionHttpError,
     ExecutionOwnershipLostError,
     WorkerConfig,
     discover_worker_registration,
 )
 
 _TEST_TOKEN = "worker-test-token"  # noqa: S105 - non-secret test fixture
+_TWO_REQUESTS = 2
+_MAX_SAFE_VALIDATION_ERRORS = 8
+_MAX_SAFE_VALIDATION_MESSAGE_LENGTH = 256
 
 
 def _response(payload: object, *, status_code: int = 200) -> Mock:
     response = Mock(spec=requests.Response)
     response.status_code = status_code
     response.json.return_value = payload
+    response.content = json.dumps(payload).encode("utf-8")
     response.raise_for_status.return_value = None
     return response
 
@@ -111,17 +117,213 @@ def test_execution_client_checkout_and_completion_payloads_are_bounded() -> None
     }
 
 
-def test_execution_client_surfaces_heartbeat_ownership_loss() -> None:
+@pytest.mark.parametrize(
+    "status_code",
+    [HTTPStatus.NOT_FOUND, HTTPStatus.CONFLICT],
+)
+def test_execution_client_preserves_ownership_loss_for_completion(
+    status_code: HTTPStatus,
+) -> None:
     session = Mock(spec=requests.Session)
-    session.request.return_value = _response({}, status_code=HTTPStatus.CONFLICT)
+    session.request.return_value = _response({}, status_code=status_code)
     client = ExecutionClient(
         "http://example.com", "worker-1", _TEST_TOKEN, session=session
     )
 
     with pytest.raises(ExecutionOwnershipLostError) as captured:
-        client.heartbeat_run(7)
+        client.complete_run(7, status="succeeded", result_summary="safe")
 
-    assert captured.value.status_code == HTTPStatus.CONFLICT
+    assert captured.value.status_code == status_code
+    session.request.assert_called_once()
+
+
+def test_execution_client_surfaces_bounded_safe_validation_details() -> None:
+    session = Mock(spec=requests.Session)
+    response = _response(
+        {
+            "detail": [
+                {
+                    "type": "value_error",
+                    "loc": ["body", "result_summary"],
+                    "msg": "Value error, text must not contain an absolute local path",
+                    "input": "private-token-value",
+                }
+            ]
+        },
+        status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+    )
+    session.request.return_value = response
+    client = ExecutionClient(
+        "http://example.com", "worker-1", _TEST_TOKEN, session=session
+    )
+
+    with pytest.raises(ExecutionHttpError) as captured:
+        client.complete_run(9, status="succeeded", result_summary="safe")
+
+    error = captured.value
+    assert error.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert error.reason == "execution_validation_error"
+    assert len(error.validation_errors) == 1
+    assert error.validation_errors[0].location == ("body", "result_summary")
+    assert error.validation_errors[0].error_type == "value_error"
+    assert "absolute local path" in error.validation_errors[0].message
+    assert "private-token-value" not in str(error)
+    assert _TEST_TOKEN not in str(error)
+    session.request.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"detail": "not-a-list"},
+        {"unexpected": "shape"},
+    ],
+)
+def test_execution_client_uses_stable_reason_for_unknown_error_json(
+    payload: object,
+) -> None:
+    session = Mock(spec=requests.Session)
+    session.request.return_value = _response(
+        payload, status_code=HTTPStatus.UNPROCESSABLE_ENTITY
+    )
+    client = ExecutionClient(
+        "http://example.com", "worker-1", _TEST_TOKEN, session=session
+    )
+
+    with pytest.raises(ExecutionHttpError) as captured:
+        client.complete_run(9, status="succeeded")
+
+    assert captured.value.reason == "execution_http_error"
+    assert captured.value.validation_errors == ()
+    session.request.assert_called_once()
+
+
+def test_execution_client_excludes_oversized_and_sensitive_error_content() -> None:
+    session = Mock(spec=requests.Session)
+    oversized = _response({}, status_code=HTTPStatus.UNPROCESSABLE_ENTITY)
+    oversized.content = b"x" * (64 * 1024 + 1)
+    sensitive = _response(
+        {
+            "detail": [
+                {
+                    "type": "value_error",
+                    "loc": ["body", r"C:\private\field"],
+                    "msg": "Bearer private-token-value at /private/path",
+                    "input": "private-token-value",
+                }
+            ]
+        },
+        status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+    )
+    session.request.side_effect = [oversized, sensitive]
+    client = ExecutionClient(
+        "http://example.com", "worker-1", _TEST_TOKEN, session=session
+    )
+
+    with pytest.raises(ExecutionHttpError) as oversized_error:
+        client.complete_run(9, status="succeeded")
+    with pytest.raises(ExecutionHttpError) as sensitive_error:
+        client.complete_run(10, status="succeeded")
+
+    assert oversized_error.value.validation_errors == ()
+    assert sensitive_error.value.validation_errors[0].location == ("body", "[REDACTED]")
+    assert sensitive_error.value.validation_errors[0].message == "[REDACTED]"
+    assert "private-token-value" not in str(sensitive_error.value)
+    assert r"C:\private" not in str(sensitive_error.value)
+    assert session.request.call_count == _TWO_REQUESTS
+
+
+def test_execution_client_drops_raw_html_and_local_database_error_content(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    unsafe_token = "raw-private-token-value"  # noqa: S105 - synthetic leak probe
+    session = Mock(spec=requests.Session)
+    html = Mock(spec=requests.Response)
+    html.status_code = HTTPStatus.INTERNAL_SERVER_ERROR
+    html.content = (
+        f"<html>{unsafe_token} sqlite:///C:/private/result.db</html>"
+    ).encode()
+    sqlite_validation = _response(
+        {
+            "detail": [
+                {
+                    "type": "value_error",
+                    "loc": ["body", "result_summary"],
+                    "msg": "sqlite+aiosqlite:///tmp/private-result.db",
+                    "input": unsafe_token,
+                    "ctx": {"error": unsafe_token},
+                }
+            ]
+        },
+        status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+    )
+    session.request.side_effect = [html, sqlite_validation]
+    client = ExecutionClient(
+        "http://example.com", "worker-1", _TEST_TOKEN, session=session
+    )
+
+    with pytest.raises(ExecutionHttpError) as html_error:
+        client.complete_run(9, status="failed", result_summary="safe")
+    with pytest.raises(ExecutionHttpError) as sqlite_error:
+        client.complete_run(10, status="failed", result_summary="safe")
+
+    assert html_error.value.reason == "execution_http_error"
+    assert html_error.value.validation_errors == ()
+    assert sqlite_error.value.validation_errors[0].message == "[REDACTED]"
+    retained_state = repr(
+        (
+            html_error.value.args,
+            html_error.value.reason,
+            html_error.value.validation_errors,
+            sqlite_error.value.args,
+            sqlite_error.value.reason,
+            sqlite_error.value.validation_errors,
+        )
+    )
+    for unsafe in (
+        unsafe_token,
+        _TEST_TOKEN,
+        "private-result.db",
+        "sqlite:///",
+        "sqlite+aiosqlite:///",
+        "<html>",
+    ):
+        assert unsafe not in retained_state
+        assert unsafe not in caplog.text
+    assert not hasattr(html_error.value, "response")
+    assert not hasattr(sqlite_error.value, "request")
+    assert session.request.call_count == _TWO_REQUESTS
+
+
+def test_execution_client_bounds_validation_detail_count_and_message() -> None:
+    session = Mock(spec=requests.Session)
+    response = _response(
+        {
+            "detail": [
+                {
+                    "type": "value_error",
+                    "loc": ["body", "field", index],
+                    "msg": "x" * 1000,
+                }
+                for index in range(_MAX_SAFE_VALIDATION_ERRORS + 2)
+            ]
+        },
+        status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+    )
+    session.request.return_value = response
+    client = ExecutionClient(
+        "http://example.com", "worker-1", _TEST_TOKEN, session=session
+    )
+
+    with pytest.raises(ExecutionHttpError) as captured:
+        client.complete_run(9, status="succeeded")
+
+    assert len(captured.value.validation_errors) == _MAX_SAFE_VALIDATION_ERRORS
+    assert all(
+        len(item.message) == _MAX_SAFE_VALIDATION_MESSAGE_LENGTH
+        for item in captured.value.validation_errors
+    )
+    session.request.assert_called_once()
 
 
 def test_worker_config_uses_only_registered_absolute_paths(tmp_path: Path) -> None:

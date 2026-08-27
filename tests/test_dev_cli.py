@@ -1,7 +1,26 @@
 from argparse import Namespace
+from pathlib import Path
 
 import pytest
 from scripts import dev
+
+
+def test_verify_scans_production_server_code_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        dev, "_run_command", lambda command: commands.append(list(command))
+    )
+    monkeypatch.setattr(dev, "cmd_coverage_gate", lambda _args: None)
+
+    dev.cmd_verify(
+        Namespace(coverage_json=str(tmp_path / "coverage.json"), skip_audit=True)
+    )
+
+    assert ["bandit", "-q", "-r", "server", "-x", "server/tests"] in commands
+    pytest_command = next(command for command in commands if "-m" in command)
+    assert "--cov=server.observability.overview" in pytest_command
 
 
 def test_cmd_list_extensions_outputs_builtins(capsys, monkeypatch):

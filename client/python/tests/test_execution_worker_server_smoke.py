@@ -686,7 +686,7 @@ def test_server_backed_worker_smoke_executes_exact_sha_and_releases_lease(
             worker_root=tmp_path / "worker-root",
             evidence_root=tmp_path / "evidence-root",
             repositories={"Nobodyworld/dev-agent-switchboard": canonical},
-            heartbeat_interval_seconds=0.05,
+            heartbeat_interval_seconds=5,
         )
         with ExecutionClient(
             config.base_url,
@@ -1269,7 +1269,7 @@ def test_server_backed_local_record_failure_completes_once_and_releases_lease(
             worker_root=tmp_path / "worker-root",
             evidence_root=tmp_path / "evidence-root",
             repositories={"Nobodyworld/dev-agent-switchboard": canonical},
-            heartbeat_interval_seconds=0.05,
+            heartbeat_interval_seconds=5,
         )
         session = _CountingAsgiSession(app)
         with ExecutionClient(

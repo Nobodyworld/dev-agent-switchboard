@@ -12,6 +12,13 @@ from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 from sqlalchemy import func, select
 
+from client.python.execution_worker.models import AssignedWorkOrder
+from client.python.execution_worker.runner import StepResult
+from client.python.execution_worker.worker import (
+    LOCAL_DATABASE_URI_MARKER,
+    RESULT_SUMMARY_LIMIT,
+    LocalWorker,
+)
 from server.app import app
 from server.application import build_execution_service
 from server.db import AsyncSessionLocal
@@ -46,8 +53,12 @@ from server.execution.exceptions import (
 )
 from server.execution.registry import get_trusted_manifest
 from server.execution.repository import ExecutionRepository
-from server.execution.schemas import WorkOrderCreateIn
+from server.execution.schemas import ExecutionCompletionIn, WorkOrderCreateIn
 from server.execution.service import ExecutionService
+from server.execution.text_policy import (
+    contains_absolute_local_path,
+    validate_no_absolute_local_paths,
+)
 from server.models import ExecutionLease, ExecutionRun, ExecutionWorkOrder, Lease, Task
 from server.settings import reload_admin_token
 from server.task_status import TaskStatus
@@ -58,7 +69,12 @@ _SHA256_LENGTH = 64
 
 
 def _evidence_for_run(
-    *, work_order_id: int, run_id: int, worker_id: str, manifest_digest: str
+    *,
+    work_order_id: int,
+    run_id: int,
+    worker_id: str,
+    manifest_digest: str,
+    step_summary: str = "1 passed",
 ) -> ExecutionEvidence:
     now = dt.datetime(2026, 7, 22, 12, tzinfo=dt.UTC)
     artifact = ArtifactRecord(
@@ -100,7 +116,7 @@ def _evidence_for_run(
                     finished_at=now + dt.timedelta(seconds=1),
                     duration_seconds=1,
                     exit_code=0,
-                    summary="1 passed",
+                    summary=step_summary,
                     log_artifact_paths=[artifact.relative_path],
                 )
             ],
@@ -789,6 +805,117 @@ async def test_malformed_worker_nested_evidence_path_fails_before_persistence(
 
 
 @pytest.mark.asyncio
+async def test_sanitized_worker_summary_completes_and_releases_execution() -> None:
+    transport = ASGITransport(app=app)
+    worker_id = "serialized-completion-worker"
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        work_order, run_id = await _create_api_execution(client, worker_id=worker_id)
+        active_order_response = await client.get(
+            f"/api/execution/work-orders/{work_order['id']}"
+        )
+        assert active_order_response.status_code == HTTPStatus.OK
+        active_order = AssignedWorkOrder.from_payload(active_order_response.json())
+        now = dt.datetime(2026, 7, 22, 12, tzinfo=dt.UTC)
+        result = StepResult(
+            step_id="tests",
+            title="Run tests",
+            status="succeeded",
+            exit_code=0,
+            duration_seconds=1,
+            stdout_summary=(
+                r"warning from ..\..\venv\Lib\site-packages\module.py; "
+                'assert tmp_path / "child.pid"; '
+                "sqlite+aiosqlite:///{tmp_path / 'worker-smoke.db'}"
+            ),
+            stderr_summary="1 passed; bounded stderr",
+            summaries_truncated=False,
+            stdout_log="tests.stdout.log",
+            stderr_log="tests.stderr.log",
+            environment_summary={
+                "PATH": "[SET]",
+                "STEP_METADATA": "nested bounded metadata",
+            },
+            started_at=now,
+            finished_at=now + dt.timedelta(seconds=1),
+            parsed_result=None,
+        )
+        serialized = LocalWorker._serialize_summary(
+            LocalWorker._summary(active_order, [result])
+        )
+        evidence = _evidence_for_run(
+            work_order_id=int(work_order["id"]),
+            run_id=run_id,
+            worker_id=worker_id,
+            manifest_digest=str(work_order["manifest_digest"]),
+            step_summary='assert tmp_path / "child.pid"',
+        )
+        completion = ExecutionCompletionIn.model_validate(
+            {
+                "worker_id": worker_id,
+                "status": "succeeded",
+                "result_summary": serialized,
+                "terminal_reason": "validation_completed",
+                "cleanup_status": "succeeded",
+                "artifact_metadata": [
+                    item.model_dump(mode="json") for item in evidence.artifacts
+                ],
+                "evidence_metadata": evidence.model_dump(mode="json"),
+            }
+        )
+
+        serialized_payload = json.loads(serialized)
+        serialized_stdout = serialized_payload["steps"][0]["stdout"]
+        assert "\\" not in serialized_stdout
+        assert "[BACKSLASH]" in serialized_stdout
+        assert 'tmp_path / "child.pid"' in serialized_stdout
+        assert LOCAL_DATABASE_URI_MARKER in serialized_stdout
+        assert "sqlite+aiosqlite" not in serialized
+        assert "worker-smoke.db" not in serialized
+        assert serialized_payload["steps"][0]["stderr"] == ("1 passed; bounded stderr")
+        assert serialized_payload["steps"][0]["environment"] == {
+            "PATH": "[SET]",
+            "STEP_METADATA": "nested bounded metadata",
+        }
+        assert len(serialized) <= RESULT_SUMMARY_LIMIT
+        assert not contains_absolute_local_path(serialized)
+        with pytest.raises(ValidationError, match="absolute local path"):
+            ExecutionCompletionIn.model_validate(
+                {
+                    "worker_id": worker_id,
+                    "status": "succeeded",
+                    "result_summary": r"result retained at C:\worker\result.json",
+                }
+            )
+
+        accepted = await client.post(
+            f"/api/execution/runs/{run_id}/complete",
+            json=completion.model_dump(mode="json", exclude_none=True),
+        )
+        persisted_run = await client.get(f"/api/execution/runs/{run_id}")
+        persisted_order = await client.get(
+            f"/api/execution/work-orders/{work_order['id']}"
+        )
+
+    assert accepted.status_code == HTTPStatus.OK
+    assert accepted.json()["status"] == "succeeded"
+    assert persisted_run.status_code == HTTPStatus.OK
+    assert persisted_run.json()["status"] == "succeeded"
+    assert persisted_run.json()["result_summary"] == serialized
+    assert persisted_order.status_code == HTTPStatus.OK
+    assert persisted_order.json()["status"] == "succeeded"
+    for response in (accepted, persisted_run, persisted_order):
+        validate_no_absolute_local_paths(response.json())
+
+    async with AsyncSessionLocal() as session:
+        repository = ExecutionRepository(session)
+        worker = await repository.get_worker(worker_id)
+        assert worker is not None
+        assert worker.active_run_count == 0
+        assert await repository.get_lease_for_run(run_id) is None
+
+
+@pytest.mark.asyncio
 async def test_completion_paths_rejected_then_safe_references_persist() -> None:
     transport = ASGITransport(app=app)
     worker_id = "malformed-completion-worker"
@@ -797,6 +924,8 @@ async def test_completion_paths_rejected_then_safe_references_persist() -> None:
         for field, value in (
             ("result_summary", r"result at C:\worker\result.json"),
             ("result_summary", "result at /srv/worker/result.json"),
+            ("result_summary", "sqlite:///tmp/result.db"),
+            ("result_summary", "sqlite+aiosqlite:///tmp/result.db"),
             ("terminal_reason", r"cleanup_failed:C:\worker\checkout"),
             ("terminal_reason", "cleanup_failed:/tmp/checkout"),
         ):

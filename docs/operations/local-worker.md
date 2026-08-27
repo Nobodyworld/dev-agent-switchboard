@@ -1,6 +1,6 @@
 # Local execution worker operations
 
-`scripts/local_worker.py` is the Phase 1 outbound-only worker for approved,
+`scripts.local_worker` is the Phase 1 outbound-only worker module for approved,
 trusted execution manifests. It is not a remote shell: work orders never supply
 an executable, a script body, an argv element, or a filesystem path.
 
@@ -12,18 +12,24 @@ process environment:
 
 ```powershell
 $env:SWITCHBOARD_ADMIN_TOKEN = "operator-provisioned-token"
-python scripts/local_worker.py --config C:\worker\local-worker.json
+python -m scripts.local_worker --config C:\worker\local-worker.json
 ```
 
 Use `--once` for one deterministic checkout attempt:
 
 ```powershell
-python scripts/local_worker.py --config C:\worker\local-worker.json --once
+python -m scripts.local_worker --config C:\worker\local-worker.json --once
 ```
 
 The token is deliberately excluded from the JSON file. Do not pass it on the
 command line or place it in source control. Phase 1 reuses the admin token and
 does not provide an individual worker-identity system.
+
+Use the module form from a source checkout. Directly invoking
+`python scripts/local_worker.py` does not establish the repository root on
+Python's import path and can fail before registration with a package import
+error. Worker configuration remains an operator trust decision: repository
+mappings, the admin token, and approval must not be inferred or automated.
 
 The operator-owned JSON configuration has strict JSON types. A minimal example
 is:
@@ -329,6 +335,20 @@ completion request. An otherwise successful run becomes failed with
 `local_result_record_failed`; an existing execution failure keeps its original
 terminal reason and the additional record failure appears in bounded cleanup
 metadata. Completion is attempted once and is not blindly retried.
+
+Before compact result JSON is submitted, the worker recursively replaces
+literal backslashes with `[BACKSLASH]` and complete local `sqlite:///` or
+`sqlite+aiosqlite:///` DSNs with `[LOCAL_DATABASE_URI]`. This remote-evidence
+sanitization does not rewrite the full retained logs: those bytes remain local
+under the existing ownership, containment, and retention policy. The server
+continues to reject raw local database URIs, `file:` URIs, and genuine absolute
+paths submitted directly or inside nested completion/evidence values.
+
+Non-ownership HTTP failures use a bounded typed diagnostic. It retains the
+status code, one stable reason, and at most eight validation entries containing
+only bounded safe location, type, and sanitized message fields. It never retains
+the raw response, request body, validation `input`, arbitrary validation
+context, authorization value, HTML, local path, or local database URI.
 
 While a step runs, the worker sends worker and run heartbeats, watches the
 overall deadline, and reacts to shutdown. Worker liveness and run ownership are
