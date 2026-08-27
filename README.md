@@ -151,7 +151,15 @@ local exact-SHA activity with its own source and authorization preconditions.
 
 Exact counts, coverage percentages, workflow identifiers, and environment limitations change as the repository evolves. They are intentionally recorded in active pull requests, living ExecPlans, the [public status page](docs/reports/status.md), and [PUBLIC_RELEASE_AUDIT.md](PUBLIC_RELEASE_AUDIT.md) rather than duplicated here as permanent claims.
 
-Formal release still requires the Linux symlink-containment regression to execute without a skip against one selected release-candidate SHA, complete clean-clone and Docker evidence, and the owner-controlled release/settings review tracked in issues #95 and #104.
+The `v0.1.0-preview.1` developer preview completed its recorded Linux,
+clean-install, Docker, test, browser, security, and repository-control gates.
+That tag predates current `main` and the later execution-broker capabilities. It
+is a historical public checkpoint, not current-main release evidence.
+
+Any later preview or formal release requires a newly selected immutable
+candidate, complete candidate-specific evidence, and separate owner
+authorization. Production deployment and untrusted internet-facing use remain
+unsupported.
 
 ## Security Model
 
@@ -233,12 +241,16 @@ This classification distinguishes four separate decisions:
 3. **Release authorization:** no production release, version tag, or general-availability claim is authorized.
 4. **Production deployment safety:** untrusted multi-tenant and internet-facing deployment remain unsupported.
 
-Formal release authorization remains blocked until the Linux symlink-containment regression executes successfully against the selected release candidate, final clean-clone and Docker evidence is recorded, and the owner completes the release/settings review tracked in issues #95 and #104.
+The `v0.1.0-preview.1` developer preview completed its recorded Linux,
+clean-install, Docker, test, browser, security, and repository-control gates.
+That tag predates current `main` and the merged execution-broker, exact-reuse,
+routing, Validation Broker, and workload-factory capabilities. It is a
+historical public checkpoint, not current-main release evidence.
 
-The existing `v0.1.0-preview.1` tag is a historical developer-preview
-checkpoint. It predates current `main` and the merged execution-broker,
-exact-reuse, routing, Validation Broker, and workload-factory capabilities; it
-is not current-main release evidence or production authorization.
+Any later preview or formal release requires a newly selected immutable
+candidate, complete candidate-specific evidence, and separate owner
+authorization. Production deployment and untrusted internet-facing use remain
+unsupported.
 
 ## Governance
 
