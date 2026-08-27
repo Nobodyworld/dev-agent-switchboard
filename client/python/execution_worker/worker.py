@@ -62,6 +62,7 @@ from .worktree import (
 
 _SERVER_TERMINAL_STATUSES = {"succeeded", "failed", "timed_out", "cancelled"}
 RESULT_SUMMARY_LIMIT = 8000
+_MIN_MONITOR_INTERVAL_SECONDS = 2.0
 STEP_EVIDENCE_SUMMARY_LIMIT = 4096
 _ENVIRONMENT_TOOLS = ("ruff", "black", "mypy", "pytest", "coverage", "bandit")
 ReuseDecisionValue = Literal["fresh", "reused", "unavailable"]
@@ -441,7 +442,11 @@ class _RunMonitor:
         self._thread.start()
 
     def _run(self) -> None:
-        while not self._stop.wait(self.worker.config.heartbeat_interval_seconds):
+        interval = max(
+            self.worker.config.heartbeat_interval_seconds,
+            _MIN_MONITOR_INTERVAL_SECONDS,
+        )
+        while not self._stop.wait(interval):
             self.tick()
             if self.token.cancelled:
                 return

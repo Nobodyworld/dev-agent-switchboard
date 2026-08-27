@@ -13,7 +13,12 @@ _SAFE_NONLOCAL_URI = re.compile(
     r"(?:https?|wss?|ftps?|ssh|git|mailto|urn):"
     r"[^\s\r\n<>\"']+"
 )
-_POSIX_ROOTED_PATH = re.compile(r"(?<![/A-Za-z0-9])/")
+# A rooted POSIX path starts with a slash that is neither part of a relative
+# ``./``/``../`` reference nor followed by whitespace.  Requiring the next
+# character to be non-whitespace keeps ordinary rendered expressions such as
+# ``tmp_path / "child.pid"`` and ``1 / 2`` out of the local-path policy while
+# still rejecting ``/``, ``/tmp``, and prose such as ``retained at /var/log``.
+_POSIX_ROOTED_PATH = re.compile(r"(?<![/A-Za-z0-9.])/(?!\s)")
 
 
 def contains_absolute_local_path(value: str) -> bool:

@@ -14,7 +14,11 @@ from requests.exceptions import JSONDecodeError
 
 from client.python.execution_worker.client import ExecutionOwnershipLostError
 from client.python.execution_worker.runner import CancellationToken
-from client.python.execution_worker.worker import LocalWorker, _RunMonitor
+from client.python.execution_worker.worker import (
+    _MIN_MONITOR_INTERVAL_SECONDS,
+    LocalWorker,
+    _RunMonitor,
+)
 from client.python.tests.execution_worker_test_support import work_order_payload
 from client.python.tests.test_execution_worker_runtime import (
     _config,
@@ -191,7 +195,49 @@ def _process_manifest(child_pid: Path) -> TrustedManifest:
         timeout_seconds=20,
         artifact_declarations=[],
         execution_steps=(step,),
+        result_contract={
+            "schema_version": 1,
+            "resource_limits": {
+                "maximum_artifact_count": 1,
+                "maximum_artifact_bytes": 4096,
+                "maximum_total_artifact_bytes": 4096,
+                "retention_days": 1,
+            },
+            "steps": [],
+        },
     )
+
+
+def test_monitor_cadence_preserves_default_rate_limit_headroom(
+    tmp_path: Path,
+) -> None:
+    client = _MonitorClient()
+    worker = LocalWorker(
+        _config(
+            tmp_path,
+            tmp_path / "canonical",
+            heartbeat_interval_seconds=0.05,
+        ),
+        client,  # type: ignore[arg-type]
+    )
+    monitor = _RunMonitor(
+        worker,
+        7,
+        time.monotonic() + 30,
+        CancellationToken(),
+    )
+    waits: list[float] = []
+
+    class StopAfterOneWait:
+        def wait(self, interval: float) -> bool:
+            waits.append(interval)
+            return True
+
+    monitor._stop = StopAfterOneWait()  # type: ignore[assignment]
+
+    monitor._run()
+
+    assert waits == [_MIN_MONITOR_INTERVAL_SECONDS]
 
 
 @pytest.mark.parametrize("mode", ["ownership", "terminal", "malformed"])

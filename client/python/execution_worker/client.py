@@ -2,14 +2,30 @@
 
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, cast
 
 from requests import Response, Session
 
+from server.execution.text_policy import contains_absolute_local_path
+
 DEFAULT_EXECUTION_TIMEOUT = 10.0
 _OWNERSHIP_LOST_STATUSES = {404, 409}
+_HTTP_ERROR_STATUS = 400
+_UNPROCESSABLE_ENTITY = 422
+_MAX_ERROR_BODY_BYTES = 64 * 1024
+_MAX_VALIDATION_ERRORS = 8
+_MAX_VALIDATION_LOCATION_PARTS = 8
+_MAX_VALIDATION_LOCATION_PART_LENGTH = 64
+_MAX_VALIDATION_MESSAGE_LENGTH = 256
+_SAFE_ERROR_IDENTIFIER = re.compile(r"^[A-Za-z0-9_.-]+$")
+_SENSITIVE_ERROR_TEXT = re.compile(
+    r"(?i)(?:authorization|bearer|password|secret|token|api[_-]?key)"
+)
 
 
 class ExecutionClientError(RuntimeError):
@@ -22,6 +38,105 @@ class ExecutionOwnershipLostError(ExecutionClientError):
     def __init__(self, status_code: int) -> None:
         super().__init__(f"execution_run_ownership_lost:{status_code}")
         self.status_code = status_code
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionValidationError:
+    """One bounded, sanitized FastAPI validation detail."""
+
+    location: tuple[str | int, ...]
+    error_type: str
+    message: str
+
+
+class ExecutionHttpError(ExecutionClientError):
+    """Safe structured execution API failure without a raw response body."""
+
+    def __init__(
+        self,
+        status_code: int,
+        reason: str,
+        validation_errors: tuple[ExecutionValidationError, ...] = (),
+    ) -> None:
+        details = ";".join(
+            f"{'.'.join(str(part) for part in item.location)}:"
+            f"{item.error_type}:{item.message}"
+            for item in validation_errors
+        )
+        suffix = f":{details}" if details else ""
+        super().__init__(f"{reason}:{status_code}{suffix}")
+        self.status_code = status_code
+        self.reason = reason
+        self.validation_errors = validation_errors
+
+
+def _safe_error_text(value: object, *, limit: int) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = " ".join(value.split())
+    if not normalized:
+        return None
+    if contains_absolute_local_path(normalized) or _SENSITIVE_ERROR_TEXT.search(
+        normalized
+    ):
+        return "[REDACTED]"
+    return normalized[:limit]
+
+
+def _safe_validation_location(value: object) -> tuple[str | int, ...] | None:
+    if not isinstance(value, list) or not value:
+        return None
+    location: list[str | int] = []
+    for part in value[:_MAX_VALIDATION_LOCATION_PARTS]:
+        if isinstance(part, int) and not isinstance(part, bool):
+            location.append(part)
+            continue
+        safe_part = _safe_error_text(part, limit=_MAX_VALIDATION_LOCATION_PART_LENGTH)
+        if safe_part is None or not _SAFE_ERROR_IDENTIFIER.fullmatch(safe_part):
+            location.append("[REDACTED]")
+        else:
+            location.append(safe_part)
+    return tuple(location)
+
+
+def _bounded_validation_errors(
+    response: Response,
+) -> tuple[ExecutionValidationError, ...]:
+    raw = getattr(response, "content", b"")
+    if not isinstance(raw, bytes) or len(raw) > _MAX_ERROR_BODY_BYTES:
+        return ()
+    try:
+        payload = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return ()
+    if not isinstance(payload, Mapping) or not isinstance(payload.get("detail"), list):
+        return ()
+
+    errors: list[ExecutionValidationError] = []
+    for item in payload["detail"][:_MAX_VALIDATION_ERRORS]:
+        if not isinstance(item, Mapping):
+            continue
+        location = _safe_validation_location(item.get("loc"))
+        error_type = _safe_error_text(item.get("type"), limit=64)
+        message = _safe_error_text(
+            item.get("msg"), limit=_MAX_VALIDATION_MESSAGE_LENGTH
+        )
+        if location is None or error_type is None or message is None:
+            continue
+        if not _SAFE_ERROR_IDENTIFIER.fullmatch(error_type):
+            error_type = "validation_error"
+        errors.append(ExecutionValidationError(location, error_type, message))
+    return tuple(errors)
+
+
+def _execution_http_error(response: Response) -> ExecutionHttpError:
+    errors = (
+        _bounded_validation_errors(response)
+        if response.status_code == _UNPROCESSABLE_ENTITY
+        else ()
+    )
+    reason = "execution_validation_error" if errors else "execution_http_error"
+    return ExecutionHttpError(response.status_code, reason, errors)
 
 
 class ExecutionClient:
@@ -212,6 +327,8 @@ class ExecutionClient:
         response = self._request(method, path, **kwargs)
         if ownership_sensitive and response.status_code in _OWNERSHIP_LOST_STATUSES:
             raise ExecutionOwnershipLostError(response.status_code)
+        if response.status_code >= _HTTP_ERROR_STATUS:
+            raise _execution_http_error(response)
         response.raise_for_status()
         return response.json()
 
@@ -232,5 +349,7 @@ __all__ = [
     "DEFAULT_EXECUTION_TIMEOUT",
     "ExecutionClient",
     "ExecutionClientError",
+    "ExecutionHttpError",
     "ExecutionOwnershipLostError",
+    "ExecutionValidationError",
 ]
