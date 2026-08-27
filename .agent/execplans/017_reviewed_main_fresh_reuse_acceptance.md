@@ -25,7 +25,7 @@ predecessor PR: #147 — squash-merged
 active issue: #149
 starting main and immutable acceptance target: e9b56ac0d5936e39d811b240a8091a54e1b4ff26
 canonical branch: test/reviewed-main-fresh-reuse-acceptance
-pull request: created through the GitHub connector after this plan commit
+pull request: #150 — open draft
 manifest: validate-switchboard@1
 routing: first_available
 fresh reuse_policy: never
@@ -59,7 +59,7 @@ The final evidence must establish:
 - [x] Issue #149 created against exact reviewed `main`.
 - [x] Canonical branch `test/reviewed-main-fresh-reuse-acceptance` created from exact target.
 - [x] Living ExecPlan 017 created.
-- [ ] Create the draft PR linked to issue #149.
+- [x] Draft PR #150 created and linked to issue #149.
 - [ ] Synchronize a clean local canonical `main` to exact target `e9b56ac0...`.
 - [ ] Create one clean local worktree for the canonical successor branch.
 - [ ] Verify all three predecessor failed environments and `security-deferral-wip` remain preserved.
