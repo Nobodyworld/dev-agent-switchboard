@@ -21,11 +21,13 @@ active issue: #146
 active draft PR: #147
 active branch: test/merged-workload-factory-acceptance
 active ExecPlan: .agent/execplans/016_merged_workload_factory_acceptance.md
-PR #147 head: 0019f0cc3675696e897d5d8ce267a7300847c631
-Commitlint: 33048983337 success
-CI: 33048983354 success
-Workload acceptance: 33048983364 success
-Connector review: 5038453077 — no blocking implementation defect; target-state blocker remains
+implementation correction head: 0019f0cc3675696e897d5d8ce267a7300847c631
+implementation connector review: 5038453077 — no blocking implementation defect; target-state blocker remains
+documentation truth-sync commit: 647743c8c157cf96bb1c00baccf038297b583cc9
+docs-sync Commitlint: 33092875160 success
+docs-sync CI: 33092874959 success
+docs-sync Workload acceptance: 33092874903 success
+current PR head and newest hosted checks: GitHub PR #147 is authoritative and intentionally not self-referenced in this file
 ```
 
 PR #145 merged the public workload onboarding factory after exact-head local validation, hosted validation, and connector review. The merge retained the repository’s developer-preview classification and did not authorize release, deployment, live external target execution, MCP, paid-provider routing, or expanded worker types.
