@@ -105,44 +105,53 @@ The slice must execute:
 
 This slice adds no new execution architecture unless a real acceptance defect requires a narrow correction with regression coverage.
 
-### 2026-08-25 real acceptance result: partial, completion blocked
+### 2026-08-27 issue #146 acceptance disposition: target-state blocked
 
-The operator-controlled fresh request reached the real merged FastAPI server,
-explicit approval, `first_available` routing, outbound worker, exact-SHA
-disposable worktree, fixed runner, retained evidence, and source cleanup path.
-Work order `1` / run `1` selected the single eligible worker and exact
-`validate-switchboard@1` digest
-`10e99418e4e6f0e9f4a6e95fb5b9a267dab4eeac4671cf58533c8b9afe1fed98`.
-All seven reviewed steps succeeded in `801.538211` seconds. The test step
-reported `700` passed, `10` skipped, no failures or errors, and `94%` measured
-server coverage. Fourteen retained command-log artifacts totaled `16,980`
-bytes; local evidence fingerprint
-`b5509a847335785930b6d89536d9b31bfcb4f21bb71f0d08afbceb1cfc2e2957`
-was finalized, the canonical source remained clean at exact `a21aa33...`, and
-the disposable source worktree and worker/server processes were removed.
+Three isolated attempts against immutable target
+`a21aa33cabd143dbfefebe4ba32572ddb5765752` are retained as failed evidence:
 
-This is not an authoritative succeeded control-plane run. Completion returned
-HTTP `422` because JSON serialization of a relative Windows path created a
-UNC-shaped text sequence rejected by the server's absolute-local-path policy.
-The preserved database therefore truthfully remains `running` with one stale
-lease/capacity claim; no distinct `allow_exact` request was created and no reuse
-or avoided-step claim exists. A narrow worker correction now normalizes literal
-backslashes to a safe marker at the final summary-serialization boundary, with
-focused regression coverage. The retained attempt payload passes that policy
-after the correction, but another live retry was not performed. Issue #146
-acceptance remains **PARTIAL / ACCEPTANCE-BLOCKED** pending a fresh completed
-run and distinct exact reuse on a later authorized attempt.
+1. The first attempt executed all seven reviewed steps and finalized local
+   evidence, but completion returned HTTP `422` because serialized relative
+   Windows backslashes matched the absolute-local-path policy.
+2. The second attempt exposed combined-suite load behavior: three Windows
+   cancellation cases exceeded their end-to-end four-second expectation and
+   two server-backed smoke cases self-throttled with HTTP `429`. Those same
+   nodes passed when isolated; the failed database and evidence remain
+   unchanged.
+3. The third attempt used a fresh isolated environment. Five deterministic
+   steps passed, the exact target test step reported `696` passed, `12` skipped,
+   and two failed server-smoke cases, and the required security step did not
+   run. Completion then returned a bounded HTTP `422` diagnostic because compact
+   stdout retained source text shaped like a local SQLite DSN. Its work order,
+   run, lease, and capacity state remain unchanged for diagnosis.
 
-The final branch-local validation matrix passed `702` tests with `10` documented
-Windows platform/fixture skips, no failures or errors, and `94%` aggregate
-`server` coverage. The configured module gate measured `93%` across its selected
-sources and passed every threshold. Strict Playwright passed four cases with zero
-skips. Pre-commit, TODO, Ruff lint/format, Black, Mypy, production Bandit,
-Gitleaks, detect-secrets, TOML/YAML, Lychee, Node syntax, action pins, diff, and
-public-path hygiene passed. The one-minute dependency-audit attempt received no
-advisory response and is environment-blocked. WSL2 lacked the dependencies and
-`ensurepip` needed for an isolated Linux test environment; no system package was
-installed, so Linux-only containment remains environment-blocked in this slice.
+The exact target is now **TARGET-STATE-BLOCKED**. Its two server-smoke tests use
+`0.05`-second heartbeats beneath the default `120` requests per `60` seconds
+limiter and can self-throttle when reached after preceding suite workload. The
+production worker cadence remains caller-configured; the correction changes
+only those two test fixtures to the existing realistic five-second server-smoke
+cadence. Compact worker summaries now recursively replace local SQLite DSNs
+with `[LOCAL_DATABASE_URI]`, while raw SQLite DSNs still fail server schema and
+API validation. Typed HTTP diagnostics retain only bounded safe status, reason,
+location, type, and sanitized message fields; they never retain raw response or
+request content.
+
+No fourth live acceptance and no `allow_exact` request ran. There is no
+authoritative successful fresh source run, reuse run, zero-step reuse proof, or
+avoided-work claim. All three failed environments remain preserved. The next
+step after exact-head connector review is a separate owner target/merge
+decision; focused or full local tests are not substitutes for the missing live
+fresh/reuse evidence.
+
+Correction validation passed `735` tests with `10` documented platform skips
+both through the exact candidate command and an independent full-suite run.
+Aggregate server coverage was `94%`; every configured module threshold passed,
+and strict Playwright passed four cases with zero skips. Pinned Ruff and Bandit,
+Mypy, scoped pre-commit, Gitleaks, detect-secrets, TOML/YAML, Node syntax,
+full-SHA action pins, catalog, TODO, formatting, diff, and public-path hygiene
+passed. All-files pre-commit was blocked by the local safety boundary, Lychee is
+unavailable, and the shared-environment `pip-audit` result contained `117`
+advisories across `29` packages rather than providing isolated project evidence.
 
 ## External target state
 
@@ -207,8 +216,8 @@ The execution-broker roadmap is tracked in issue #111.
 
 The current sequence is:
 
-1. complete issue #146's remaining authoritative fresh/reuse proof after the
-   completion-summary defect correction is reviewed;
+1. complete exact-head connector review of PR #147, then obtain a separate owner
+   decision on a newly authorized immutable target before any later acceptance;
 2. use the acceptance evidence to identify actual operator friction;
 3. define scoped worker identity and an accepted isolation mode before exposing broader remote request surfaces;
 4. define a separate typed MCP/Secure MCP Tunnel architecture only after local-first utility is proven;

@@ -336,6 +336,20 @@ completion request. An otherwise successful run becomes failed with
 terminal reason and the additional record failure appears in bounded cleanup
 metadata. Completion is attempted once and is not blindly retried.
 
+Before compact result JSON is submitted, the worker recursively replaces
+literal backslashes with `[BACKSLASH]` and complete local `sqlite:///` or
+`sqlite+aiosqlite:///` DSNs with `[LOCAL_DATABASE_URI]`. This remote-evidence
+sanitization does not rewrite the full retained logs: those bytes remain local
+under the existing ownership, containment, and retention policy. The server
+continues to reject raw local database URIs, `file:` URIs, and genuine absolute
+paths submitted directly or inside nested completion/evidence values.
+
+Non-ownership HTTP failures use a bounded typed diagnostic. It retains the
+status code, one stable reason, and at most eight validation entries containing
+only bounded safe location, type, and sanitized message fields. It never retains
+the raw response, request body, validation `input`, arbitrary validation
+context, authorization value, HTML, local path, or local database URI.
+
 While a step runs, the worker sends worker and run heartbeats, watches the
 overall deadline, and reacts to shutdown. Worker liveness and run ownership are
 independent: a transient worker-heartbeat failure does not suppress the run

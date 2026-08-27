@@ -55,14 +55,18 @@ The final public/project authority must state the same current truth:
 - [x] Safely disposition every audited worktree and branch by retaining uncertain or squash-merge-attached resources; no worktree was removed.
 - [x] Establish isolated acceptance server, database, worker root, evidence root, and exact repository mapping.
 - [x] Execute a real fresh exact-SHA `validate-switchboard@1` attempt through every deterministic product component; all seven reviewed steps passed.
-- [ ] Record an authoritative completed fresh run and clean control-plane lease/capacity state. Blocked by HTTP 422 completion-summary rejection after successful execution.
-- [ ] Execute one distinct equivalent `allow_exact` request. Not attempted because no authoritative successful source run exists.
+- [ ] Record an authoritative completed fresh run and clean control-plane lease/capacity state. Exact target `a21aa33...` is TARGET-STATE-BLOCKED after three preserved failed attempts.
+- [ ] Execute one distinct equivalent `allow_exact` request. Not attempted because no authoritative successful source run exists; no fourth acceptance is authorized in this continuation.
 - [ ] Prove same-worker retained-evidence verification and zero repeated deterministic steps. No reuse claim exists.
 - [x] Record the measured fresh duration, retained evidence size, operator actions, retries, and friction; reuse measurements are not available.
 - [x] Reconcile issue #111 body through the connector and update project status documentation.
 - [x] Finalize ExecPlan 015 as completed historical evidence.
 - [x] Add stable root `PROJECT_RULESET.md` with no moving status fields.
 - [x] Reconcile README product quick start and historical release wording.
+- [x] Remove the unsupported production monitor-cadence clamp and use the established five-second cadence only in the two self-throttling server-smoke fixtures.
+- [x] Sanitize local SQLite DSNs recursively at compact worker-summary serialization while preserving strict raw server rejection.
+- [x] Add bounded typed HTTP diagnostics and complete the schema/API completion-boundary regression.
+- [x] Preserve all three failed acceptance environments and make no fourth live attempt.
 - [x] Add a current-versus-historical banner to `PUBLIC_RELEASE_AUDIT.md`.
 - [x] Update affected documentation indexes and operations guides.
 - [x] Run focused acceptance tests and the complete locally available validation matrix; record bounded pip-audit and WSL dependency setup as environment-blocked.
@@ -329,6 +333,14 @@ This slice should not add a new execution interface unless a genuine acceptance 
   Rationale: Stable governance and mutable status need separate authoritative homes to prevent repeated drift.
   Date/Author: 2026-08-24 / Owner and GitHub coordinator.
 
+- Decision: Classify exact target `a21aa33cabd143dbfefebe4ba32572ddb5765752` as TARGET-STATE-BLOCKED and do not run a fourth acceptance in this correction session.
+  Rationale: Its two server-smoke tests configure `0.05`-second heartbeats and can self-exhaust the default `120` requests per `60` seconds limiter after preceding combined-suite workload. The immutable target cannot receive the test-only correction.
+  Date/Author: 2026-08-27 / Owner and correction campaign.
+
+- Decision: Restore production monitor cadence to the remote-head behavior and correct only the two server-smoke test configurations to five seconds.
+  Rationale: Isolated tests pass and no independent production contract justifies a global two-second minimum solely for suite stability.
+  Date/Author: 2026-08-27 / Owner and correction campaign.
+
 ## Surprises & Discoveries
 
 - Observation: The documented direct-file worker launcher fails from a source
@@ -357,6 +369,23 @@ This slice should not add a new execution interface unless a genuine acceptance 
   regression reproduces the policy failure, and final summary serialization now
   replaces literal backslashes with `[BACKSLASH]`.
 
+- Observation: The second isolated attempt failed five exact-target tests only
+  under combined-suite load.
+  Evidence: Three Windows cancellation cases exceeded their end-to-end
+  four-second expectation, and the two server-backed smoke cases returned HTTP
+  `429` with `0.05`-second heartbeats. The same five exact nodes, all three
+  cancellation nodes under Windows Job Object containment, and the complete
+  server-smoke module passed in isolated exact-target reproduction.
+
+- Observation: The third isolated attempt proved the backslash correction but
+  exposed a separate compact-evidence boundary.
+  Evidence: Five deterministic steps passed; the target test step reported
+  `696` passed, `12` skipped, and the same two self-throttling server-smoke
+  failures. Completion returned bounded HTTP `422` because retained source text
+  contained `sqlite+aiosqlite:///` shaped local database syntax. The database,
+  evidence, lease, and capacity state remain unchanged, and no reuse request was
+  created.
+
 - Observation: The required 2026-08-25 external-target re-resolution found
   Industry Resilience PR #130 closed and merged at reviewed head
   `e3fea89db624414fe3cad7980768f0265cf9570a` and merge commit
@@ -381,31 +410,50 @@ and reuse identity hash
 were finalized locally. The canonical source remained clean and unchanged, the
 disposable worktree was removed, and worker/server processes were stopped.
 
-The accepted outcome is nevertheless partial. The server rejected completion,
-so work order `1`, run `1`, its lease, and capacity remain stale `running` state
-inside the preserved isolated database. There is no authoritative successful
-source run, no distinct reuse request/run, no same-worker retained-evidence
-verification, no zero-step reuse proof, and no avoided-work duration or count.
-The narrow source correction has focused validation, but this campaign did not
-hide the stale state, edit the database, or spend another live attempt. A later
-authorized run must begin with a new isolated environment and prove both
-terminal fresh completion and distinct exact reuse.
+The final issue #146 acceptance disposition is TARGET-STATE-BLOCKED. Three
+isolated failed attempts are preserved without database repair or evidence
+deletion. The first ran all seven steps but failed completion on serialized
+Windows backslashes. The second failed three combined-load cancellation timing
+expectations and two self-throttling server-smoke tests. The third passed five
+steps, failed those same two server-smoke tests with HTTP `429`, did not run the
+required security step, and then failed completion on local SQLite DSN-shaped
+source text. There is no authoritative successful source run, distinct reuse
+request/run, same-worker retained-evidence verification, zero-step reuse proof,
+or avoided-work duration/count. No fourth acceptance ran.
 
-Final branch validation passed `702` tests with `10` documented Windows
-platform/fixture skips and no failures or errors. Aggregate `server` coverage
-was `94%`. The corrected `scripts/dev.py verify --skip-audit` gate measured
-`93%` across its selected sources and passed every configured module threshold,
-including `server/observability/overview.py` at `100.00%`. Strict Playwright
-passed four cases with zero skips. The required fresh/reuse/evidence/routing
-modules passed; four real-worker server-smoke cases that first failed beneath a
-deep Windows temporary path all passed under a fresh short task-owned temp root.
-All-files pre-commit, TODO policy, Ruff lint/format, Black, Mypy, production
-Bandit, Gitleaks across 291 commits, detect-secrets, TOML/YAML, Lychee links,
-Node syntax, full-SHA action pins, diff check, and public-path hygiene passed.
-The single bounded `pip-audit` attempt produced no advisory response within one
-minute and was stopped. WSL2 was present, but its Python lacked project
-dependencies and `ensurepip`; no system package was installed, so Linux-only
-containment execution is environment-blocked for this campaign.
+The correction restores production monitor cadence to the caller-configured
+remote-head behavior and changes only the affected server-smoke fixtures from
+`0.05` to five seconds. The worker recursively replaces complete local SQLite
+DSNs with `[LOCAL_DATABASE_URI]` before compact summary submission; full local
+logs remain governed by their existing ownership and retention policy. The
+server still recursively rejects raw Windows/POSIX absolute paths, `file:` URIs,
+and SQLite DSNs. Typed HTTP errors retain only status, stable reason, and at most
+eight sanitized validation entries with bounded location, type, and message;
+raw response text, request bodies, validation `input`, arbitrary context,
+credentials, HTML, local paths, and local DSNs are not retained.
+
+Correction validation passed the schema/text-policy/finalization/client/monitor
+selection (`86` tests), the two formerly failing server-smoke cases individually
+and together, and three consecutive complete server-smoke module runs (`8`
+tests each) without HTTP `429`. The exact candidate manifest pytest command
+passed `735` tests with `10` documented platform skips and `94%` aggregate
+`server` coverage. The independent plain full suite matched at `735` passed and
+`10` skipped. Every configured module threshold passed from `87.76%` through
+`100%`; strict Playwright passed four cases with zero skips. Repository-pinned
+Ruff `0.16.2` and Bandit `1.9.4`, Mypy, scoped pre-commit, Gitleaks across `296`
+commits, detect-secrets, TOML/YAML, Node syntax, full-SHA action pins, catalog,
+TODO, formatting, diff, and public-path checks passed.
+
+Three local validation limitations remain explicit. The `verify` orchestrator
+could not launch `bandit` because the shared Python installation lacks a
+`bandit.exe`; its Ruff, Mypy, coverage, and module gates ran independently, and
+the pinned Bandit module passed through `uvx`. The environment safety boundary
+rejected all-files pre-commit because hooks can rewrite unrelated paths; the
+same configured hooks passed on every explicitly changed path. Lychee is not
+installed, so documentation-link validation is environment-blocked. The single
+bounded `pip-audit` run completed against the contaminated shared Python
+environment and reported `117` advisories across `29` packages plus eight
+unavailable local packages; it is not project dependency evidence or a pass.
 
 Two additional developer-gate defects were corrected without weakening policy:
 `scripts/dev.py verify` now excludes `server/tests` from Bandit exactly like the
@@ -415,11 +463,12 @@ an overview threshold. A focused CLI regression binds both argv contracts.
 
 Operator friction was dominated by multi-process setup, configuration of one
 exact canonical mapping, manual API creation and approval, capability matching,
-and long feedback from the nested full suite. Four bounded attempts were
-preserved: one launcher failure before request creation, one invalid shared
-toolchain execution, one nested-suite failure plus completion rejection, and one
-successful deterministic execution plus the same completion rejection. The
-future supported operator command should compose server/worker lifecycle,
+long nested-suite feedback, a default pytest temp-owner permission failure, and
+the difference between isolated test behavior and combined-suite rate limiting.
+The three live acceptance environments remain preserved. A separate
+task-specific correction-validation temp root was used only for local pytest;
+it was not a server/worker acceptance environment and created no work order.
+The future supported operator command should compose server/worker lifecycle,
 preflight tool capabilities, request creation/approval observation, and bounded
 cleanup reporting. It must not infer repository authority, approval, tokens, or
 isolation trust decisions.
