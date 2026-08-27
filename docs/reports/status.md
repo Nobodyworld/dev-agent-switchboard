@@ -1,6 +1,6 @@
 # Public Developer Preview Status
 
-_Last reviewed: 2026-08-25_
+_Last reviewed: 2026-08-27_
 
 ## Classification
 
@@ -21,6 +21,11 @@ active issue: #146
 active draft PR: #147
 active branch: test/merged-workload-factory-acceptance
 active ExecPlan: .agent/execplans/016_merged_workload_factory_acceptance.md
+PR #147 head: 0019f0cc3675696e897d5d8ce267a7300847c631
+Commitlint: 33048983337 success
+CI: 33048983354 success
+Workload acceptance: 33048983364 success
+Connector review: 5038453077 — no blocking implementation defect; target-state blocker remains
 ```
 
 PR #145 merged the public workload onboarding factory after exact-head local validation, hosted validation, and connector review. The merge retained the repository’s developer-preview classification and did not authorize release, deployment, live external target execution, MCP, paid-provider routing, or expanded worker types.
@@ -136,12 +141,15 @@ API validation. Typed HTTP diagnostics retain only bounded safe status, reason,
 location, type, and sanitized message fields; they never retain raw response or
 request content.
 
-No fourth live acceptance and no `allow_exact` request ran. There is no
+No fourth live acceptance and no `allow_exact` request ran, and no fourth run
+against `a21aa33cabd143dbfefebe4ba32572ddb5765752` is authorized. There is no
 authoritative successful fresh source run, reuse run, zero-step reuse proof, or
-avoided-work claim. All three failed environments remain preserved. The next
-step after exact-head connector review is a separate owner target/merge
-decision; focused or full local tests are not substitutes for the missing live
-fresh/reuse evidence.
+avoided-work claim. All three failed environments remain preserved. Exact-head
+connector review `5038453077` found no blocking implementation defect, but the
+target-state blocker remains. PR #147 remains draft and unmerged; the next step
+is a separate owner target/merge decision. Focused or full local tests are not
+substitutes for the missing live fresh/reuse evidence, and no release or
+production authorization exists.
 
 Correction validation passed `735` tests with `10` documented platform skips
 both through the exact candidate command and an independent full-suite run.
@@ -216,8 +224,9 @@ The execution-broker roadmap is tracked in issue #111.
 
 The current sequence is:
 
-1. complete exact-head connector review of PR #147, then obtain a separate owner
-   decision on a newly authorized immutable target before any later acceptance;
+1. obtain a separate owner target/merge decision after completed exact-head
+   connector review of PR #147, including selection of any newly authorized
+   immutable target before later acceptance;
 2. use the acceptance evidence to identify actual operator friction;
 3. define scoped worker identity and an accepted isolation mode before exposing broader remote request surfaces;
 4. define a separate typed MCP/Secure MCP Tunnel architecture only after local-first utility is proven;

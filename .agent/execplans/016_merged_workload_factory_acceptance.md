@@ -52,7 +52,7 @@ The final public/project authority must state the same current truth:
 - [x] Safely fast-forward the canonical local `main` to the exact starting SHA.
 - [x] Inventory local worktrees, local branches, stashes, unpublished commits, and dirty files.
 - [x] Preserve `security-deferral-wip` and every uncertain user-owned resource.
-- [x] Safely disposition every audited worktree and branch by retaining uncertain or squash-merge-attached resources; no worktree was removed.
+- [x] Safely remove six obsolete registered worktrees and seventeen obsolete test/runtime roots while preserving canonical `main`, the active PR worktree, all failed acceptance environments, their branches and commits, and `security-deferral-wip`.
 - [x] Establish isolated acceptance server, database, worker root, evidence root, and exact repository mapping.
 - [x] Execute a real fresh exact-SHA `validate-switchboard@1` attempt through every deterministic product component; all seven reviewed steps passed.
 - [ ] Record an authoritative completed fresh run and clean control-plane lease/capacity state. Exact target `a21aa33...` is TARGET-STATE-BLOCKED after three preserved failed attempts.
@@ -70,10 +70,11 @@ The final public/project authority must state the same current truth:
 - [x] Add a current-versus-historical banner to `PUBLIC_RELEASE_AUDIT.md`.
 - [x] Update affected documentation indexes and operations guides.
 - [x] Run focused acceptance tests and the complete locally available validation matrix; record bounded pip-audit and WSL dependency setup as environment-blocked.
-- [ ] Commit logical Conventional Commit units using exact-path staging.
-- [ ] Push normally and verify local/remote SHA parity.
-- [ ] Complete exact-head hosted validation and connector review.
-- [ ] Keep the PR draft and unmerged until separate owner authorization.
+- [x] Commit logical Conventional Commit units using exact-path staging.
+- [x] Push normally and verify local/remote SHA parity at `0019f0cc3675696e897d5d8ce267a7300847c631`.
+- [x] Complete exact-head hosted validation: Commitlint `33048983337`, CI `33048983354`, and Workload acceptance `33048983364` passed.
+- [x] Complete exact-head connector review `5038453077`; no blocking code defect was found.
+- [x] Keep PR #147 draft and unmerged pending a separate owner target/merge decision.
 
 ## Context and Orientation
 
@@ -473,15 +474,16 @@ preflight tool capabilities, request creation/approval observation, and bounded
 cleanup reporting. It must not infer repository authority, approval, tokens, or
 isolation trust decisions.
 
-All seven registered worktrees were clean and had no staged, unstaged, or
-untracked content. The primary remained on exact `main`; the campaign worktree
-remains required for PR #147. Merged feature worktrees were retained because
-their squash-merged branch tips are not ordinary ancestors of `main`, and the
-campaign does not authorize force deletion. The public-workload worktree was
-also retained because its local tip differs from the final reviewed PR #145
-head; the pull-worker branch/worktree was retained because its local tip differs
-from reviewed PR #119 head. The closed-unmerged security branch and
-`security-deferral-wip` stash were preserved. No worktree or uncertain branch
-was deleted. The unattached `codex/harden-public-release-readiness` branch was
-the sole normal deletion: its tip exactly matched PR #88's reviewed merge
-commit, and `git branch -d` succeeded without force.
+Cleanup safely removed six obsolete registered worktrees and seventeen obsolete
+test/runtime roots. Canonical `main`, the active PR #147 worktree, all three
+failed acceptance environments, their branches and commits, and the
+`security-deferral-wip` stash were preserved. The remaining registered
+worktrees are the canonical checkout and active campaign worktree.
+
+The correction was divided into logical Conventional Commit units and pushed
+normally. Local and remote branch heads matched at
+`0019f0cc3675696e897d5d8ce267a7300847c631`. Exact-head Commitlint run
+`33048983337`, CI run `33048983354`, and Workload acceptance run `33048983364`
+passed. Connector review `5038453077` found no blocking code defect. PR #147
+remained draft and unmerged; the TARGET-STATE-BLOCKED disposition and separate
+owner target/merge decision remain authoritative.
