@@ -427,14 +427,38 @@ def _verify_run(  # noqa: PLR0913 - trust inputs stay explicit
             )
         )
     else:
-        local_verified = source is not None and source.local_evidence_verified
+        try:
+            source_runs = (
+                client.list_runs(source.work_order_id) if source is not None else []
+            )
+            if len(source_runs) != 1:
+                raise ValueError
+            source_run = ExecutionRunOut.model_validate(source_runs[0])
+            source_evidence = ExecutionEvidence.model_validate(
+                client.get_run_evidence(source_run.id)
+            )
+        except (ExecutionClientError, ValueError) as error:
+            raise OperatorLifecycleFailure("reuse_source_invalid") from error
+        local_verified = (
+            source is not None
+            and source.local_evidence_verified
+            and _verify_local_fresh(
+                config,
+                layout,
+                source_run,
+                source_evidence,
+            )
+        )
         decision_ok = run.reuse_decision.value == "reused"
         source_ok = (
             source is not None
             and run.reused_from_run_id == source.run_id
             and run.source_evidence_fingerprint == source.evidence_fingerprint
-            and run.evidence_retention_expires_at is not None
-            and _aware_utc(run.evidence_retention_expires_at)
+            and source_run.id == source.run_id
+            and source_run.worker_id == source.worker_id == run.worker_id
+            and source_run.status.value == "succeeded"
+            and source_run.evidence_retention_expires_at is not None
+            and _aware_utc(source_run.evidence_retention_expires_at)
             == dt.datetime.fromisoformat(
                 source.evidence_retention_expires_at.replace("Z", "+00:00")
             )
