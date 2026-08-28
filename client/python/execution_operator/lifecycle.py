@@ -329,7 +329,10 @@ def _verify_run(  # noqa: PLR0913 - trust inputs stay explicit
         or run.worker_id != config.worker_id
         or run.status.value != "succeeded"
     ):
-        raise OperatorLifecycleFailure(f"{phase}_run_unsuccessful")
+        terminal_reason = run.terminal_reason or "terminal_reason_unavailable"
+        raise OperatorLifecycleFailure(
+            f"{phase}_run_{run.status.value}:{terminal_reason}"
+        )
     try:
         evidence = ExecutionEvidence.model_validate(client.get_run_evidence(run.id))
         route = RouteProvenanceOut.model_validate(client.get_work_order_route(order.id))
@@ -436,7 +439,7 @@ def _execute_phase(  # noqa: PLR0913 - lifecycle inputs stay explicit
     _validate_order(client.queue_work_order(order.id), config, "queued")
     run = _wait_terminal_run(client, config, worker, order.id)
     terminal_order = _validate_order(
-        client.get_work_order(order.id), config, "succeeded"
+        client.get_work_order(order.id), config, run.status.value
     )
     return _verify_run(
         client=client,

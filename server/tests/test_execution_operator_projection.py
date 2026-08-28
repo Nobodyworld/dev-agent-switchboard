@@ -99,7 +99,7 @@ def _draft() -> WorkOrderDraft:
         (WorkerStatus.ONLINE, 2, 1, 0, 0, "unavailable"),
     ],
 )
-def test_worker_activity_state_precedence_is_deterministic(  # noqa: PLR0917
+def test_worker_activity_state_precedence_is_deterministic(
     status: WorkerStatus,
     active_run_count: int,
     max_concurrency: int,
