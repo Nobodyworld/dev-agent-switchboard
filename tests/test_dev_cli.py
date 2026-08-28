@@ -1,3 +1,4 @@
+import subprocess
 import sys
 from argparse import Namespace
 from pathlib import Path
@@ -40,6 +41,18 @@ def test_cmd_list_extensions_outputs_builtins(capsys, monkeypatch):
     output = capsys.readouterr().out
     assert "Extension contract:" in output
     assert "builtin.plan_snapshot" in output
+
+
+def test_operator_commands_import_from_source_checkout() -> None:
+    for command in ("validation-lifecycle", "inspect-validation-runtime"):
+        result = subprocess.run(  # noqa: S603
+            [sys.executable, "scripts/dev.py", command, "--help"],
+            cwd=dev.REPOSITORY_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
 
 
 def test_todo_check_ignores_virtual_environments(tmp_path):
