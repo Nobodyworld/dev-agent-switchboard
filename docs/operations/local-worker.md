@@ -99,6 +99,83 @@ publication operations through bounded server projections. It does not change
 the worker's outbound-only pull loop, trust model, repository mapping, or local
 evidence retention rules.
 
+## Supported local validation lifecycle
+
+For one exact, clean Switchboard checkout, the repository-supported operator
+command can own the local server, outbound worker, fresh validation, and optional
+same-worker exact reuse as a single fail-closed lifecycle:
+
+```powershell
+$env:SWITCHBOARD_ADMIN_TOKEN = "operator-provisioned-token"
+python scripts/dev.py validation-lifecycle --config operator-lifecycle.json
+```
+
+Selecting `fresh-only` or `fresh-then-exact-reuse` in the configuration is not
+approval. At an attended terminal the command displays the bounded logical
+identity and requires the exact confirmation separately for fresh and reuse.
+Deliberate non-interactive callers must provide `--approve-fresh` and, when
+reuse is selected, the distinct `--approve-reuse` flag. Reuse approval is not
+requested until the fresh run, compact evidence, retained evidence, cleanup,
+route, exact source, and zero-lease state have all passed.
+
+A minimal configuration is:
+
+```json
+{
+  "schema_version": 1,
+  "repository_full_name": "Nobodyworld/dev-agent-switchboard",
+  "canonical_checkout": "D:\\operator\\dev-agent-switchboard",
+  "target_sha": "0123456789abcdef0123456789abcdef01234567",
+  "manifest_name": "validate-switchboard",
+  "manifest_version": "1",
+  "expected_manifest_digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "mode": "fresh-then-exact-reuse",
+  "runtime_root": "D:\\operator-runtimes\\switchboard-validation-001",
+  "worker_id": "operator-validation-1",
+  "worker_display_name": "Operator validation 1",
+  "host": "127.0.0.1",
+  "port": 8765,
+  "routing_policy": "first_available"
+}
+```
+
+Both local paths must be absolute. The canonical checkout must be a clean Git
+checkout at exactly `target_sha` with the expected GitHub `origin`; the runtime
+root and all of its descendants must be absent. The host must be loopback. The
+normal command rejects existing, overlapping, linked, junction, reparse-point,
+malformed, unknown, unsupported, occupied, or identity-mismatched state before
+runtime creation. It does not fetch, repair, clean, reset, stash, edit the
+database, or accept a different commit.
+
+After read-only preflight, the command creates the runtime root, writes a random
+versioned ownership marker before any child directory, and then creates private
+database, server storage, file storage, disposable source, retained evidence,
+temporary, process-record, and report areas. The bearer token is read only from
+the process environment, passed only to owned child environments and the
+in-process API client, and omitted from configuration, argv, markers, process
+records, reports, and safe console failures. Server and worker processes run
+under the existing strict containment host. Graceful marker-based drain is
+attempted first; fallback termination targets only the still-held containment
+object for that direct child.
+
+Machine JSON and human text reports are generated from one bounded path-free
+model under the runtime's private `reports` directory. Oversize or unsafe report
+content is a failure, never silently truncated. A failure after marker creation
+preserves the runtime and writes a failed report when the report boundary itself
+remains trustworthy. Normal execution never resumes, repairs, or cleans a prior
+runtime.
+
+Read-only inspection is a separate command:
+
+```powershell
+python scripts/dev.py inspect-validation-runtime D:\operator-runtimes\switchboard-validation-001
+```
+
+Inspection validates the root marker and, when present, its bounded report. It
+does not create directories, touch timestamps, bind ports, start processes,
+approve work, query mutable control-plane state, or repair anything. A malformed
+or foreign marker/report fails closed.
+
 ## Runtime behavior and limits
 
 Phase 1 is deliberately single-concurrency. Configuration must set
