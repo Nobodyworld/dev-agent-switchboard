@@ -39,7 +39,7 @@ merged predecessor PR: #150
 starting main: fbaf2f6170a9f5a27e6573d9d664923cef8f6ae6
 active issue: #151
 campaign branch: feat/operator-validation-lifecycle
-pull request: pending connector creation
+pull request: #152 — open draft
 living ExecPlan: .agent/execplans/018_operator_validation_lifecycle.md
 ```
 
@@ -58,9 +58,9 @@ The command exits non-zero and preserves the owned runtime whenever any required
 - [x] Issue #151 created with locked scope and exclusions.
 - [x] Canonical branch `feat/operator-validation-lifecycle` created from exact merged main.
 - [x] Living ExecPlan 018 created.
-- [ ] Create and link the draft pull request.
-- [ ] Inspect current CLI, worker, server-launch, API-client, schema, evidence, containment, and operations conventions.
-- [ ] Finalize the supported command name, module placement, typed configuration, and report schemas without creating a competing CLI framework.
+- [x] Reconcile and link the existing draft pull request #152.
+- [x] Inspect current CLI, worker, server-launch, API-client, schema, evidence, containment, and operations conventions.
+- [x] Finalize the supported command name, module placement, typed configuration, and report schemas without creating a competing CLI framework.
 - [ ] Implement exact preflight and fail-closed safe-state reporting.
 - [ ] Implement marker-owned runtime creation and foreign/unknown-runtime rejection.
 - [ ] Implement process-only credential handling and leak-proof diagnostics.
@@ -108,6 +108,61 @@ The command exits non-zero and preserves the owned runtime whenever any required
 - Decision: Prefer a substantial reusable operator package plus a thin existing-convention CLI integration.
   Rationale: Lifecycle logic needs focused unit testing and clear boundaries; placing all behavior directly in `scripts/dev.py` would produce an untestable monolith, while a second independent CLI framework would fragment operator behavior.
   Date/Author: 2026-08-27 / GitHub coordinator, subject to local source inspection.
+
+- Decision: Expose `python scripts/dev.py validation-lifecycle` and
+  `python scripts/dev.py inspect-validation-runtime` as the only new command
+  surfaces, backed by `client.python.execution_operator`.
+  Rationale: `scripts/dev.py` is the reviewed repository command dispatcher.
+  Keeping argument parsing there and lifecycle behavior in a focused package
+  preserves the existing convention without creating a competing CLI.
+  Date/Author: 2026-08-28 / Codex.
+
+- Decision: Use a strict versioned JSON configuration with local paths confined
+  to private configuration and runtime objects, while every public exception,
+  console summary, and report uses bounded path-free logical identities.
+  Rationale: Operators need exact local checkout and runtime roots, but those
+  values must never cross into durable diagnostics or publishable evidence.
+  Unknown keys, non-loopback hosts, malformed SHAs, unsupported modes or
+  routing, unsafe roots, and out-of-range bounds fail before mutation.
+  Date/Author: 2026-08-28 / Codex.
+
+- Decision: The normal command creates a previously absent marker-owned runtime
+  exactly once and never resumes or repairs it; the inspection command is a
+  separate read-only marker/report reader.
+  Rationale: Runtime preservation and foreign-state rejection are core trust
+  boundaries. A UUID marker written before owned subdirectories and processes
+  gives every later mutation a revalidated ownership identity.
+  Date/Author: 2026-08-28 / Codex.
+
+- Decision: Launch the reviewed FastAPI application and outbound worker as
+  direct owned children, place them in a Windows Job Object or POSIX process
+  group, send a bounded graceful termination first, and use containment
+  termination only for verified owned children.
+  Rationale: Direct process handles plus marker identities avoid PID guessing,
+  shell indirection, and broad host cleanup while retaining crash containment.
+  Date/Author: 2026-08-28 / Codex.
+
+- Decision: Reuse existing bounded execution APIs and query only the private
+  operator-owned SQLite runtime for the final zero-lease assertion; add no
+  server endpoint.
+  Rationale: Work-order, approval, queue, worker, route, run, and evidence facts
+  are already exposed. Lease cardinality is an internal cleanup assertion for
+  this disposable runtime and does not justify expanding the public API.
+  Date/Author: 2026-08-28 / Codex.
+
+- Decision: Require a distinct exact confirmation for each fresh and reuse
+  work order, with separate `--approve-fresh` and `--approve-reuse` flags for
+  deliberate non-interactive operation.
+  Rationale: Selecting a lifecycle mode is not approval. Reuse authorization is
+  not accepted or requested until fresh terminal state and evidence are fully
+  verified.
+  Date/Author: 2026-08-28 / Codex.
+
+- Decision: Serialize machine JSON and human text from one strict report model,
+  enforcing field, collection, string, and total-byte ceilings as failures.
+  Rationale: One source of truth prevents format drift; failing closed rather
+  than truncating preserves the meaning of security and acceptance facts.
+  Date/Author: 2026-08-28 / Codex.
 
 ## Outcomes & Retrospective
 
