@@ -271,9 +271,7 @@ def launch_worker(
         "maximum_artifact_bytes": config.maximum_artifact_bytes,
         "maximum_total_evidence_bytes": config.maximum_total_evidence_bytes,
         "poll_interval_seconds": config.poll_interval_seconds,
-        "heartbeat_interval_seconds": max(
-            1.0, min(15.0, config.poll_interval_seconds * 4)
-        ),
+        "heartbeat_interval_seconds": 15.0,
     }
     _write_private_json(layout.worker_config, worker_payload)
     return _launch(

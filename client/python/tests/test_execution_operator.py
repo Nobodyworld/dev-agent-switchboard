@@ -81,6 +81,7 @@ def test_configuration_accepts_only_the_strict_versioned_shape(tmp_path: Path) -
         ("host", "0.0.0.0"),  # noqa: S104 - explicit rejection case
         ("routing_policy", "cheapest_capable"),
         ("port", 80),
+        ("poll_interval_seconds", 0.5),
         ("expected_manifest_digest", "x" * 64),
         ("runtime_root", "relative/runtime"),
     ]

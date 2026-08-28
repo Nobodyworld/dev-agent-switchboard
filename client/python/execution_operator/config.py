@@ -116,7 +116,7 @@ class OperatorLifecycleConfig:
     startup_timeout_seconds: float = 30.0
     terminal_timeout_seconds: float = 3900.0
     shutdown_timeout_seconds: float = 15.0
-    poll_interval_seconds: float = 0.25
+    poll_interval_seconds: float = 1.0
     http_timeout_seconds: float = 10.0
     evidence_retention_days: int = 14
     maximum_artifact_count: int = 128
@@ -213,7 +213,7 @@ class OperatorLifecycleConfig:
                 payload, "shutdown_timeout_seconds", 15.0, 1.0, 120.0
             ),
             poll_interval_seconds=_number(
-                payload, "poll_interval_seconds", 0.25, 0.05, 30.0
+                payload, "poll_interval_seconds", 1.0, 1.0, 30.0
             ),
             http_timeout_seconds=_number(
                 payload, "http_timeout_seconds", 10.0, 0.1, 120.0
