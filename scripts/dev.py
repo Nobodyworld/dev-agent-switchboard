@@ -30,6 +30,7 @@ TRUSTED_EXECUTABLES = {
     "ruff",
 }
 _PUBLIC_WORKLOAD_REPOSITORY_COUNT = 4
+_BANDIT_MANAGER_ERROR = "[manager]\tERROR\t"
 
 
 def _resolve_executable(bin_name: str, venv_path: Path) -> Path:
@@ -59,7 +60,21 @@ def _run_command(command: Sequence[str]) -> None:
     """Execute a pre-validated subprocess command with strict checking."""
 
     _assert_trusted_command(command)
-    subprocess.run(command, check=True)  # noqa: S603
+    is_bandit = command[0] == "bandit" or (
+        command[0] == sys.executable and tuple(command[1:3]) == ("-m", "bandit")
+    )
+    result = subprocess.run(  # noqa: S603
+        command,
+        check=True,
+        capture_output=is_bandit,
+        text=is_bandit,
+    )
+    if not is_bandit:
+        return
+    print(result.stdout, end="")
+    print(result.stderr, end="", file=sys.stderr)
+    if _BANDIT_MANAGER_ERROR in result.stderr:
+        raise SystemExit("Bandit did not scan every requested file")
 
 
 def _render_template(template: str, context: Mapping[str, str]) -> str:

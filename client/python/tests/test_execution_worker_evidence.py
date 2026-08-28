@@ -311,6 +311,29 @@ def test_trusted_parsers_report_counts_coverage_audits_and_failure(
     assert failed.tests is None
 
 
+def test_security_audit_parser_fails_closed_on_bandit_manager_errors(
+    tmp_path: Path,
+) -> None:
+    stdout = tmp_path / "stdout.log"
+    stderr = tmp_path / "stderr.log"
+    stdout.write_text("", encoding="utf-8")
+    stderr.write_text(
+        "[manager]\tERROR\tException occurred when executing tests against "
+        "server\\app.py.\n",
+        encoding="utf-8",
+    )
+
+    parsed = parse_result(
+        "security-audit",
+        stdout_path=stdout,
+        stderr_path=stderr,
+        command_succeeded=True,
+    )
+
+    assert parsed.status == "parser_failed"
+    assert parsed.audit is None
+
+
 @pytest.mark.parametrize(
     ("parser_kind", "output", "audit_kind", "tool"),
     [

@@ -34,6 +34,27 @@ def test_verify_scans_production_server_code_only(
     assert "--cov=server.observability.overview" in pytest_command
 
 
+def test_command_runner_fails_closed_on_bandit_manager_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="",
+            stderr=(
+                "[manager]\tERROR\tException occurred when executing tests "
+                "against server\\app.py.\n"
+            ),
+        ),
+    )
+
+    with pytest.raises(SystemExit, match="did not scan every requested file"):
+        dev._run_command([sys.executable, "-m", "bandit", "-q", "server"])
+
+
 def test_cmd_list_extensions_outputs_builtins(capsys, monkeypatch):
     monkeypatch.delenv("SWITCHBOARD_EXTENSIONS", raising=False)
     monkeypatch.setenv("SWITCHBOARD_ENABLE_BUILTIN_EXTENSIONS", "1")

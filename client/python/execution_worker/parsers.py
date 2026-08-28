@@ -24,6 +24,7 @@ _MAX_QUALITY_COVERAGE_BYTES = 2 * 1024 * 1024
 _MAX_RESULT_RECORDS = 10_000_000
 _MAX_COVERAGE_PERCENT = 100
 _QUALITY_COVERAGE_THRESHOLD = 85
+_BANDIT_MANAGER_ERROR = "[manager]\tERROR\t"
 _PYTEST_COUNTS = {
     "passed": re.compile(r"(?P<count>\d+) passed\b"),
     "failed": re.compile(r"(?P<count>\d+) failed\b"),
@@ -551,6 +552,8 @@ def parse_result(  # noqa: PLR0913 - parser inputs must remain explicit
             text = _combined(
                 stdout_path, stderr_path, min(maximum_bytes, _MAX_PARSE_BYTES)
             )
+            if parser_kind == "security-audit" and _BANDIT_MANAGER_ERROR in text:
+                raise ValueError("Bandit did not scan every requested file")
             issue_count = text.count(">> Issue:")
             findings = 0 if command_succeeded else max(1, issue_count)
             audit_kind = cast(
