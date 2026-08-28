@@ -20,6 +20,7 @@ from .models import OperatorLifecycleFailure
 
 _COMMAND_TIMEOUT = 10.0
 _OUTPUT_LIMIT = 64 * 1024
+_MAX_WINDOWS_RUNTIME_ROOT_LENGTH = 80
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +104,12 @@ def _contains(candidate: Path, root: Path) -> bool:
     return True
 
 
+def runtime_path_budget_ok(path: Path, *, platform_name: str = os.name) -> bool:
+    """Reserve space for nested Git worktrees and target-owned test paths."""
+
+    return platform_name != "nt" or len(str(path)) <= _MAX_WINDOWS_RUNTIME_ROOT_LENGTH
+
+
 def source_snapshot(config: OperatorLifecycleConfig) -> SourceSnapshot:
     checkout = config.canonical_checkout
     if not checkout.is_dir() or _is_reparse(checkout):
@@ -163,6 +170,8 @@ def run_preflight(config: OperatorLifecycleConfig) -> PreflightResult:
         raise OperatorLifecycleFailure("strict_containment_unsupported")
     if config.runtime_root.exists():
         raise OperatorLifecycleFailure("runtime_root_already_exists")
+    if not runtime_path_budget_ok(config.runtime_root):
+        raise OperatorLifecycleFailure("runtime_path_budget_exceeded")
     _assert_no_reparse_ancestry(
         config.runtime_root.parent, "runtime_parent_reparse_ancestry"
     )
@@ -200,4 +209,10 @@ def run_preflight(config: OperatorLifecycleConfig) -> PreflightResult:
     )
 
 
-__all__ = ["PreflightResult", "SourceSnapshot", "run_preflight", "source_snapshot"]
+__all__ = [
+    "PreflightResult",
+    "SourceSnapshot",
+    "run_preflight",
+    "runtime_path_budget_ok",
+    "source_snapshot",
+]

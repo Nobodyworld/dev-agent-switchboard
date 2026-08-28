@@ -7,6 +7,7 @@ import json
 import os
 import socket
 import subprocess
+import uuid
 from dataclasses import replace
 from pathlib import Path
 
@@ -31,6 +32,7 @@ from client.python.execution_operator.preflight import (
     PreflightResult,
     SourceSnapshot,
     run_preflight,
+    runtime_path_budget_ok,
 )
 from client.python.execution_operator.runtime import create_runtime, inspect_runtime
 from server.execution.registry import get_trusted_manifest
@@ -198,6 +200,11 @@ def test_preflight_proves_exact_clean_origin_and_is_non_mutating(
             "canonical_checkout": str(repository),
             "target_sha": sha,
             "port": _free_port(),
+            "runtime_root": str(
+                Path("C:/tmp") / f"pf-{uuid.uuid4().hex[:8]}"
+                if os.name == "nt"
+                else tmp_path / "runtime"
+            ),
         }
     )
     config = OperatorLifecycleConfig.from_mapping(payload)
@@ -211,7 +218,24 @@ def test_preflight_proves_exact_clean_origin_and_is_non_mutating(
 
     (repository / "untracked.txt").write_text("dirty\n", encoding="utf-8")
     with pytest.raises(OperatorLifecycleFailure, match="source_checkout_dirty"):
-        run_preflight(replace(config, runtime_root=tmp_path / "runtime-dirty"))
+        run_preflight(
+            replace(
+                config,
+                runtime_root=config.runtime_root.with_name(
+                    f"pf-dirty-{uuid.uuid4().hex[:8]}"
+                ),
+            )
+        )
+
+
+def test_windows_runtime_path_budget_reserves_nested_worktree_space() -> None:
+    assert runtime_path_budget_ok(Path("C:/tmp/sb151-12345678"), platform_name="nt")
+    assert not runtime_path_budget_ok(
+        Path("C:/") / ("nested-operator-runtime-" * 5), platform_name="nt"
+    )
+    assert runtime_path_budget_ok(
+        Path("/long") / ("nested-operator-runtime-" * 20), platform_name="posix"
+    )
 
 
 def test_cli_requires_separate_noninteractive_approval_flags(tmp_path: Path) -> None:
@@ -296,10 +320,12 @@ def test_real_server_worker_fresh_then_exact_reuse(
     manifest = get_trusted_manifest("validate-switchboard", "1")
     assert manifest is not None
     payload = _mapping(tmp_path)
+    runtime_parent = Path("C:/tmp") if os.name == "nt" else tmp_path
     payload.update(
         {
             "canonical_checkout": str(repository),
             "target_sha": sha,
+            "runtime_root": str(runtime_parent / f"sb151-{uuid.uuid4().hex[:8]}"),
             "port": _free_port(),
             "expected_manifest_digest": manifest.digest,
             "startup_timeout_seconds": 60,

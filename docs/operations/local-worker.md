@@ -142,6 +142,8 @@ A minimal configuration is:
 Both local paths must be absolute. The canonical checkout must be a clean Git
 checkout at exactly `target_sha` with the expected GitHub `origin`; the runtime
 root and all of its descendants must be absent. The host must be loopback. The
+Windows runtime-root text must be at most 80 characters so the fixed worker
+layout still reserves space for nested Git worktrees and target test paths. The
 normal command rejects existing, overlapping, linked, junction, reparse-point,
 malformed, unknown, unsupported, occupied, or identity-mismatched state before
 runtime creation. It does not fetch, repair, clean, reset, stash, edit the
