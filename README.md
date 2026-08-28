@@ -204,7 +204,7 @@ See [SECURITY.md](SECURITY.md) and [docs/configuration.md](docs/configuration.md
 - **[Configuration](docs/configuration.md)** — environment variables and runtime settings.
 - **[Agent Integration](docs/ai-interface.md)** — how agents interact with Switchboard.
 - **[Local Worker Operations](docs/operations/local-worker.md)** — trusted repository mapping, worker configuration, execution, evidence retention, and limitations.
-- **[Owned Validation Lifecycle](docs/operations/local-worker.md#supported-local-validation-lifecycle)** — exact preflight, explicit fresh/reuse approval, marker-owned runtime, contained startup/shutdown, retained-evidence verification, and bounded reports.
+- **[Owned Validation Lifecycle](docs/operations/operator-validation-lifecycle.md)** — exact preflight, explicit fresh/reuse approval, marker-owned runtime, contained startup/shutdown, retained-evidence verification, and bounded reports.
 - **[Trusted Workload Onboarding](docs/operations/trusted-workload-onboarding.md)** — reviewed catalog entries, fixed manifests, worker mapping, and acceptance evidence.
 - **[Validation Command Center](docs/operations/validation-command-center.md)** — browser workflow, bounded projections, exact-reuse metrics, and publication controls.
 - **[Public Status](docs/reports/status.md)** — current developer-preview posture and release boundaries.

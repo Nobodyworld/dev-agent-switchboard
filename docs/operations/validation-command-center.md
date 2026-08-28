@@ -18,7 +18,7 @@ private URL, or claim of actual financial savings.
 For a repository-owned command that starts a private loopback server and
 outbound worker, performs the same explicit fresh/reuse control-plane lifecycle,
 verifies retained evidence, and shuts down only marker-owned processes, see
-[Supported local validation lifecycle](local-worker.md#supported-local-validation-lifecycle).
+[operator validation lifecycle](operator-validation-lifecycle.md).
 The command is complementary to this browser workspace: it does not resolve or
 publish GitHub pull-request state, and the browser does not own local processes
 or retained evidence.

@@ -101,6 +101,10 @@ evidence retention rules.
 
 ## Supported local validation lifecycle
 
+The complete supported command, strict configuration, lifecycle phases,
+privacy contract, failure preservation, and exclusions are documented in the
+[operator validation lifecycle guide](operator-validation-lifecycle.md).
+
 For one exact, clean Switchboard checkout, the repository-supported operator
 command can own the local server, outbound worker, fresh validation, and optional
 same-worker exact reuse as a single fail-closed lifecycle:

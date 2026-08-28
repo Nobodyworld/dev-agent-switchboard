@@ -68,6 +68,8 @@ manifests, exact-SHA validation, and structured evidence. The
 is a stable contract reference; use the Validation Broker and
 [local-worker operations guide](operations/local-worker.md) for the current
 operator path.
+The [owned operator validation lifecycle](operations/operator-validation-lifecycle.md)
+composes those reviewed interfaces into one fail-closed local command.
 
 ## Message Schema
 
@@ -156,6 +158,7 @@ Follow these steps to process a task locally:
 - [Architecture overview](architecture/architecture-overview.md)
 - [Local execution broker architecture](architecture/local-execution-broker.md)
 - [Execution manifest example](examples/execution/validate-switchboard-v1.yaml)
+- [Operator validation lifecycle](operations/operator-validation-lifecycle.md)
 - [Message Schema](message-schema.md)
 - [Failure Modes](failure-modes.md)
 - [CLI Runtime Guide](cli-runtime.md)
