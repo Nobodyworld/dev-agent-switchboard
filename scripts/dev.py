@@ -13,7 +13,6 @@ import sys
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from shutil import which
 from typing import Any, cast
 
 TODO_PATTERN = re.compile(r"\b(?:TODO|FIXME)\(P[1-3],\s*[^)]+\)")
@@ -160,8 +159,10 @@ def cmd_verify(args: argparse.Namespace) -> None:
     coverage_json.parent.mkdir(parents=True, exist_ok=True)
 
     commands: list[list[str]] = [
-        ["ruff", "check", "."],
+        [sys.executable, "-m", "ruff", "check", "."],
         [
+            sys.executable,
+            "-m",
             "mypy",
             "--config-file",
             "mypy.ini",
@@ -169,7 +170,16 @@ def cmd_verify(args: argparse.Namespace) -> None:
             "client",
             "scripts",
         ],
-        ["bandit", "-q", "-r", "server", "-x", "server/tests"],
+        [
+            sys.executable,
+            "-m",
+            "bandit",
+            "-q",
+            "-r",
+            "server",
+            "-x",
+            "server/tests",
+        ],
         [
             sys.executable,
             "-m",
@@ -219,13 +229,9 @@ def cmd_verify(args: argparse.Namespace) -> None:
     cmd_coverage_gate(gate_args)
 
     if not args.skip_audit:
-        print("→ pip-audit")
-        pip_audit = which("pip-audit")
-        if pip_audit is None:
-            raise SystemExit(
-                "pip-audit not found on PATH; install it or pass --skip-audit"
-            )
-        _run_command([pip_audit, "--progress-spinner=off"])
+        command = [sys.executable, "-m", "pip_audit", "--progress-spinner=off"]
+        print(f"→ {' '.join(command)}")
+        _run_command(command)
 
 
 def cmd_check_todos(args: argparse.Namespace) -> None:

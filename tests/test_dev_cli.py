@@ -1,3 +1,4 @@
+import sys
 from argparse import Namespace
 from pathlib import Path
 
@@ -18,8 +19,17 @@ def test_verify_scans_production_server_code_only(
         Namespace(coverage_json=str(tmp_path / "coverage.json"), skip_audit=True)
     )
 
-    assert ["bandit", "-q", "-r", "server", "-x", "server/tests"] in commands
-    pytest_command = next(command for command in commands if "-m" in command)
+    assert [
+        sys.executable,
+        "-m",
+        "bandit",
+        "-q",
+        "-r",
+        "server",
+        "-x",
+        "server/tests",
+    ] in commands
+    pytest_command = next(command for command in commands if "pytest" in command)
     assert "--cov=server.observability.overview" in pytest_command
 
 
