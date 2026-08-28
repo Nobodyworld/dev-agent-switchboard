@@ -17,7 +17,10 @@ from types import SimpleNamespace
 import pytest
 from scripts.dev import build_parser
 
-from client.python.execution_operator import lifecycle as lifecycle_module
+from client.python.execution_operator import (
+    lifecycle as lifecycle_module,
+    preflight as preflight_module,
+)
 from client.python.execution_operator.config import (
     OperatorConfigurationError,
     OperatorLifecycleConfig,
@@ -236,6 +239,58 @@ def test_preflight_proves_exact_clean_origin_and_is_non_mutating(
                 ),
             )
         )
+
+
+def test_preflight_fails_closed_before_runtime_creation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, sha = _repository(tmp_path)
+    payload = _mapping(tmp_path)
+    payload.update(
+        {
+            "canonical_checkout": str(repository),
+            "target_sha": sha,
+            "port": _free_port(),
+            "runtime_root": str(
+                Path("C:/tmp") / f"pf-bounds-{uuid.uuid4().hex[:8]}"
+                if os.name == "nt"
+                else tmp_path / "runtime"
+            ),
+        }
+    )
+    config = OperatorLifecycleConfig.from_mapping(payload)
+    monkeypatch.setenv("SWITCHBOARD_ADMIN_TOKEN", "operator-preflight-test")
+
+    config.runtime_root.mkdir()
+    with pytest.raises(OperatorLifecycleFailure, match="runtime_root_already_exists"):
+        run_preflight(config)
+    config.runtime_root.rmdir()
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        occupied = replace(config, port=int(listener.getsockname()[1]))
+        with pytest.raises(OperatorLifecycleFailure, match="loopback_port_occupied"):
+            run_preflight(occupied)
+
+    monkeypatch.delenv("SWITCHBOARD_ADMIN_TOKEN")
+    with pytest.raises(OperatorLifecycleFailure, match="admin_token_missing"):
+        run_preflight(config)
+    monkeypatch.setenv("SWITCHBOARD_ADMIN_TOKEN", "operator-preflight-test")
+
+    mismatch = replace(config, expected_manifest_digest="f" * 64)
+    with pytest.raises(
+        OperatorLifecycleFailure, match="trusted_manifest_digest_mismatch"
+    ):
+        run_preflight(mismatch)
+
+    monkeypatch.setattr(
+        preflight_module,
+        "_manifest_capabilities_compatible",
+        lambda _requirements: False,
+    )
+    with pytest.raises(OperatorLifecycleFailure, match="worker_capability_mismatch"):
+        run_preflight(config)
 
 
 def test_windows_runtime_path_budget_reserves_nested_worktree_space() -> None:

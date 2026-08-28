@@ -181,6 +181,7 @@ def cmd_verify(args: argparse.Namespace) -> None:
             "--cov=server.observability.health",
             "--cov=server.observability.activity",
             "--cov=server.observability.overview",
+            "--cov=client.python.execution_operator",
             "--cov-report=term-missing",
             f"--cov-report=json:{coverage_json}",
         ],
@@ -207,6 +208,12 @@ def cmd_verify(args: argparse.Namespace) -> None:
             "server/observability/activity.py=80",
             "server/observability/overview.py=85",
             "server/application/configuration_service.py=85",
+            "client/python/execution_operator/config.py=85",
+            "client/python/execution_operator/lifecycle.py=75",
+            "client/python/execution_operator/models.py=90",
+            "client/python/execution_operator/preflight.py=75",
+            "client/python/execution_operator/processes.py=75",
+            "client/python/execution_operator/runtime.py=75",
         ],
     )
     cmd_coverage_gate(gate_args)
