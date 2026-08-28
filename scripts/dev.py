@@ -532,6 +532,53 @@ def cmd_bump_version(args: argparse.Namespace) -> None:
     print(f"Version bumped: {current} -> {new_version}")
 
 
+def cmd_validation_lifecycle(args: argparse.Namespace) -> None:
+    """Run one new fail-closed operator validation lifecycle."""
+
+    from client.python.execution_operator.config import (
+        OperatorConfigurationError,
+        OperatorLifecycleConfig,
+    )
+    from client.python.execution_operator.lifecycle import run_validation_lifecycle
+    from client.python.execution_operator.models import OperatorLifecycleFailure
+
+    try:
+        config = OperatorLifecycleConfig.from_file(args.config)
+
+        def approve(phase: str, identity: str) -> bool:
+            flag = args.approve_fresh if phase == "fresh" else args.approve_reuse
+            print(f"Approval required: {identity}")
+            if flag:
+                print(f"Approval accepted non-interactively: {phase}")
+                return True
+            if not sys.stdin.isatty():
+                return False
+            expected = f"APPROVE {identity}"
+            return input(f"Type '{expected}' exactly: ") == expected
+
+        report = run_validation_lifecycle(config, approval=approve)
+    except (OperatorConfigurationError, OperatorLifecycleFailure) as error:
+        print(f"validation-lifecycle: FAIL {error}")
+        raise SystemExit(1) from None
+    print(
+        report.as_json_bytes(maximum_bytes=config.report_maximum_bytes).decode("utf-8")
+    )
+
+
+def cmd_inspect_validation_runtime(args: argparse.Namespace) -> None:
+    """Inspect a marker-owned runtime without mutating it."""
+
+    from client.python.execution_operator.lifecycle import inspect_validation_runtime
+    from client.python.execution_operator.models import OperatorLifecycleFailure
+
+    try:
+        report = inspect_validation_runtime(args.runtime_root)
+        print(report.as_json_bytes(maximum_bytes=1024 * 1024).decode("utf-8"))
+    except (OSError, OperatorLifecycleFailure) as error:
+        print(f"inspect-validation-runtime: FAIL {error}")
+        raise SystemExit(1) from None
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Switchboard developer utilities")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -623,6 +670,32 @@ def build_parser() -> argparse.ArgumentParser:
     bump.add_argument("--part", choices=["major", "minor", "patch"], default="patch")
     bump.add_argument("--version", help="Explicit semantic version override")
     bump.set_defaults(func=cmd_bump_version)
+
+    lifecycle = subparsers.add_parser(
+        "validation-lifecycle",
+        help="Run a new marker-owned fresh or fresh-plus-reuse validation lifecycle",
+    )
+    lifecycle.add_argument(
+        "--config", type=Path, required=True, help="operator JSON configuration"
+    )
+    lifecycle.add_argument(
+        "--approve-fresh",
+        action="store_true",
+        help="explicitly approve the fresh work order in non-interactive use",
+    )
+    lifecycle.add_argument(
+        "--approve-reuse",
+        action="store_true",
+        help="explicitly approve the reuse work order in non-interactive use",
+    )
+    lifecycle.set_defaults(func=cmd_validation_lifecycle)
+
+    inspect_runtime = subparsers.add_parser(
+        "inspect-validation-runtime",
+        help="Read a validation runtime marker/report without mutation",
+    )
+    inspect_runtime.add_argument("runtime_root", type=Path)
+    inspect_runtime.set_defaults(func=cmd_inspect_validation_runtime)
 
     return parser
 
