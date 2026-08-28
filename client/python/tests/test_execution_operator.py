@@ -303,6 +303,54 @@ def test_windows_runtime_path_budget_reserves_nested_worktree_space() -> None:
     )
 
 
+def test_preflight_tool_versions_and_capability_contract_are_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        preflight_module.shutil,
+        "which",
+        lambda *_args, **_kwargs: "tool",
+    )
+    monkeypatch.setattr(
+        preflight_module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0,
+            stdout=b"v24.12.0\n",
+        ),
+    )
+    assert preflight_module._tool_version("node", allow_leading_v=True) == "24.12.0"
+
+    monkeypatch.setattr(
+        preflight_module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0,
+            stdout=b"1" * 257,
+        ),
+    )
+    assert preflight_module._tool_version("pnpm") is None
+
+    versions = {"node": "24.12.0", "pnpm": "10.18.1"}
+    monkeypatch.setattr(
+        preflight_module,
+        "_tool_version",
+        lambda name, **_kwargs: versions.get(name),
+    )
+    requirements: dict[str, object] = {
+        "git_available": True,
+        "node": {"minimum": "24.12.0"},
+        "pnpm": {"exact": "10.18.1"},
+        "python": {"minimum": "3.11"},
+        "repository_write": False,
+    }
+    assert preflight_module._manifest_capabilities_compatible(requirements)
+    assert not preflight_module._manifest_capabilities_compatible(
+        {**requirements, "pnpm": {"exact": "0.0.0"}}
+    )
+    assert not preflight_module._manifest_capabilities_compatible({"unsupported": True})
+
+
 def test_cli_requires_separate_noninteractive_approval_flags(tmp_path: Path) -> None:
     parser = build_parser()
     arguments = parser.parse_args(
