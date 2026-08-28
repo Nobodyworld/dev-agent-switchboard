@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import platform
+import re
 import shutil
 import socket
 import stat
@@ -12,6 +13,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import SplitResult, urlsplit
 
 from client.python.execution_worker.containment import strict_containment_supported
 from server.execution.capabilities import runtime_version_matches
@@ -24,6 +26,12 @@ _COMMAND_TIMEOUT = 10.0
 _OUTPUT_LIMIT = 64 * 1024
 _VERSION_OUTPUT_LIMIT = 256
 _MAX_WINDOWS_RUNTIME_ROOT_LENGTH = 80
+_WINDOWS_REPARSE_POINT_FALLBACK = 0x0400
+_GITHUB_REPOSITORY_COMPONENT_COUNT = 2
+_GITHUB_COMPONENT = re.compile(r"^[A-Za-z0-9_.-]+$")
+_SCP_GITHUB_ORIGIN = re.compile(
+    r"^git@(?P<host>github\.com):(?P<path>[^?#]+)$", re.IGNORECASE
+)
 PREFLIGHT_CHECKS = (
     "canonical_repository",
     "clean_source",
@@ -108,24 +116,116 @@ def _one_line(value: bytes, reason: str) -> str:
     return lines[0]
 
 
-def _is_reparse(path: Path) -> bool:
+def _file_attributes(metadata: os.stat_result) -> int | None:
+    attributes = getattr(metadata, "st_file_attributes", None)
+    return attributes if isinstance(attributes, int) else None
+
+
+def _reparse_point_flag() -> int:
+    value = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", None)
+    return (
+        value
+        if isinstance(value, int) and value > 0
+        else _WINDOWS_REPARSE_POINT_FALLBACK
+    )
+
+
+def _metadata_is_reparse(metadata: os.stat_result) -> bool:
+    attributes = _file_attributes(metadata)
+    return stat.S_ISLNK(metadata.st_mode) or bool(
+        attributes is not None and attributes & _reparse_point_flag()
+    )
+
+
+def path_is_reparse(path: Path) -> bool:
+    """Inspect symlink/reparse state without Linux-only typing assumptions."""
+
     try:
-        attributes = path.lstat().st_file_attributes
-    except AttributeError:
-        return path.is_symlink()
+        return _metadata_is_reparse(path.lstat())
     except OSError as error:
         raise OperatorLifecycleFailure("path_inspection_failed") from error
-    return bool(attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
 
 
-def _assert_no_reparse_ancestry(path: Path, reason: str) -> None:
+def assert_no_reparse_ancestry(path: Path, reason: str) -> None:
     current = path
     while True:
-        if current.exists() and _is_reparse(current):
+        try:
+            metadata = current.lstat()
+        except FileNotFoundError:
+            metadata = None
+        except OSError as error:
+            raise OperatorLifecycleFailure("path_inspection_failed") from error
+        if metadata is not None and _metadata_is_reparse(metadata):
             raise OperatorLifecycleFailure(reason)
         if current == current.parent:
             return
         current = current.parent
+
+
+def _github_repository_parts(path: str) -> tuple[str, str] | None:
+    if not path or "%" in path or "\\" in path:
+        return None
+    normalized = path[:-1] if path.endswith("/") else path
+    if normalized.endswith("/") or normalized.startswith("//"):
+        return None
+    normalized = normalized[1:] if normalized.startswith("/") else normalized
+    parts = normalized.split("/")
+    if len(parts) != _GITHUB_REPOSITORY_COMPONENT_COUNT:
+        return None
+    owner, repository = parts
+    if repository.endswith(".git"):
+        repository = repository[:-4]
+    if (
+        not owner
+        or not repository
+        or owner in {".", ".."}
+        or repository in {".", ".."}
+        or not _GITHUB_COMPONENT.fullmatch(owner)
+        or not _GITHUB_COMPONENT.fullmatch(repository)
+    ):
+        return None
+    return owner.casefold(), repository.casefold()
+
+
+def _url_github_repository(parsed: SplitResult) -> tuple[str, str] | None:
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+    if (
+        parsed.query
+        or parsed.fragment
+        or port is not None
+        or parsed.hostname is None
+        or parsed.hostname.casefold() != "github.com"
+    ):
+        return None
+    if parsed.scheme == "https":
+        if (
+            "@" in parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            return None
+    elif parsed.scheme == "ssh":
+        if parsed.username != "git" or parsed.password is not None:
+            return None
+    else:
+        return None
+    return _github_repository_parts(parsed.path)
+
+
+def github_origin_identity(origin: str) -> tuple[str, str] | None:
+    """Return a strict case-insensitive GitHub owner/repository identity."""
+
+    match = _SCP_GITHUB_ORIGIN.fullmatch(origin)
+    if match is not None:
+        return _github_repository_parts(match.group("path"))
+    try:
+        parsed = urlsplit(origin)
+    except ValueError:
+        return None
+    return _url_github_repository(parsed)
 
 
 def _contains(candidate: Path, root: Path) -> bool:
@@ -144,9 +244,9 @@ def runtime_path_budget_ok(path: Path, *, platform_name: str = os.name) -> bool:
 
 def source_snapshot(config: OperatorLifecycleConfig) -> SourceSnapshot:
     checkout = config.canonical_checkout
-    if not checkout.is_dir() or _is_reparse(checkout):
+    if not checkout.is_dir() or path_is_reparse(checkout):
         raise OperatorLifecycleFailure("canonical_checkout_invalid")
-    _assert_no_reparse_ancestry(checkout, "canonical_checkout_reparse_ancestry")
+    assert_no_reparse_ancestry(checkout, "canonical_checkout_reparse_ancestry")
     inside = _one_line(
         _run_git(checkout, ("rev-parse", "--is-inside-work-tree")),
         "canonical_checkout_invalid",
@@ -173,11 +273,10 @@ def source_snapshot(config: OperatorLifecycleConfig) -> SourceSnapshot:
         _run_git(checkout, ("remote", "get-url", "origin")),
         "source_origin_invalid",
     )
-    accepted = {
-        f"https://github.com/{config.repository_full_name}.git",
-        f"git@github.com:{config.repository_full_name}.git",
-    }
-    if origin not in accepted:
+    expected_identity = tuple(
+        component.casefold() for component in config.repository_full_name.split("/", 1)
+    )
+    if github_origin_identity(origin) != expected_identity:
         raise OperatorLifecycleFailure("source_origin_mismatch")
     return SourceSnapshot(
         head_sha=head, tree_sha=tree, status_digest=hashlib.sha256(status).hexdigest()
@@ -272,7 +371,7 @@ def run_preflight(config: OperatorLifecycleConfig) -> PreflightResult:
         raise OperatorLifecycleFailure("runtime_root_already_exists")
     if not runtime_path_budget_ok(config.runtime_root):
         raise OperatorLifecycleFailure("runtime_path_budget_exceeded")
-    _assert_no_reparse_ancestry(
+    assert_no_reparse_ancestry(
         config.runtime_root.parent, "runtime_parent_reparse_ancestry"
     )
     canonical = config.canonical_checkout.resolve(strict=True)
@@ -317,6 +416,9 @@ __all__ = [
     "PREFLIGHT_CHECKS",
     "PreflightResult",
     "SourceSnapshot",
+    "assert_no_reparse_ancestry",
+    "github_origin_identity",
+    "path_is_reparse",
     "run_preflight",
     "runtime_path_budget_ok",
     "source_snapshot",
