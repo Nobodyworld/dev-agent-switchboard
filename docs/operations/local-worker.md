@@ -153,6 +153,14 @@ malformed, unknown, unsupported, occupied, or identity-mismatched state before
 runtime creation. It does not fetch, repair, clean, reset, stash, edit the
 database, or accept a different commit.
 
+The lifecycle derives its Switchboard control-plane source internally from the
+loaded operator package and validates the required server/worker launchers. It
+starts `scripts.operator_server` and `scripts.local_worker` with only that
+Switchboard root as `cwd` and `PYTHONPATH`. The configured canonical checkout
+is the selected target and appears only in the worker's logical repository
+mapping; another repository never needs to contain, and cannot supply, the
+Switchboard launch modules.
+
 After read-only preflight, the command creates the runtime root, writes a random
 versioned ownership marker before any child directory, and then creates private
 database, server storage, file storage, disposable source, retained evidence,
@@ -162,7 +170,11 @@ in-process API client, and omitted from configuration, argv, markers, process
 records, reports, and safe console failures. Server and worker processes run
 under the existing strict containment host. Graceful marker-based drain is
 attempted first; fallback termination targets only the still-held containment
-object for that direct child.
+object for that direct child. Every later private write, stop signal,
+termination, finalization, cleanup, and report write revalidates the full
+original marker through one stable bounded regular-file reader. Marker
+replacement or reparse ambiguity preserves the runtime and process state and
+forbids further mutation.
 
 Machine JSON and human text reports are generated from one bounded path-free
 model under the runtime's private `reports` directory. Oversize or unsafe report

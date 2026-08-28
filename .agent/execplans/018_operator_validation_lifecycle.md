@@ -72,6 +72,25 @@ The command exits non-zero and preserves the owned runtime whenever any required
 - [x] Preserve all existing manual entry points and update operator documentation.
 - [x] Run focused validation, the complete repository matrix, strict browser/security/coverage gates, and one bounded synthetic lifecycle proof.
 - [x] Reconcile this ExecPlan and mutable status evidence.
+- [x] Reproduce review 5055382298's Linux Mypy failures with Python 3.11 and
+  Mypy's Linux platform target; record that native Windows stub selection does
+  not reproduce the two Windows-only attribute errors.
+- [x] Replace raw origin equality with a closed semantic GitHub HTTPS/SSH
+  parser, including the Actions HTTPS form without `.git`.
+- [x] Separate the internally derived Switchboard control-plane source from
+  the operator-selected target checkout and prove both modes against a target
+  fixture with no Switchboard launchers.
+- [x] Bind process records, configuration, stop signaling, diagnostics,
+  termination, finalization, cleanup, and reports to the complete original
+  marker identity through one stable bounded reader.
+- [x] Require complete fresh reuse/result identity, hash, fingerprint,
+  ownership, containment, artifact, and retention proof in both modes.
+- [x] Require exact `first_available`, pinned-worker, zero-quota route proof and
+  extend the safe report with identity, route, quota, source, artifact-byte,
+  fingerprint, and expiry facts.
+- [x] Pass the corrected hosted Mypy reproduction, focused ownership/origin
+  matrix, both external-target lifecycle modes individually and together, and
+  the affected worker/server/CLI regressions under the required cached pnpm.
 - [ ] Commit in logical Conventional Commit units, push normally, and verify exact local/remote parity.
 - [ ] Complete exact-head hosted validation and connector review.
 - [ ] Keep the pull request draft and unmerged pending separate owner authorization.
@@ -104,6 +123,26 @@ The command exits non-zero and preserves the owned runtime whenever any required
   Evidence: The retained successful mechanical run used `1124.719` seconds for
   tests-with-coverage and `1207.82` seconds end to end; exact reuse then executed
   zero deterministic steps.
+
+- Observation: Native Windows Mypy selected Windows `stat` stubs and passed the
+  original exact command, while `--platform linux` reproduced the hosted
+  `st_file_attributes` and `FILE_ATTRIBUTE_REPARSE_POINT` errors exactly.
+  Evidence: Python 3.11 / Mypy 1.18.2 reported those two errors before the
+  correction and `Success: no issues found in 199 source files` afterward.
+
+- Observation: The checkout's `.git` HTTPS origin made the original local
+  synthetic node pass, while Actions' equally valid non-`.git` form failed at
+  the reviewed head with `source_origin_mismatch`.
+  Evidence: Blocking review 5055382298 is bound to
+  `7db2fb4674ffba4c2f92497871f4cf0931234e7a`; the corrected separate-target
+  fixture uses the non-`.git` form and passes fresh-only and exact reuse.
+
+- Observation: A PowerShell `.cmd` shim exposes cached pnpm 10.18.1 to the
+  shell but is intentionally rejected by strict child containment as a worker
+  executable. An ignored native task-local wrapper was required for the
+  Zscripts capability acceptance without changing host-default pnpm 10.24.0.
+  Evidence: discovery first returned `pnpm_available: false`, then returned
+  `pnpm_version: 10.18.1` and the isolated Zscripts acceptance passed.
 
 ## Decision Log
 
@@ -189,6 +228,33 @@ The command exits non-zero and preserves the owned runtime whenever any required
   now share this fail-closed interpretation.
   Date/Author: 2026-08-28 / Codex.
 
+- Decision: Resolve GitHub origins into a strict case-folded owner/repository
+  identity while preserving configured logical spelling in public reports.
+  Rationale: Transport syntax and optional `.git` do not change repository
+  identity, but credentials, ports, lookalikes, traversal, and extra path
+  segments must remain hard failures without reflecting raw input.
+  Date/Author: 2026-08-28 / Codex.
+
+- Decision: Derive the control-plane root only from the loaded operator module
+  and validate its fixed internal launchers; never add it to caller
+  configuration or import target source into control-plane children.
+  Rationale: The selected canonical checkout is a target trust input, not the
+  implementation source for Switchboard's server and worker.
+  Date/Author: 2026-08-28 / Codex.
+
+- Decision: Use one complete `RuntimeSummary` equality check and stable marker
+  reader as the gate for every post-creation mutation and process action.
+  Rationale: Syntactically valid replacement markers are foreign state; a held
+  process handle does not authorize signaling, termination, finalization, or
+  report overwrite after marker identity is lost.
+  Date/Author: 2026-08-28 / Codex.
+
+- Decision: Reuse the worker's complete retained-evidence verifier for every
+  successful fresh run and admit only the exact pinned zero-quota route.
+  Rationale: Fresh-only is a lifecycle choice, not permission to omit result
+  identity, cryptographic artifacts, retention, or route/quota proof.
+  Date/Author: 2026-08-28 / Codex.
+
 ## Outcomes & Retrospective
 
 The supported surfaces are `python scripts/dev.py validation-lifecycle
@@ -257,7 +323,28 @@ exact-head binding.
 The lifecycle removes manual runtime construction, launch sequencing, polling,
 evidence reconciliation, shutdown, cleanup verification, and report assembly.
 It deliberately retains target preparation, exact configuration, token
-provisioning, and separate human approval for every work order. PR #152 remains
+provisioning, and separate human approval for every work order.
+
+The review correction makes that lifecycle portable and multi-repository. The
+preflight accepts only semantically equivalent GitHub origins; Switchboard
+children launch from an internally derived, reparse-free control-plane root;
+the selected canonical checkout remains only the worker target. Every runtime
+write and process action is bound to the original marker identity. Every fresh
+success requires the same complete retained-evidence identity/hash and
+cryptographic artifact path used for reuse. Report schema 2 carries the exact
+verified source, identity hash, `first_available` route, pinned worker,
+zero-quota state, eligible count, artifact total, fingerprint, expiry, and
+cleanup facts without private paths or data.
+
+The corrected focused operator module passed 82 tests with four explicit
+capability/gated skips. Both modes passed individually and together against a
+separate non-`.git` target fixture that lacks both control-plane launchers. The
+requested affected regression set passed after binding the Zscripts capability
+case to cached pnpm 10.18.1; the host-default pnpm 10.24.0 was not changed.
+Final exact-head matrix results and the pushed SHA are recorded only after the
+additive commits so evidence remains bound to the code it validates.
+
+PR #152 remains
 draft and unmerged pending exact-head hosted validation, connector review, and
 a separate owner decision.
 

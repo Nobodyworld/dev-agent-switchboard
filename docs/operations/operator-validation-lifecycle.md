@@ -77,6 +77,14 @@ limits, and out-of-contract timeouts. On Windows, the runtime-root text is
 limited to 80 characters to reserve space for nested worktrees and target test
 paths.
 
+The repository identity is compared semantically and case-insensitively, while
+the configured logical spelling remains the report spelling. Supported origins
+are HTTPS, SCP-style SSH, and `ssh://` GitHub forms with user `git`; `.git` and
+one terminal slash are optional. HTTP, HTTPS userinfo, SSH users other than
+`git`, ports, query/fragment data, lookalike hosts, alternate repositories,
+extra path components, encoded or literal traversal, file URLs, and local paths
+are rejected without copying the raw origin into a failure or report.
+
 ## Exact preflight
 
 Preflight finishes before the runtime root or any process is created. It uses
@@ -107,10 +115,28 @@ machine identity, or private network detail.
 The marker then owns distinct database, server-storage, file-storage,
 worker-source, retained-evidence, reports, TEMP, TMP, and process-record roots.
 Normal execution refuses every existing root. Each later write or shutdown
-signal revalidates the marker.
+signal revalidates the complete original marker identity.
 
-The command launches the reviewed server and `scripts.local_worker` with direct
-fixed argv and a minimal environment. The token is passed only to child process
+Marker verification rejects root, parent, ancestry, or marker symlink,
+junction, and reparse state. It opens only a bounded regular marker, requests
+no-follow behavior where supported, compares the file identity before open,
+through the descriptor read, and after close, decodes strict UTF-8 JSON,
+rejects duplicate or unknown keys, and compares every marker field to the
+`RuntimeSummary` captured at creation. Process records, worker configuration,
+private diagnostics, stop files, fallback termination, finalization, cleanup,
+and both report writes all call that same verifier immediately before their
+action. If identity is missing, changed, malformed, unstable, or ambiguous,
+the command performs none of those actions and preserves the runtime and held
+process state for diagnosis.
+
+The command derives Switchboard's control-plane root internally from the loaded
+operator package, rejects linked or incomplete roots, and requires the reviewed
+`scripts.operator_server`, `scripts.local_worker`, server, and worker modules.
+It launches those modules with that root as both `cwd` and the sole
+`PYTHONPATH` source. The selected target checkout is used only by the worker's
+logical repository mapping; target contents never supply control-plane imports
+or launchers. The command uses direct fixed argv and a minimal environment. The
+token is passed only to child process
 environments and the in-process typed API client. Private process records bind
 the runtime ID, child kind, and held PID. Windows children use the existing Job
 Object host; POSIX children use the existing process-group/session host.
@@ -144,7 +170,13 @@ the same two deliberate operator actions.
 
 `fresh-only` submits `reuse_policy: never`, verifies the authoritative run,
 route, exact manifest steps, local retained result, hashes, source snapshot,
-leases, capacity, and cleanup, then shuts down.
+leases, capacity, and cleanup, then shuts down. Success always requires the
+persisted reuse/result identity and its matching SHA-256 identity hash, local
+result identity equality, evidence fingerprint, ownership marker, stable
+contained result record, resolved-contained regular non-reparse artifacts,
+exact sizes and SHA-256 hashes, and valid unchanged retention. The exact same
+retained-evidence verifier is mandatory in both modes; `fresh-only` has no
+reduced identity path.
 
 `fresh-then-exact-reuse` performs that same fresh proof first. It then creates a
 distinct `require_exact` work order on the same worker. Acceptance requires the
@@ -154,15 +186,26 @@ fresh fallback, and clean final lease/capacity/process/port state. The report
 states only the exact count of avoided deterministic steps; it makes no money,
 credit, token, provider-cost, or financial-savings claim.
 
+Every accepted route proves exactly `first_available`, the configured worker,
+an explicit pin, zero required and reserved quota units,
+`quota_reservation_state: not_required`, a bounded route reason, and at least
+one eligible candidate. `consumed`, any nonzero quota, a different worker, or a
+different policy fails verification.
+
 ## Reports and privacy
 
-The owned `reports` directory receives one versioned JSON report and one human
+The owned `reports` directory receives one schema-version-2 JSON report and one human
 summary generated from the same model. The JSON has bounded strings,
 collections, nesting, artifacts, and serialized bytes; oversize JSON fails
 instead of being sliced. It may contain logical identities, full SHA/digests,
 runtime/work-order/run/worker IDs, safe phases, approval state, route state,
 step status/duration, artifact relative identity/size/hash, evidence
 fingerprints, expiry, avoided-step count, and cleanup facts.
+Each verified run also retains its reuse/result identity hash, source run ID,
+route policy and reason, required and reserved quota, reservation state,
+eligible-candidate count, exact artifact total bytes, evidence fingerprint, and
+expiry. Artifact total bytes must equal the sum of the verified artifact
+records. Both serializers invoke the same run validator.
 
 Recursive safe-text policy rejects absolute local paths. Reports exclude tokens
 and token-shaped input, machine/user identity, raw environment, argv, commands,
@@ -173,7 +216,9 @@ and retained only under the owned runtime; it is never copied into the report.
 ## Failure preservation and read-only inspection
 
 Every failure after marker creation preserves the entire runtime and writes one
-bounded failed report when the report boundary remains trustworthy. The command
+bounded failed report when the original marker identity and report boundary
+remain trustworthy. Marker ownership loss forbids report creation or overwrite.
+The command
 does not retry ambiguous creation/approval, create reuse after incomplete fresh
 proof, repair database rows, expire leases, alter capacity, delete evidence,
 resume a prior runtime, or clean uncertain paths or processes.

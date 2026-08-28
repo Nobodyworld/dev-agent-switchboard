@@ -42,7 +42,9 @@ marker-owned runtime, and preserves all failed or uncertain state. Strict
 preflight verifies clean exact source, origin, manifest, host tools,
 capabilities, containment, safe roots, loopback port, process-only token
 presence, and bounded reporting before mutation. It starts the existing server
-and outbound worker as directly held children, verifies authoritative terminal
+and outbound worker from Switchboard's internally derived control-plane source,
+not from the selected target checkout. The target remains only the worker's
+operator-approved logical repository mapping. The lifecycle verifies authoritative terminal
 and retained evidence, and requires zero leases/capacity plus stopped processes
 and a released port before success.
 
@@ -53,12 +55,45 @@ foreign, malformed, linked, or ambiguous runtime state fails closed; inspection
 does not resume, repair, clean, or mutate it. Manual server and worker entry
 points remain supported.
 
+Every post-creation private write, stop signal, termination, finalization,
+cleanup, and report write revalidates the complete original random marker
+identity through one bounded, regular-file-only, no-follow stable read. Valid
+marker replacement, missing or malformed markers, changed-during-read state,
+and marker/root/ancestry junction or reparse state forbid further mutation and
+preserve the runtime and held process state.
+
 Real server/worker synthetic coverage proves fresh-only and exact reuse with
 distinct work-order/run identities, same-worker retained evidence, unchanged
 source expiry, no reuse fallback, zero repeated deterministic steps/artifacts,
 and seven avoided steps. Failure-preservation, cancellation, port, process,
 cleanup, approval, report-size, and credential-leak boundaries have focused
 coverage.
+
+Blocking exact-head review 5055382298 and CI run 33213404514 identified the
+Linux Mypy portability error, Actions' valid non-`.git` origin mismatch,
+Switchboard-only control-plane launch assumption, replaceable runtime marker,
+and incomplete fresh/report identity contract at head
+`7db2fb4674ffba4c2f92497871f4cf0931234e7a`. The additive correction uses
+guarded reparse metadata, a closed semantic GitHub origin parser, distinct
+control-plane and target roots, full original-marker binding, mandatory
+retained-evidence identity/hash verification in both modes, and exact pinned
+`first_available` zero-quota route proof.
+
+Report schema 2 retains the verified identity hash, source run ID, route policy
+and bounded reason, required and reserved quota units, reservation state,
+eligible-candidate count, exact artifact total bytes, evidence fingerprint,
+expiry, and existing cleanup facts. The same validator feeds human and JSON
+serialization and rejects paths, tokens, argv, raw bodies, environments,
+private identity, unsafe values, and oversize output.
+
+Python 3.11 correction evidence currently includes Linux-target Mypy over 199
+source files; 82 operator tests with four explicit capability/gated skips; both
+separate-target lifecycle modes individually and together; real Windows marker,
+root, and ancestry junction rejection; and the affected worker/server/CLI
+matrix. Zscripts validation used only cached pnpm 10.18.1 through ignored
+task-local infrastructure; host-default pnpm 10.24.0 was unchanged. Final
+exact-head matrix and push parity remain pending until the additive commits are
+created.
 
 One retained real full-manifest exercise completed mechanically at implementation
 head `c16599c398083e9c8d4c89d1c4ce7b58cfd95aae`, including zero-step reuse, but
