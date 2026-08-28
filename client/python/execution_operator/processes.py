@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import stat
 import subprocess
 import sys
 import threading
@@ -21,15 +22,63 @@ from client.python.execution_worker.containment import (
 
 from .config import OperatorLifecycleConfig
 from .models import OperatorLifecycleFailure, RuntimeSummary
-from .runtime import RuntimeLayout, inspect_runtime, touch_owned_stop
+from .preflight import assert_no_reparse_ancestry, path_is_reparse
+from .runtime import (
+    RuntimeLayout,
+    touch_owned_stop,
+    verify_runtime_ownership,
+)
 
 _MAX_PRIVATE_PROCESS_OUTPUT = 64 * 1024
+_SWITCHBOARD_REPOSITORY = "nobodyworld/dev-agent-switchboard"
+_CONTROL_PLANE_FILES = (
+    "scripts/operator_server.py",
+    "scripts/local_worker.py",
+    "server/__init__.py",
+    "client/python/execution_worker/__init__.py",
+)
+
+
+def _contains(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _control_plane_source_root(config: OperatorLifecycleConfig) -> Path:
+    source = Path(__file__)
+    if not source.is_absolute():
+        source = Path(os.path.abspath(source))
+    assert_no_reparse_ancestry(source, "control_plane_source_reparse_ancestry")
+    try:
+        root = source.parents[3]
+        resolved = root.resolve(strict=True)
+    except (IndexError, OSError) as error:
+        raise OperatorLifecycleFailure("control_plane_source_invalid") from error
+    assert_no_reparse_ancestry(root, "control_plane_source_reparse_ancestry")
+    for relative in _CONTROL_PLANE_FILES:
+        expected = root.joinpath(*relative.split("/"))
+        assert_no_reparse_ancestry(expected, "control_plane_source_reparse_ancestry")
+        try:
+            metadata = expected.lstat()
+        except OSError as error:
+            raise OperatorLifecycleFailure("control_plane_source_invalid") from error
+        if not stat.S_ISREG(metadata.st_mode) or path_is_reparse(expected):
+            raise OperatorLifecycleFailure("control_plane_source_invalid")
+    target = config.canonical_checkout.resolve(strict=True)
+    if config.repository_full_name.casefold() != _SWITCHBOARD_REPOSITORY and (
+        _contains(target, resolved) or _contains(resolved, target)
+    ):
+        raise OperatorLifecycleFailure("control_plane_target_overlap")
+    return resolved
 
 
 def _minimal_environment(
-    config: OperatorLifecycleConfig,
     layout: RuntimeLayout,
     token: str,
+    control_plane_root: Path,
 ) -> dict[str, str]:
     environment = {
         key: os.environ[key]
@@ -38,7 +87,7 @@ def _minimal_environment(
     }
     environment.update(
         {
-            "PYTHONPATH": str(config.canonical_checkout),
+            "PYTHONPATH": str(control_plane_root),
             "PYTHONUTF8": "1",
             "PYTHONDONTWRITEBYTECODE": "1",
             "TEMP": str(layout.temporary),
@@ -49,8 +98,14 @@ def _minimal_environment(
     return environment
 
 
-def _write_private_json(path: Path, payload: dict[str, object]) -> None:
+def _write_private_json(
+    layout: RuntimeLayout,
+    expected: RuntimeSummary,
+    path: Path,
+    payload: dict[str, object],
+) -> None:
     try:
+        verify_runtime_ownership(layout, expected, destination=path)
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8", closefd=True) as handle:
             json.dump(payload, handle, sort_keys=True, separators=(",", ":"))
@@ -60,8 +115,11 @@ def _write_private_json(path: Path, payload: dict[str, object]) -> None:
         raise OperatorLifecycleFailure("private_configuration_write_failed") from error
 
 
-def _write_private_bytes(path: Path, payload: bytes) -> None:
+def _write_private_bytes(
+    layout: RuntimeLayout, expected: RuntimeSummary, path: Path, payload: bytes
+) -> None:
     try:
+        verify_runtime_ownership(layout, expected, destination=path)
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "wb", closefd=True) as handle:
             handle.write(payload)
@@ -74,8 +132,9 @@ def _write_private_bytes(path: Path, payload: bytes) -> None:
 def _record_process(
     layout: RuntimeLayout, summary: RuntimeSummary, kind: str, pid: int
 ) -> None:
-    inspect_runtime(layout.root)
     _write_private_json(
+        layout,
+        summary,
         layout.process_records / f"{kind}.json",
         {
             "schema_version": 1,
@@ -110,6 +169,7 @@ class OwnedProcess:
     kind: str
     host: StrictHostProcess
     layout: RuntimeLayout
+    expected_runtime: RuntimeSummary
     stop_file: Path
     _redacted_token: bytes = field(repr=False)
     _output: bytearray = field(default_factory=bytearray, repr=False)
@@ -142,24 +202,31 @@ class OwnedProcess:
             output = output.replace(self._redacted_token, b"[REDACTED]")
         if self._output_truncated:
             output += b"\n[OUTPUT TRUNCATED]\n"
-        _write_private_bytes(self.layout.process_records / f"{self.kind}.log", output)
+        _write_private_bytes(
+            self.layout,
+            self.expected_runtime,
+            self.layout.process_records / f"{self.kind}.log",
+            output,
+        )
 
     def running(self) -> bool:
         return self.host.process.poll() is None
 
     def stop(self, *, timeout: float) -> bool:
-        inspect_runtime(self.layout.root)
-        touch_owned_stop(self.layout, self.stop_file)
+        verify_runtime_ownership(self.layout, self.expected_runtime)
+        touch_owned_stop(self.layout, self.expected_runtime, self.stop_file)
         deadline = time.monotonic() + timeout
         while self.host.process.poll() is None and time.monotonic() < deadline:
             time.sleep(0.05)
         if self.host.process.poll() is None:
+            verify_runtime_ownership(self.layout, self.expected_runtime)
             try:
                 self.host.terminate(grace_seconds=min(timeout, 5.0))
             except ContainmentCleanupError as error:
                 raise OperatorLifecycleFailure(
                     "owned_process_cleanup_unproven"
                 ) from error
+        verify_runtime_ownership(self.layout, self.expected_runtime)
         try:
             outcome = self.host.finalize_after_exit(grace_seconds=min(timeout, 5.0))
         except ContainmentCleanupError as error:
@@ -181,7 +248,7 @@ def _launch(  # noqa: PLR0913 - containment inputs stay explicit
     stop_file: Path,
     token: str,
 ) -> OwnedProcess:
-    inspect_runtime(layout.root)
+    verify_runtime_ownership(layout, summary)
     try:
         host = launch_strict_host(
             argv=argv,
@@ -195,6 +262,7 @@ def _launch(  # noqa: PLR0913 - containment inputs stay explicit
     try:
         _record_process(layout, summary, kind, host.process.pid)
     except Exception:
+        verify_runtime_ownership(layout, summary)
         try:
             host.terminate(grace_seconds=2.0)
         except ContainmentCleanupError:
@@ -204,6 +272,7 @@ def _launch(  # noqa: PLR0913 - containment inputs stay explicit
         kind=kind,
         host=host,
         layout=layout,
+        expected_runtime=summary,
         stop_file=stop_file,
         _redacted_token=token.encode("utf-8"),
     )
@@ -218,7 +287,8 @@ def launch_server(
     token: str,
 ) -> OwnedProcess:
     assert_port_bindable(config.host, config.port)
-    environment = _minimal_environment(config, layout, token)
+    control_plane_root = _control_plane_source_root(config)
+    environment = _minimal_environment(layout, token, control_plane_root)
     environment.update(
         {
             "DATABASE_URL": f"sqlite+aiosqlite:///{layout.database.as_posix()}",
@@ -239,7 +309,7 @@ def launch_server(
             "--stop-file",
             str(layout.stop_server),
         ),
-        cwd=config.canonical_checkout,
+        cwd=control_plane_root,
         environment=environment,
         layout=layout,
         summary=summary,
@@ -254,6 +324,7 @@ def launch_worker(
     summary: RuntimeSummary,
     token: str,
 ) -> OwnedProcess:
+    control_plane_root = _control_plane_source_root(config)
     worker_payload: dict[str, object] = {
         "base_url": f"http://{config.host}:{config.port}",
         "worker_id": config.worker_id,
@@ -273,7 +344,7 @@ def launch_worker(
         "poll_interval_seconds": config.poll_interval_seconds,
         "heartbeat_interval_seconds": 15.0,
     }
-    _write_private_json(layout.worker_config, worker_payload)
+    _write_private_json(layout, summary, layout.worker_config, worker_payload)
     return _launch(
         kind="worker",
         argv=(
@@ -285,8 +356,8 @@ def launch_worker(
             "--stop-file",
             str(layout.stop_worker),
         ),
-        cwd=config.canonical_checkout,
-        environment=_minimal_environment(config, layout, token),
+        cwd=control_plane_root,
+        environment=_minimal_environment(layout, token, control_plane_root),
         layout=layout,
         summary=summary,
         stop_file=layout.stop_worker,

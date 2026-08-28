@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -16,12 +17,28 @@ from .models import (
     utc_now_text,
     validate_runtime_summary,
 )
-from .preflight import PreflightResult
+from .preflight import (
+    PreflightResult,
+    assert_no_reparse_ancestry,
+    path_is_reparse,
+)
 
 MARKER_NAME = "operator-runtime.json"
 REPORT_JSON_NAME = "operator-report.json"
 REPORT_TEXT_NAME = "operator-report.txt"
 _MAX_MARKER_BYTES = 16 * 1024
+_MARKER_KEYS = {
+    "schema_version",
+    "runtime_id",
+    "repository_full_name",
+    "target_sha",
+    "manifest_name",
+    "manifest_version",
+    "manifest_digest",
+    "mode",
+    "command_identity",
+    "created_at",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,18 +98,131 @@ def _atomic_write(path: Path, data: bytes, *, exclusive: bool = False) -> None:
         raise
 
 
+def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
+    common = (
+        first.st_dev,
+        first.st_ino,
+        first.st_mode,
+        first.st_size,
+        first.st_mtime_ns,
+    ) == (
+        second.st_dev,
+        second.st_ino,
+        second.st_mode,
+        second.st_size,
+        second.st_mtime_ns,
+    )
+    return common and (os.name == "nt" or first.st_ctime_ns == second.st_ctime_ns)
+
+
+def _strict_json(data: bytes) -> object:
+    def object_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate JSON key")
+            result[key] = value
+        return result
+
+    def invalid_constant(_value: str) -> object:
+        raise ValueError("invalid JSON constant")
+
+    return json.loads(
+        data.decode("utf-8"),
+        object_pairs_hook=object_pairs,
+        parse_constant=invalid_constant,
+    )
+
+
 def _read_json(path: Path, *, maximum: int) -> object:
     try:
-        if path.is_symlink() or not path.is_file() or path.stat().st_size > maximum:
+        before = path.lstat()
+        if (
+            path_is_reparse(path)
+            or not stat.S_ISREG(before.st_mode)
+            or before.st_size > maximum
+        ):
             raise OperatorLifecycleFailure("runtime_record_invalid")
-        raw = path.read_bytes()
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
+        try:
+            opened = os.fstat(descriptor)
+            if not stat.S_ISREG(opened.st_mode) or not _same_file_identity(
+                before, opened
+            ):
+                raise OperatorLifecycleFailure("runtime_record_unstable")
+            with os.fdopen(descriptor, "rb", closefd=False) as handle:
+                raw = handle.read(maximum + 1)
+            after = os.fstat(descriptor)
+            if not _same_file_identity(before, after):
+                raise OperatorLifecycleFailure("runtime_record_unstable")
+        finally:
+            os.close(descriptor)
         if len(raw) > maximum:
             raise OperatorLifecycleFailure("runtime_record_invalid")
-        return json.loads(raw.decode("utf-8"))
+        after_path = path.lstat()
+        if path_is_reparse(path) or not _same_file_identity(before, after_path):
+            raise OperatorLifecycleFailure("runtime_record_unstable")
+        return _strict_json(raw)
     except OperatorLifecycleFailure:
         raise
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
         raise OperatorLifecycleFailure("runtime_record_invalid") from error
+
+
+def _read_runtime_summary(layout: RuntimeLayout) -> RuntimeSummary:
+    payload = _read_json(layout.marker, maximum=_MAX_MARKER_BYTES)
+    if not isinstance(payload, dict) or set(payload) != _MARKER_KEYS:
+        raise OperatorLifecycleFailure("runtime_marker_invalid")
+    try:
+        summary = RuntimeSummary(**payload)
+    except TypeError as error:
+        raise OperatorLifecycleFailure("runtime_marker_invalid") from error
+    validate_runtime_summary(summary)
+    return summary
+
+
+def _validate_runtime_layout(layout: RuntimeLayout) -> None:
+    if not layout.root.is_absolute() or layout != _layout(layout.root):
+        raise OperatorLifecycleFailure("runtime_root_invalid")
+    assert_no_reparse_ancestry(layout.root, "runtime_root_reparse_ancestry")
+    try:
+        root_metadata = layout.root.lstat()
+    except OSError as error:
+        raise OperatorLifecycleFailure("runtime_root_invalid") from error
+    if not stat.S_ISDIR(root_metadata.st_mode) or path_is_reparse(layout.root):
+        raise OperatorLifecycleFailure("runtime_root_invalid")
+
+
+def verify_runtime_ownership(
+    layout: RuntimeLayout,
+    expected: RuntimeSummary,
+    *,
+    destination: Path | None = None,
+) -> RuntimeSummary:
+    """Revalidate the exact original marker identity before an owned action."""
+
+    try:
+        _validate_runtime_layout(layout)
+        assert_no_reparse_ancestry(layout.marker, "runtime_marker_reparse_ancestry")
+        current = _read_runtime_summary(layout)
+        if current != expected:
+            raise OperatorLifecycleFailure("runtime_ownership_lost")
+        if destination is not None:
+            if not destination.is_absolute() or destination == layout.root:
+                raise OperatorLifecycleFailure("runtime_ownership_lost")
+            try:
+                destination.relative_to(layout.root)
+            except ValueError as error:
+                raise OperatorLifecycleFailure("runtime_ownership_lost") from error
+            assert_no_reparse_ancestry(
+                destination.parent, "runtime_destination_reparse_ancestry"
+            )
+        return current
+    except OperatorLifecycleFailure as error:
+        if error.reason == "runtime_ownership_lost":
+            raise
+        raise OperatorLifecycleFailure("runtime_ownership_lost") from error
 
 
 def create_runtime(
@@ -131,6 +261,7 @@ def create_runtime(
             layout.temporary_alt,
             layout.process_records,
         ):
+            verify_runtime_ownership(layout, summary, destination=directory)
             directory.mkdir(exist_ok=False)
         return layout, summary
     except OperatorLifecycleFailure:
@@ -140,45 +271,38 @@ def create_runtime(
 
 
 def inspect_runtime(root: Path) -> tuple[RuntimeLayout, RuntimeSummary]:
-    if not root.is_absolute() or root.is_symlink() or not root.is_dir():
-        raise OperatorLifecycleFailure("runtime_root_invalid")
     layout = _layout(root)
-    payload = _read_json(layout.marker, maximum=_MAX_MARKER_BYTES)
-    if not isinstance(payload, dict) or set(payload) != {
-        "schema_version",
-        "runtime_id",
-        "repository_full_name",
-        "target_sha",
-        "manifest_name",
-        "manifest_version",
-        "manifest_digest",
-        "mode",
-        "command_identity",
-        "created_at",
-    }:
-        raise OperatorLifecycleFailure("runtime_marker_invalid")
-    try:
-        summary = RuntimeSummary(**payload)
-    except TypeError as error:
-        raise OperatorLifecycleFailure("runtime_marker_invalid") from error
-    validate_runtime_summary(summary)
-    return layout, summary
+    _validate_runtime_layout(layout)
+    assert_no_reparse_ancestry(layout.marker, "runtime_marker_reparse_ancestry")
+    return layout, _read_runtime_summary(layout)
 
 
 def write_report(
     layout: RuntimeLayout, report: OperatorLifecycleReport, *, maximum_bytes: int
 ) -> None:
-    inspected, expected = inspect_runtime(layout.root)
-    if inspected.marker != layout.marker or report.runtime != expected:
+    expected = report.runtime
+    if expected is None:
         raise OperatorLifecycleFailure("runtime_ownership_lost")
+    json_payload = report.as_json_bytes(maximum_bytes=maximum_bytes)
+    text_payload = report.as_text(maximum_bytes=maximum_bytes)
     try:
+        verify_runtime_ownership(
+            layout,
+            expected,
+            destination=layout.reports / REPORT_JSON_NAME,
+        )
         _atomic_write(
             layout.reports / REPORT_JSON_NAME,
-            report.as_json_bytes(maximum_bytes=maximum_bytes),
+            json_payload,
+        )
+        verify_runtime_ownership(
+            layout,
+            expected,
+            destination=layout.reports / REPORT_TEXT_NAME,
         )
         _atomic_write(
             layout.reports / REPORT_TEXT_NAME,
-            report.as_text(maximum_bytes=maximum_bytes),
+            text_payload,
         )
     except OperatorLifecycleFailure:
         raise
@@ -186,9 +310,11 @@ def write_report(
         raise OperatorLifecycleFailure("report_write_failed") from error
 
 
-def touch_owned_stop(layout: RuntimeLayout, path: Path) -> None:
-    inspected, _summary = inspect_runtime(layout.root)
-    if inspected != layout or path not in {layout.stop_server, layout.stop_worker}:
+def touch_owned_stop(
+    layout: RuntimeLayout, expected: RuntimeSummary, path: Path
+) -> None:
+    verify_runtime_ownership(layout, expected, destination=path)
+    if path not in {layout.stop_server, layout.stop_worker}:
         raise OperatorLifecycleFailure("runtime_ownership_lost")
     try:
         _atomic_write(path, b"stop\n", exclusive=True)
@@ -206,5 +332,6 @@ __all__ = [
     "create_runtime",
     "inspect_runtime",
     "touch_owned_stop",
+    "verify_runtime_ownership",
     "write_report",
 ]
