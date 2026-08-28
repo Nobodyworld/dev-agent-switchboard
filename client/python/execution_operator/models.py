@@ -43,7 +43,23 @@ class RuntimeSummary:
     manifest_version: str
     manifest_digest: str
     mode: str
+    command_identity: str
     created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class StepSummary:
+    step_id: str
+    status: str
+    duration_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactSummary:
+    kind: str
+    relative_path: str
+    size_bytes: int
+    sha256: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +79,8 @@ class RunSummary:
     evidence_verified: bool
     local_evidence_verified: bool
     source_checkout_unchanged: bool
+    steps: list[StepSummary] = field(default_factory=list)
+    artifacts: list[ArtifactSummary] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -71,6 +89,8 @@ class OperatorLifecycleReport:
     outcome: Literal["succeeded", "failed", "inspected"] = "failed"
     reason: str = "not_started"
     runtime: RuntimeSummary | None = None
+    phases: list[str] = field(default_factory=list)
+    preflight_checks: list[str] = field(default_factory=list)
     preflight_passed: bool = False
     server_ready: bool = False
     worker_ready: bool = False
@@ -83,6 +103,8 @@ class OperatorLifecycleReport:
     port_released: bool = False
     canonical_checkout_unchanged: bool = False
     failed_runtime_preserved: bool = False
+    operator_action_count: int = 0
+    avoided_deterministic_step_count: int = 0
     completed_at: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
@@ -114,6 +136,12 @@ class OperatorLifecycleReport:
             f"port_released: {self.port_released}",
             f"canonical_checkout_unchanged: {self.canonical_checkout_unchanged}",
             f"failed_runtime_preserved: {self.failed_runtime_preserved}",
+            f"operator_action_count: {self.operator_action_count}",
+            (
+                "avoided_deterministic_step_count: "
+                f"{self.avoided_deterministic_step_count}"
+            ),
+            f"phases: {','.join(self.phases)}",
         ]
         for run in self.runs:
             lines.append(
@@ -167,16 +195,19 @@ def validate_runtime_summary(summary: RuntimeSummary) -> None:
         or not _SAFE_ID.fullmatch(summary.manifest_version)
         or not _DIGEST.fullmatch(summary.manifest_digest)
         or summary.mode not in {"fresh-only", "fresh-then-exact-reuse"}
+        or summary.command_identity != "validation-lifecycle@1"
         or len(summary.created_at) > _MAX_TIMESTAMP_LENGTH
     ):
         raise OperatorLifecycleFailure("runtime_marker_invalid")
 
 
 __all__ = [
+    "ArtifactSummary",
     "OperatorLifecycleFailure",
     "OperatorLifecycleReport",
     "RunSummary",
     "RuntimeSummary",
+    "StepSummary",
     "utc_now_text",
     "validate_runtime_summary",
 ]

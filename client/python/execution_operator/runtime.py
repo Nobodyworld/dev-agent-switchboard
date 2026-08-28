@@ -35,6 +35,7 @@ class RuntimeLayout:
     retained_evidence: Path
     reports: Path
     temporary: Path
+    temporary_alt: Path
     process_records: Path
     stop_server: Path
     stop_worker: Path
@@ -52,6 +53,7 @@ def _layout(root: Path) -> RuntimeLayout:
         retained_evidence=root / "retained-evidence",
         reports=root / "reports",
         temporary=root / "temp",
+        temporary_alt=root / "tmp",
         process_records=root / "processes",
         stop_server=root / "processes" / "stop-server",
         stop_worker=root / "processes" / "stop-worker",
@@ -109,6 +111,7 @@ def create_runtime(
             manifest_version=config.manifest_version,
             manifest_digest=preflight.manifest_digest,
             mode=config.mode,
+            command_identity="validation-lifecycle@1",
             created_at=utc_now_text(),
         )
         validate_runtime_summary(summary)
@@ -125,6 +128,7 @@ def create_runtime(
             layout.retained_evidence,
             layout.reports,
             layout.temporary,
+            layout.temporary_alt,
             layout.process_records,
         ):
             directory.mkdir(exist_ok=False)
@@ -149,6 +153,7 @@ def inspect_runtime(root: Path) -> tuple[RuntimeLayout, RuntimeSummary]:
         "manifest_version",
         "manifest_digest",
         "mode",
+        "command_identity",
         "created_at",
     }:
         raise OperatorLifecycleFailure("runtime_marker_invalid")

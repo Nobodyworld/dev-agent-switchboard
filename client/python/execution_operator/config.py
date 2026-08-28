@@ -90,7 +90,7 @@ def _absolute_path(value: str, field: str) -> Path:
     path = Path(value)
     if not path.is_absolute() or any(part == ".." for part in PurePath(value).parts):
         raise OperatorConfigurationError(f"invalid_configuration:{field}")
-    if value.startswith(("\\\\.\\", "\\\\?\\GLOBALROOT\\")):
+    if value.startswith(("\\\\", "//")):
         raise OperatorConfigurationError(f"invalid_configuration:{field}")
     return path
 

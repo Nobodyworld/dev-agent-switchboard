@@ -23,12 +23,14 @@ from server.execution.schemas import ExecutionRunOut, RouteProvenanceOut, WorkOr
 
 from .config import OperatorLifecycleConfig
 from .models import (
+    ArtifactSummary,
     OperatorLifecycleFailure,
     OperatorLifecycleReport,
     RunSummary,
+    StepSummary,
     utc_now_text,
 )
-from .preflight import PreflightResult, run_preflight, source_snapshot
+from .preflight import PREFLIGHT_CHECKS, PreflightResult, run_preflight, source_snapshot
 from .processes import OwnedProcess, launch_server, launch_worker, port_is_released
 from .runtime import (
     REPORT_JSON_NAME,
@@ -41,6 +43,41 @@ from .runtime import (
 ApprovalCallback = Callable[[Literal["fresh", "reuse"], str], bool]
 _TERMINAL = {"succeeded", "failed", "timed_out", "cancelled"}
 _MAX_WORKERS = 100
+_PHASE_ORDER = {
+    name: index
+    for index, name in enumerate(
+        (
+            "preflight_passed",
+            "runtime_created",
+            "server_healthy",
+            "worker_online",
+            "fresh_created",
+            "fresh_approval_required",
+            "fresh_approved",
+            "fresh_queued",
+            "fresh_running",
+            "fresh_succeeded",
+            "fresh_verified",
+            "reuse_approval_required",
+            "reuse_created",
+            "reuse_approved",
+            "reuse_queued",
+            "reuse_succeeded",
+            "reuse_verified",
+            "shutdown_started",
+            "cleanup_verified",
+            "completed",
+        )
+    )
+}
+
+
+def _record_phase(report: OperatorLifecycleReport, phase: str) -> None:
+    position = _PHASE_ORDER.get(phase)
+    previous = _PHASE_ORDER.get(report.phases[-1], -1) if report.phases else -1
+    if position is None or position <= previous:
+        raise OperatorLifecycleFailure("lifecycle_transition_invalid")
+    report.phases.append(phase)
 
 
 def _wait_until(
@@ -63,11 +100,7 @@ def _work_order_payload(
     *,
     phase: Literal["fresh", "reuse"],
 ) -> dict[str, object]:
-    reuse_policy = (
-        "never"
-        if config.mode == "fresh-only"
-        else ("allow_exact" if phase == "fresh" else "require_exact")
-    )
+    reuse_policy = "never" if phase == "fresh" else "require_exact"
     return {
         "schema_version": 1,
         "repository_full_name": config.repository_full_name,
@@ -98,7 +131,10 @@ def _approval_identity(config: OperatorLifecycleConfig, phase: str) -> str:
 
 
 def _validate_order(
-    payload: Mapping[str, Any], config: OperatorLifecycleConfig, expected_status: str
+    payload: Mapping[str, Any],
+    config: OperatorLifecycleConfig,
+    expected_status: str,
+    expected_digest: str,
 ) -> WorkOrderOut:
     try:
         order = WorkOrderOut.model_validate(payload)
@@ -109,6 +145,7 @@ def _validate_order(
         or order.commit_sha != config.target_sha
         or order.manifest_name != config.manifest_name
         or order.manifest_version != config.manifest_version
+        or order.manifest_digest != expected_digest
         or order.preferred_executor != config.worker_id
         or order.repository_write_allowed
         or order.network_policy.value != "worker_restricted"
@@ -221,7 +258,7 @@ def _worker_source_empty(layout: RuntimeLayout) -> bool:
         return False
 
 
-def _verify_local_fresh(  # noqa: PLR0911 - verification failures stay explicit
+def _verify_local_fresh(  # noqa: PLR0911, PLR0912 - verification is explicit
     config: OperatorLifecycleConfig,
     layout: RuntimeLayout,
     run: ExecutionRunOut,
@@ -264,6 +301,10 @@ def _verify_local_fresh(  # noqa: PLR0911 - verification failures stay explicit
         for record in run.artifact_metadata:
             artifact = store.run_directory.joinpath(*record.relative_path.split("/"))
             if artifact.is_symlink() or not artifact.is_file():
+                return False
+            if artifact.stat().st_size != record.size_bytes:
+                return False
+            if record.size_bytes > config.maximum_artifact_bytes:
                 return False
             data = artifact.read_bytes()
             total += len(data)
@@ -363,8 +404,20 @@ def _verify_run(  # noqa: PLR0913 - trust inputs stay explicit
         local_verified = _verify_local_fresh(config, layout, run, evidence)
         decision_ok = run.reuse_decision.value == "fresh"
         source_ok = run.reused_from_run_id is None
+        expected_steps = tuple(
+            step_id for step_id, _required in preflight.manifest_steps
+        )
+        required_steps = {
+            step_id for step_id, required in preflight.manifest_steps if required
+        }
         evidence_verified = (
-            evidence_verified and len(evidence.steps) == preflight.manifest_step_count
+            evidence_verified
+            and tuple(step.step_id for step in evidence.steps) == expected_steps
+            and all(
+                step.status == "succeeded"
+                for step in evidence.steps
+                if step.step_id in required_steps
+            )
         )
     else:
         local_verified = source is not None and source.local_evidence_verified
@@ -414,6 +467,23 @@ def _verify_run(  # noqa: PLR0913 - trust inputs stay explicit
         evidence_verified=evidence_verified,
         local_evidence_verified=local_verified,
         source_checkout_unchanged=unchanged,
+        steps=[
+            StepSummary(
+                step_id=step.step_id,
+                status=step.status,
+                duration_seconds=step.duration_seconds,
+            )
+            for step in evidence.steps
+        ],
+        artifacts=[
+            ArtifactSummary(
+                kind=artifact.kind,
+                relative_path=artifact.relative_path,
+                size_bytes=artifact.size_bytes,
+                sha256=artifact.sha256,
+            )
+            for artifact in evidence.artifacts
+        ],
     )
 
 
@@ -427,21 +497,55 @@ def _execute_phase(  # noqa: PLR0913 - lifecycle inputs stay explicit
     phase: Literal["fresh", "reuse"],
     source: RunSummary | None,
     worker: OwnedProcess,
+    report: OperatorLifecycleReport,
 ) -> RunSummary:
-    if not approval(phase, _approval_identity(config, phase)):
-        raise OperatorLifecycleFailure(f"{phase}_approval_denied")
+    if phase == "reuse":
+        _record_phase(report, "reuse_approval_required")
+        if not approval(phase, _approval_identity(config, phase)):
+            raise OperatorLifecycleFailure("reuse_approval_denied")
+        report.operator_action_count += 1
     order = _validate_order(
         client.create_work_order(_work_order_payload(config, phase=phase)),
         config,
         "pending_approval",
+        preflight.manifest_digest,
     )
-    _validate_order(client.approve_work_order(order.id), config, "approved")
-    _validate_order(client.queue_work_order(order.id), config, "queued")
+    _record_phase(report, f"{phase}_created")
+    if phase == "fresh":
+        _record_phase(report, "fresh_approval_required")
+        if not approval(phase, _approval_identity(config, phase)):
+            raise OperatorLifecycleFailure("fresh_approval_denied")
+        report.operator_action_count += 1
+    _validate_order(
+        client.approve_work_order(order.id),
+        config,
+        "approved",
+        preflight.manifest_digest,
+    )
+    if phase == "fresh":
+        report.fresh_approved = True
+    else:
+        report.reuse_approved = True
+    _record_phase(report, f"{phase}_approved")
+    _validate_order(
+        client.queue_work_order(order.id),
+        config,
+        "queued",
+        preflight.manifest_digest,
+    )
+    _record_phase(report, f"{phase}_queued")
+    if phase == "fresh":
+        _record_phase(report, "fresh_running")
     run = _wait_terminal_run(client, config, worker, order.id)
     terminal_order = _validate_order(
-        client.get_work_order(order.id), config, run.status.value
+        client.get_work_order(order.id),
+        config,
+        run.status.value,
+        preflight.manifest_digest,
     )
-    return _verify_run(
+    if run.status.value == "succeeded":
+        _record_phase(report, f"{phase}_succeeded")
+    summary = _verify_run(
         client=client,
         config=config,
         layout=layout,
@@ -451,6 +555,8 @@ def _execute_phase(  # noqa: PLR0913 - lifecycle inputs stay explicit
         phase=phase,
         source=source,
     )
+    _record_phase(report, f"{phase}_verified")
+    return summary
 
 
 def _active_lease_count(database: Path) -> int:
@@ -484,6 +590,18 @@ def _worker_active_count(client: ExecutionClient, worker_id: str) -> int:
     return int(matches[0]["active_run_count"])
 
 
+def _assert_control_plane_clean(
+    report: OperatorLifecycleReport,
+    client: ExecutionClient,
+    config: OperatorLifecycleConfig,
+    layout: RuntimeLayout,
+) -> None:
+    report.active_lease_count = _active_lease_count(layout.database)
+    report.worker_active_run_count = _worker_active_count(client, config.worker_id)
+    if report.active_lease_count != 0 or report.worker_active_run_count != 0:
+        raise OperatorLifecycleFailure("terminal_cleanup_incomplete")
+
+
 def _stop_owned(processes: list[OwnedProcess], timeout: float) -> bool:
     verified = True
     for process in reversed(processes):
@@ -501,7 +619,12 @@ def run_validation_lifecycle(  # noqa: PLR0915 - fail-closed phases stay visible
 
     preflight = run_preflight(config)
     layout, runtime_summary = create_runtime(config, preflight)
-    report = OperatorLifecycleReport(runtime=runtime_summary, preflight_passed=True)
+    report = OperatorLifecycleReport(
+        runtime=runtime_summary,
+        phases=["preflight_passed", "runtime_created"],
+        preflight_checks=list(PREFLIGHT_CHECKS),
+        preflight_passed=True,
+    )
     processes: list[OwnedProcess] = []
     failure: OperatorLifecycleFailure | None = None
     token = os.environ.get("SWITCHBOARD_ADMIN_TOKEN", "")
@@ -517,51 +640,42 @@ def run_validation_lifecycle(  # noqa: PLR0915 - fail-closed phases stay visible
             timeout=config.http_timeout_seconds,
         ) as client:
 
-            def recorded_approval(
-                phase: Literal["fresh", "reuse"], identity: str
-            ) -> bool:
-                approved = approval(phase, identity)
-                if approved and phase == "fresh":
-                    report.fresh_approved = True
-                if approved and phase == "reuse":
-                    report.reuse_approved = True
-                return approved
-
             _wait_server(client, config)
             report.server_ready = True
+            _record_phase(report, "server_healthy")
             worker = launch_worker(config, layout, runtime_summary, token)
             processes.append(worker)
             _wait_worker(client, config)
             report.worker_ready = True
+            _record_phase(report, "worker_online")
             fresh = _execute_phase(
                 client=client,
                 config=config,
                 layout=layout,
                 preflight=preflight,
-                approval=recorded_approval,
+                approval=approval,
                 phase="fresh",
                 source=None,
                 worker=worker,
+                report=report,
             )
             report.runs.append(fresh)
+            _assert_control_plane_clean(report, client, config, layout)
             if config.mode == "fresh-then-exact-reuse":
                 reuse = _execute_phase(
                     client=client,
                     config=config,
                     layout=layout,
                     preflight=preflight,
-                    approval=recorded_approval,
+                    approval=approval,
                     phase="reuse",
                     source=fresh,
                     worker=worker,
+                    report=report,
                 )
                 report.runs.append(reuse)
-            report.active_lease_count = _active_lease_count(layout.database)
-            report.worker_active_run_count = _worker_active_count(
-                client, config.worker_id
-            )
-            if report.active_lease_count != 0 or report.worker_active_run_count != 0:
-                raise OperatorLifecycleFailure("terminal_cleanup_incomplete")
+                report.avoided_deterministic_step_count = fresh.step_count
+            _assert_control_plane_clean(report, client, config, layout)
     except OperatorLifecycleFailure as error:
         failure = error
     except KeyboardInterrupt:
@@ -570,6 +684,7 @@ def run_validation_lifecycle(  # noqa: PLR0915 - fail-closed phases stay visible
         failure = OperatorLifecycleFailure("operator_lifecycle_failure")
         failure.__cause__ = error
     finally:
+        _record_phase(report, "shutdown_started")
         report.owned_processes_stopped = _stop_owned(
             processes, config.shutdown_timeout_seconds
         )
@@ -581,6 +696,14 @@ def run_validation_lifecycle(  # noqa: PLR0915 - fail-closed phases stay visible
             failure = OperatorLifecycleFailure("loopback_port_not_released")
         if not report.canonical_checkout_unchanged and failure is None:
             failure = OperatorLifecycleFailure("source_checkout_changed")
+        if (
+            report.owned_processes_stopped
+            and report.port_released
+            and report.canonical_checkout_unchanged
+        ):
+            _record_phase(report, "cleanup_verified")
+        if failure is None:
+            _record_phase(report, "completed")
         report.outcome = "failed" if failure else "succeeded"
         report.reason = failure.reason if failure else "lifecycle_verified"
         report.failed_runtime_preserved = failure is not None
@@ -615,10 +738,17 @@ def inspect_validation_runtime(root: Path) -> OperatorLifecycleReport:
             "manifest_version": summary.manifest_version,
             "manifest_digest": summary.manifest_digest,
             "mode": summary.mode,
+            "command_identity": summary.command_identity,
             "created_at": summary.created_at,
         }:
             raise ValueError
-        runs = [RunSummary(**item) for item in payload.pop("runs")]
+        runs = []
+        for item in payload.pop("runs"):
+            steps = [StepSummary(**step) for step in item.pop("steps")]
+            artifacts = [
+                ArtifactSummary(**artifact) for artifact in item.pop("artifacts")
+            ]
+            runs.append(RunSummary(**item, steps=steps, artifacts=artifacts))
         runtime_payload = payload.pop("runtime")
         _ = runtime_payload
         report = OperatorLifecycleReport(**payload)

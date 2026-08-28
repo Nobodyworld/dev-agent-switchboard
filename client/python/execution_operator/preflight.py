@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import platform
 import shutil
 import socket
 import stat
@@ -13,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from client.python.execution_worker.containment import strict_containment_supported
+from server.execution.capabilities import runtime_version_matches
 from server.execution.registry import get_trusted_manifest
 
 from .config import OperatorLifecycleConfig
@@ -20,7 +22,33 @@ from .models import OperatorLifecycleFailure
 
 _COMMAND_TIMEOUT = 10.0
 _OUTPUT_LIMIT = 64 * 1024
+_VERSION_OUTPUT_LIMIT = 256
 _MAX_WINDOWS_RUNTIME_ROOT_LENGTH = 80
+PREFLIGHT_CHECKS = (
+    "canonical_repository",
+    "clean_source",
+    "target_commit",
+    "source_snapshot",
+    "manifest_contract",
+    "python_runtime",
+    "git_runtime",
+    "worker_capabilities",
+    "root_safety",
+    "loopback_port",
+    "process_token",
+    "report_policy",
+)
+_SUPPORTED_CAPABILITY_KEYS = frozenset(
+    {
+        "architecture",
+        "git_available",
+        "node",
+        "operating_system",
+        "pnpm",
+        "python",
+        "repository_write",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,8 +62,12 @@ class SourceSnapshot:
 class PreflightResult:
     source: SourceSnapshot
     manifest_digest: str
-    manifest_step_count: int
+    manifest_steps: tuple[tuple[str, bool], ...]
     token_present: bool
+
+    @property
+    def manifest_step_count(self) -> int:
+        return len(self.manifest_steps)
 
 
 def _run_git(checkout: Path, arguments: tuple[str, ...]) -> bytes:
@@ -161,6 +193,74 @@ def _port_appears_available(host: str, port: int) -> bool:
         return probe.connect_ex(address) != 0
 
 
+def _tool_version(name: str, *, allow_leading_v: bool = False) -> str | None:
+    executable = shutil.which(name, path=os.environ.get("PATH"))
+    if executable is None:
+        return None
+    try:
+        completed = subprocess.run(  # noqa: S603 - fixed version-only argv
+            [executable, "--version"],
+            cwd=Path(os.path.abspath(os.sep)),
+            env=_probe_environment(),
+            shell=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=_COMMAND_TIMEOUT,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0 or len(completed.stdout) > _VERSION_OUTPUT_LIMIT:
+        return None
+    try:
+        lines = completed.stdout.decode("utf-8").strip().splitlines()
+    except UnicodeDecodeError:
+        return None
+    if len(lines) != 1:
+        return None
+    value = lines[0].strip()
+    if allow_leading_v and value[:1].lower() == "v":
+        value = value[1:]
+    return value
+
+
+def _manifest_capabilities_compatible(  # noqa: PLR0911, PLR0912 - fail closed
+    requirements: dict[str, object],
+) -> bool:
+    if set(requirements) - _SUPPORTED_CAPABILITY_KEYS:
+        return False
+    operating_system = platform.system().lower()
+    architecture = platform.machine().lower()
+    for name, required in requirements.items():
+        if name in {"operating_system", "architecture"}:
+            values = [required] if isinstance(required, str) else required
+            if not isinstance(values, (list, tuple)) or not all(
+                isinstance(item, str) for item in values
+            ):
+                return False
+            actual = operating_system if name == "operating_system" else architecture
+            if actual not in {item.lower() for item in values}:
+                return False
+        elif name == "python":
+            if not runtime_version_matches(platform.python_version(), required):
+                return False
+        elif name == "node":
+            if not runtime_version_matches(
+                _tool_version("node", allow_leading_v=True), required
+            ):
+                return False
+        elif name == "pnpm":
+            if not runtime_version_matches(_tool_version("pnpm"), required):
+                return False
+        elif name == "git_available":
+            if required is not True or shutil.which("git") is None:
+                return False
+        elif name == "repository_write" and required is not False:
+            return False
+    return True
+
+
 def run_preflight(config: OperatorLifecycleConfig) -> PreflightResult:
     """Complete all read-only checks before runtime creation."""
 
@@ -201,15 +301,20 @@ def run_preflight(config: OperatorLifecycleConfig) -> PreflightResult:
         or not manifest.execution_steps
     ):
         raise OperatorLifecycleFailure("trusted_manifest_contract_unsupported")
+    if not _manifest_capabilities_compatible(manifest.required_capabilities):
+        raise OperatorLifecycleFailure("worker_capability_mismatch")
     return PreflightResult(
         source=snapshot,
         manifest_digest=digest,
-        manifest_step_count=len(manifest.execution_steps),
+        manifest_steps=tuple(
+            (step.id, step.required) for step in manifest.execution_steps
+        ),
         token_present=token_present,
     )
 
 
 __all__ = [
+    "PREFLIGHT_CHECKS",
     "PreflightResult",
     "SourceSnapshot",
     "run_preflight",

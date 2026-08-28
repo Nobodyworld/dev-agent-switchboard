@@ -42,7 +42,7 @@ def _minimal_environment(
             "PYTHONUTF8": "1",
             "PYTHONDONTWRITEBYTECODE": "1",
             "TEMP": str(layout.temporary),
-            "TMP": str(layout.temporary),
+            "TMP": str(layout.temporary_alt),
             "SWITCHBOARD_ADMIN_TOKEN": token,
         }
     )

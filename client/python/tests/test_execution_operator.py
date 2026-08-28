@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import subprocess
+import tempfile
 import uuid
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from scripts.dev import build_parser
@@ -64,7 +67,9 @@ def _preflight() -> PreflightResult:
     return PreflightResult(
         source=SourceSnapshot("a" * 40, "b" * 40, "c" * 64),
         manifest_digest=manifest.digest,
-        manifest_step_count=len(manifest.execution_steps),
+        manifest_steps=tuple(
+            (step.id, step.required) for step in manifest.execution_steps
+        ),
         token_present=True,
     )
 
@@ -86,6 +91,7 @@ def test_configuration_accepts_only_the_strict_versioned_shape(tmp_path: Path) -
         ("poll_interval_seconds", 0.5),
         ("expected_manifest_digest", "x" * 64),
         ("runtime_root", "relative/runtime"),
+        ("runtime_root", "\\\\server\\share\\runtime"),
     ]
     for key, value in cases:
         payload = {**_mapping(tmp_path), key: value}
@@ -111,6 +117,9 @@ def test_runtime_is_marker_first_and_inspection_is_read_only(tmp_path: Path) -> 
     config = _config(tmp_path)
     layout, summary = create_runtime(config, _preflight())
     assert layout.marker.is_file()
+    assert layout.temporary != layout.temporary_alt
+    assert layout.temporary.is_dir() and layout.temporary_alt.is_dir()
+    assert summary.command_identity == "validation-lifecycle@1"
     assert inspect_runtime(layout.root)[1] == summary
     before = {item: item.stat().st_mtime_ns for item in layout.root.rglob("*")}
     report = inspect_validation_runtime(layout.root)
@@ -144,6 +153,7 @@ def test_report_rejects_paths_secrets_and_oversize() -> None:
         manifest_version="1",
         manifest_digest="b" * 64,
         mode="fresh-only",
+        command_identity="validation-lifecycle@1",
         created_at="2026-08-28T00:00:00Z",
     )
     encoded = report.as_json_bytes(maximum_bytes=4096)
@@ -258,7 +268,9 @@ def test_cli_requires_separate_noninteractive_approval_flags(tmp_path: Path) -> 
     assert arguments.approve_reuse is True
 
 
-def test_denied_approval_precedes_work_order_creation(tmp_path: Path) -> None:
+def test_fresh_denial_preserves_the_created_pending_work_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     config = _config(tmp_path)
     layout, _summary = create_runtime(config, _preflight())
 
@@ -270,6 +282,12 @@ def test_denied_approval_precedes_work_order_creation(tmp_path: Path) -> None:
             return {}
 
     client = RejectingClient()
+    monkeypatch.setattr(
+        lifecycle_module,
+        "_validate_order",
+        lambda *_args, **_kwargs: SimpleNamespace(id=1),
+    )
+    report = OperatorLifecycleReport()
     with pytest.raises(OperatorLifecycleFailure, match="fresh_approval_denied"):
         lifecycle_module._execute_phase(
             client=client,  # type: ignore[arg-type]
@@ -280,8 +298,39 @@ def test_denied_approval_precedes_work_order_creation(tmp_path: Path) -> None:
             phase="fresh",
             source=None,
             worker=None,  # type: ignore[arg-type]
+            report=report,
+        )
+    assert client.created is True
+    assert report.phases == ["fresh_created", "fresh_approval_required"]
+
+
+def test_reuse_denial_precedes_work_order_creation(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    layout, _summary = create_runtime(config, _preflight())
+
+    class RejectingClient:
+        created = False
+
+        def create_work_order(self, _payload: object) -> dict[str, object]:
+            self.created = True
+            return {}
+
+    client = RejectingClient()
+    report = OperatorLifecycleReport(phases=["fresh_verified"])
+    with pytest.raises(OperatorLifecycleFailure, match="reuse_approval_denied"):
+        lifecycle_module._execute_phase(
+            client=client,  # type: ignore[arg-type]
+            config=config,
+            layout=layout,
+            preflight=_preflight(),
+            approval=lambda _phase, _identity: False,
+            phase="reuse",
+            source=None,
+            worker=None,  # type: ignore[arg-type]
+            report=report,
         )
     assert client.created is False
+    assert report.phases[-1] == "reuse_approval_required"
 
 
 def test_terminal_wait_fails_immediately_when_owned_worker_exits(
@@ -306,6 +355,84 @@ def test_terminal_wait_fails_immediately_when_owned_worker_exits(
             ExitedWorker(),  # type: ignore[arg-type]
             1,
         )
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected_decisions", "expected_actions"),
+    [
+        ("fresh-only", ["fresh"], 1),
+        ("fresh-then-exact-reuse", ["fresh", "reused"], 2),
+    ],
+)
+def test_real_server_worker_synthetic_lifecycle_modes(
+    mode: str,
+    expected_decisions: list[str],
+    expected_actions: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = Path.cwd().resolve()
+    sha = _git(repository, "rev-parse", "HEAD")
+    manifest = get_trusted_manifest("worker-smoke", "1")
+    assert manifest is not None
+    runtime_parent = Path("C:/tmp") if os.name == "nt" else Path(tempfile.gettempdir())
+    runtime_root = runtime_parent / f"sb151-synthetic-{uuid.uuid4().hex[:8]}"
+    payload = _mapping(runtime_parent)
+    payload.update(
+        {
+            "canonical_checkout": str(repository),
+            "target_sha": sha,
+            "manifest_name": "worker-smoke",
+            "manifest_version": "1",
+            "expected_manifest_digest": manifest.digest,
+            "mode": mode,
+            "runtime_root": str(runtime_root),
+            "port": _free_port(),
+            "startup_timeout_seconds": 60,
+            "terminal_timeout_seconds": 180,
+        }
+    )
+    config = OperatorLifecycleConfig.from_mapping(payload)
+    token = f"operator-synthetic-{uuid.uuid4().hex}"
+    monkeypatch.setenv("SWITCHBOARD_ADMIN_TOKEN", token)
+    approvals: list[str] = []
+    verified = False
+    try:
+        report = run_validation_lifecycle(
+            config,
+            approval=lambda _phase, identity: not approvals.append(identity),
+        )
+        assert report.outcome == "succeeded"
+        assert [run.reuse_decision for run in report.runs] == expected_decisions
+        assert report.operator_action_count == expected_actions
+        assert len(approvals) == expected_actions
+        assert report.active_lease_count == report.worker_active_run_count == 0
+        assert report.owned_processes_stopped and report.port_released
+        assert report.phases[-3:] == [
+            "shutdown_started",
+            "cleanup_verified",
+            "completed",
+        ]
+        if mode == "fresh-then-exact-reuse":
+            assert report.runs[1].step_count == report.runs[1].artifact_count == 0
+            assert report.runs[1].reused_from_run_id == report.runs[0].run_id
+            assert report.avoided_deterministic_step_count == len(
+                manifest.execution_steps
+            )
+        assert inspect_validation_runtime(runtime_root).as_dict() == report.as_dict()
+        for path in (
+            runtime_root / "operator-runtime.json",
+            runtime_root / "worker-config.json",
+            *(runtime_root / "processes").glob("*"),
+            *(runtime_root / "reports").glob("*"),
+        ):
+            if path.is_file():
+                assert token.encode("utf-8") not in path.read_bytes()
+        verified = True
+    finally:
+        if verified:
+            inspected, _summary = inspect_runtime(runtime_root)
+            assert inspected.root == runtime_root
+            shutil.rmtree(runtime_root)
 
 
 @pytest.mark.skipif(
