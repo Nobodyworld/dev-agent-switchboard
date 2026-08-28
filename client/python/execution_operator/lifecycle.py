@@ -436,17 +436,17 @@ def _verify_run(  # noqa: PLR0913 - trust inputs stay explicit
         evidence_verified = (
             evidence_verified and not evidence.steps and not evidence.artifacts
         )
-    if not all(
-        (
-            route_verified,
-            evidence_verified,
-            local_verified,
-            unchanged,
-            decision_ok,
-            source_ok,
-        )
-    ):
-        raise OperatorLifecycleFailure(f"{phase}_verification_failed")
+    verification_checks = (
+        ("route", route_verified),
+        ("evidence", evidence_verified),
+        ("retained_evidence", local_verified),
+        ("source_cleanup", unchanged),
+        ("reuse_decision", decision_ok),
+        ("source_link", source_ok),
+    )
+    failed_check = next((name for name, passed in verification_checks if not passed), None)
+    if failed_check is not None:
+        raise OperatorLifecycleFailure(f"{phase}_verification_failed:{failed_check}")
     return RunSummary(
         work_order_id=order.id,
         run_id=run.id,
