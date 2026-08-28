@@ -61,17 +61,17 @@ The command exits non-zero and preserves the owned runtime whenever any required
 - [x] Reconcile and link the existing draft pull request #152.
 - [x] Inspect current CLI, worker, server-launch, API-client, schema, evidence, containment, and operations conventions.
 - [x] Finalize the supported command name, module placement, typed configuration, and report schemas without creating a competing CLI framework.
-- [ ] Implement exact preflight and fail-closed safe-state reporting.
-- [ ] Implement marker-owned runtime creation and foreign/unknown-runtime rejection.
-- [ ] Implement process-only credential handling and leak-proof diagnostics.
-- [ ] Implement controlled FastAPI server and outbound-worker startup, health observation, shutdown, and ownership verification.
-- [ ] Implement explicit fresh approval and `fresh-only` lifecycle observation.
-- [ ] Implement guarded `fresh-then-exact-reuse` with a second explicit approval only after authoritative fresh success.
-- [ ] Implement bounded machine-readable and human-readable reports.
-- [ ] Add unit, contract, process, Windows, failure-boundary, and synthetic fresh/reuse integration tests.
-- [ ] Preserve all existing manual entry points and update operator documentation.
-- [ ] Run focused validation, the complete repository matrix, strict browser/security/coverage gates, and one bounded synthetic lifecycle proof.
-- [ ] Reconcile this ExecPlan and mutable status evidence.
+- [x] Implement exact preflight and fail-closed safe-state reporting.
+- [x] Implement marker-owned runtime creation and foreign/unknown-runtime rejection.
+- [x] Implement process-only credential handling and leak-proof diagnostics.
+- [x] Implement controlled FastAPI server and outbound-worker startup, health observation, shutdown, and ownership verification.
+- [x] Implement explicit fresh approval and `fresh-only` lifecycle observation.
+- [x] Implement guarded `fresh-then-exact-reuse` with a second explicit approval only after authoritative fresh success.
+- [x] Implement bounded machine-readable and human-readable reports.
+- [x] Add unit, contract, process, Windows, failure-boundary, and synthetic fresh/reuse integration tests.
+- [x] Preserve all existing manual entry points and update operator documentation.
+- [x] Run focused validation, the complete repository matrix, strict browser/security/coverage gates, and one bounded synthetic lifecycle proof.
+- [x] Reconcile this ExecPlan and mutable status evidence.
 - [ ] Commit in logical Conventional Commit units, push normally, and verify exact local/remote parity.
 - [ ] Complete exact-head hosted validation and connector review.
 - [ ] Keep the pull request draft and unmerged pending separate owner authorization.
@@ -86,6 +86,24 @@ The command exits non-zero and preserves the owned runtime whenever any required
 
 - Observation: Existing operator entry points are split between `scripts/dev.py`, `scripts.local_worker`, server launch helpers, the browser Validation Broker, and worker/API classes. There is no supported single lifecycle command.
   Evidence: `scripts/dev.py` exposes developer subcommands; `scripts.local_worker` launches one outbound worker from operator JSON; no repository script currently orchestrates the accepted end-to-end lifecycle.
+
+- Observation: Python 3.14 with the pinned Bandit 1.8.6 can emit one manager
+  error for every requested file but still return exit code zero.
+  Evidence: The retained real lifecycle security log contains manager errors
+  for the entire server tree; the command-level and worker result parsers now
+  detect that condition and fail closed instead of accepting a false audit.
+
+- Observation: Windows source-checkout execution needs an explicit repository
+  import root, and report-safe redaction must happen before byte truncation.
+  Evidence: Direct CLI help initially could not import `client`, while a large
+  sanitized Bandit diagnostic expanded beyond the report string ceiling after
+  pre-sanitization truncation. Both boundaries have regression coverage.
+
+- Observation: The real seven-step run is dominated by the full test step and
+  therefore takes about twenty minutes on this host.
+  Evidence: The retained successful mechanical run used `1124.719` seconds for
+  tests-with-coverage and `1207.82` seconds end to end; exact reuse then executed
+  zero deterministic steps.
 
 ## Decision Log
 
@@ -164,21 +182,84 @@ The command exits non-zero and preserves the owned runtime whenever any required
   than truncating preserves the meaning of security and acceptance facts.
   Date/Author: 2026-08-28 / Codex.
 
+- Decision: Treat any Bandit manager error as an incomplete security audit even
+  when Bandit returns zero.
+  Rationale: Command success cannot substitute for evidence that requested
+  files were actually scanned. The developer gate and retained-evidence parser
+  now share this fail-closed interpretation.
+  Date/Author: 2026-08-28 / Codex.
+
 ## Outcomes & Retrospective
 
-Pending implementation.
+The supported surfaces are `python scripts/dev.py validation-lifecycle
+--config <private-json>` and the read-only `python scripts/dev.py
+inspect-validation-runtime <root>`. The lifecycle supports `fresh-only` and
+`fresh-then-exact-reuse`. Selecting a mode never approves a work order:
+interactive operation requires one exact confirmation per work order, while
+non-interactive operation requires the separate `--approve-fresh` and
+`--approve-reuse` flags.
 
-The final retrospective must record:
+The implementation is deliberately split across
+`client/python/execution_operator/{config,models,preflight,runtime,processes,lifecycle}.py`
+with a package export, a thin `scripts/dev.py` dispatch surface, and the direct
+`scripts/operator_server.py` child launcher. Existing server, execution API,
+worker, evidence, and process-containment code remains authoritative. The
+manual server and `scripts.local_worker` entry points remain compatible; the
+worker gained only marker-owned drain/stop signaling required for bounded
+operator shutdown.
 
-- the exact supported command and modes;
-- configuration and approval UX;
-- preflight, runtime ownership, process, credential, report, evidence, and cleanup contracts;
-- synthetic fresh/reuse identities and zero-step proof;
-- failure-preservation behavior;
-- compatibility with manual server and worker entry points;
-- operator actions eliminated versus those deliberately retained;
-- validation results and environment limitations;
-- final branch and hosted-review state.
+Strict configuration rejects unknown fields, non-object/oversize files,
+malformed or non-lowercase full SHAs and digests, unsupported modes/routing,
+non-loopback hosts, unsafe ports, relative/network/device/traversal paths,
+existing or linked roots, overlap, unsafe Windows path budgets, and invalid
+timeouts or limits. Preflight verifies clean exact source, origin, tree,
+manifest, tools, capability, containment, new roots, port, token presence, and
+report policy before mutation. The token exists only in process memory and
+child environments; configuration, argv, marker, logs, exceptions, reports,
+evidence, and captured output have explicit leak regressions.
+
+Marker schema version 1 is atomically written before owned subdirectories and
+binds only safe logical identity. Normal operation refuses existing, foreign,
+malformed, linked, or ambiguous state. The lifecycle holds direct child
+processes under Windows Job Object or POSIX process-group containment, verifies
+health and worker registration, drains before owned termination, and requires
+zero leases/capacity, stopped children, clean source state, and a released port.
+Any post-marker failure preserves the runtime and attempts one bounded failed
+report without retrying or repairing authoritative state. Inspection is
+read-only.
+
+The real server/worker synthetic matrix passed both modes. Fresh and reuse use
+distinct work-order and run IDs on the same worker. Reuse is not created until
+fresh terminal state, local evidence, route, source, leases, capacity, and
+expiry have been verified. Exact reuse links to the fresh run, preserves the
+source expiry, has zero steps and artifacts, refuses fresh fallback, and reports
+seven avoided deterministic steps. Failure, cancellation, port, containment,
+worker-exit, token-leak, size-bound, and cleanup cases are covered and repeated
+without observed task-owned process or port leakage.
+
+A retained real `validate-switchboard@1` mechanical exercise at implementation
+head `c16599c398083e9c8d4c89d1c4ce7b58cfd95aae` completed fresh run `1` and
+exact-reuse run `2` in runtime `d903cf91-cdc3-4e02-93e3-03ab9ffff6e4`; reuse
+executed zero steps and avoided seven. That exercise is not accepted as a
+security-clean full validation because Python 3.14/Bandit 1.8.6 skipped the
+server files while returning zero. The final implementation fails closed on
+that host condition. A separate trusted Python 3.13 Bandit run passed.
+
+Focused implementation validation reached 247 passes with one documented
+platform/version skip; the operator coverage suite reached 82% aggregate and
+all six configured module thresholds. The pre-final repository suite reached
+752 passes and 11 documented skips, strict Playwright reached four passes and
+zero skips, and three repeated leakage matrices reached 24/24 passes. Final
+exact-head validation and hosted checks are recorded in the delivery report,
+because changing this living document after those gates would invalidate their
+exact-head binding.
+
+The lifecycle removes manual runtime construction, launch sequencing, polling,
+evidence reconciliation, shutdown, cleanup verification, and report assembly.
+It deliberately retains target preparation, exact configuration, token
+provisioning, and separate human approval for every work order. PR #152 remains
+draft and unmerged pending exact-head hosted validation, connector review, and
+a separate owner decision.
 
 ## Context and Orientation
 
