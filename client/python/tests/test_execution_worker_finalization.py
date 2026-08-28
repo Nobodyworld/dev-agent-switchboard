@@ -164,6 +164,23 @@ def test_compact_step_evidence_redacts_absolute_local_paths(
     assert unsafe_summary not in evidence[0].summary
 
 
+def test_compact_step_evidence_bounds_windows_separator_expansion() -> None:
+    result = replace(
+        _large_result("bounded-evidence"),
+        stdout_summary=(r"server\api\routers\execution.py" + "\n") * 300,
+        stderr_summary="",
+        summaries_truncated=False,
+    )
+
+    evidence = worker_module._step_evidence([result], [])
+
+    assert len(evidence) == 1
+    assert len(evidence[0].summary) <= worker_module.STEP_EVIDENCE_SUMMARY_LIMIT
+    assert evidence[0].summary_truncated is True
+    assert "\\" not in evidence[0].summary
+    assert "[BACKSLASH]" in evidence[0].summary
+
+
 def test_local_record_write_failure_downgrades_success_and_completes_once(
     tmp_path: Path,
 ) -> None:

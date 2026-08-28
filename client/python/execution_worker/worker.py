@@ -190,11 +190,12 @@ def _step_evidence(
     artifact_paths = {artifact.relative_path for artifact in artifacts}
     evidence: list[StepEvidence] = []
     for result in results:
-        summary = _sanitize_remote_text(
+        sanitized_summary = _sanitize_remote_text(
             "\n".join(
                 item for item in (result.stdout_summary, result.stderr_summary) if item
-            )[:STEP_EVIDENCE_SUMMARY_LIMIT]
+            )
         )
+        summary = sanitized_summary[:STEP_EVIDENCE_SUMMARY_LIMIT]
         paths = [
             f"logs/{result.stdout_log}",
             f"logs/{result.stderr_log}",
@@ -212,7 +213,7 @@ def _step_evidence(
                 summary=summary,
                 summary_truncated=(
                     result.summaries_truncated
-                    or len(summary) >= STEP_EVIDENCE_SUMMARY_LIMIT
+                    or len(sanitized_summary) > STEP_EVIDENCE_SUMMARY_LIMIT
                 ),
                 log_artifact_paths=[path for path in paths if path in artifact_paths],
                 parsed_result=result.parsed_result,
