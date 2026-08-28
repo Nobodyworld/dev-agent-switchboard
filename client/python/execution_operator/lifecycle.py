@@ -444,7 +444,9 @@ def _verify_run(  # noqa: PLR0913 - trust inputs stay explicit
         ("reuse_decision", decision_ok),
         ("source_link", source_ok),
     )
-    failed_check = next((name for name, passed in verification_checks if not passed), None)
+    failed_check = next(
+        (name for name, passed in verification_checks if not passed), None
+    )
     if failed_check is not None:
         raise OperatorLifecycleFailure(f"{phase}_verification_failed:{failed_check}")
     return RunSummary(
