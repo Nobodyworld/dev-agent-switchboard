@@ -675,7 +675,6 @@ def run_validation_lifecycle(  # noqa: PLR0915 - fail-closed phases stay visible
             token,
             timeout=config.http_timeout_seconds,
         ) as client:
-
             _wait_server(client, config)
             report.server_ready = True
             _record_phase(report, "server_healthy")
