@@ -258,6 +258,12 @@ def _worker_source_empty(layout: RuntimeLayout) -> bool:
         return False
 
 
+def _aware_utc(value: dt.datetime) -> dt.datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=dt.UTC)
+    return value.astimezone(dt.UTC)
+
+
 def _verify_local_fresh(  # noqa: PLR0911, PLR0912 - verification is explicit
     config: OperatorLifecycleConfig,
     layout: RuntimeLayout,
@@ -271,13 +277,14 @@ def _verify_local_fresh(  # noqa: PLR0911, PLR0912 - verification is explicit
     )
     if run.evidence_retention_expires_at is None:
         return False
+    retention_expires_at = _aware_utc(run.evidence_retention_expires_at)
     store = EvidenceStore(
         root=layout.retained_evidence,
         run_directory=layout.retained_evidence / f"run-{run.id}",
         worker_id=config.worker_id,
         run_id=run.id,
         created_at=evidence.started_at,
-        retention_expires_at=run.evidence_retention_expires_at,
+        retention_expires_at=retention_expires_at,
         limits=limits,
     )
     try:
@@ -339,7 +346,7 @@ def _verify_local_fresh(  # noqa: PLR0911, PLR0912 - verification is explicit
             reuse_identity=run.reuse_identity,
             reuse_identity_hash=run.reuse_identity_hash,
             source_created_at=evidence.started_at,
-            retention_expires_at=run.evidence_retention_expires_at,
+            retention_expires_at=retention_expires_at,
             artifacts=run.artifact_metadata,
         )
         verification = verify_reuse_candidate(
@@ -426,7 +433,8 @@ def _verify_run(  # noqa: PLR0913 - trust inputs stay explicit
             source is not None
             and run.reused_from_run_id == source.run_id
             and run.source_evidence_fingerprint == source.evidence_fingerprint
-            and run.evidence_retention_expires_at
+            and run.evidence_retention_expires_at is not None
+            and _aware_utc(run.evidence_retention_expires_at)
             == dt.datetime.fromisoformat(
                 source.evidence_retention_expires_at.replace("Z", "+00:00")
             )
@@ -459,7 +467,9 @@ def _verify_run(  # noqa: PLR0913 - trust inputs stay explicit
         reused_from_run_id=run.reused_from_run_id,
         evidence_fingerprint=evidence.fingerprint,
         evidence_retention_expires_at=(
-            run.evidence_retention_expires_at.isoformat().replace("+00:00", "Z")
+            _aware_utc(run.evidence_retention_expires_at)
+            .isoformat()
+            .replace("+00:00", "Z")
             if run.evidence_retention_expires_at
             else None
         ),
