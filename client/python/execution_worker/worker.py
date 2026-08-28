@@ -35,6 +35,7 @@ from server.execution.evidence import (
     finalize_evidence,
 )
 from server.execution.registry import TrustedManifest, TrustedStep, get_trusted_manifest
+from server.execution.text_policy import contains_absolute_local_path
 
 from .capabilities import discover_worker_registration
 from .client import ExecutionClient, ExecutionOwnershipLostError
@@ -73,6 +74,21 @@ _LOCAL_SQLITE_URI = re.compile(
 STEP_EVIDENCE_SUMMARY_LIMIT = 4096
 _ENVIRONMENT_TOOLS = ("ruff", "black", "mypy", "pytest", "coverage", "bandit")
 ReuseDecisionValue = Literal["fresh", "reused", "unavailable"]
+
+
+def _sanitize_remote_text(value: str) -> str:
+    """Remove local path/URI shapes while retained evidence stays unchanged."""
+
+    without_expressions = _LOCAL_SQLITE_EXPRESSION.sub(
+        LOCAL_DATABASE_URI_MARKER,
+        value,
+    )
+    without_local_databases = _LOCAL_SQLITE_URI.sub(
+        LOCAL_DATABASE_URI_MARKER,
+        without_expressions,
+    )
+    normalized = without_local_databases.replace("\\", "[BACKSLASH]")
+    return "[LOCAL_PATH]" if contains_absolute_local_path(normalized) else normalized
 
 
 def _allowed_inherited_environment_keys(manifest: TrustedManifest) -> frozenset[str]:
@@ -174,9 +190,11 @@ def _step_evidence(
     artifact_paths = {artifact.relative_path for artifact in artifacts}
     evidence: list[StepEvidence] = []
     for result in results:
-        summary = "\n".join(
-            item for item in (result.stdout_summary, result.stderr_summary) if item
-        )[:STEP_EVIDENCE_SUMMARY_LIMIT]
+        summary = _sanitize_remote_text(
+            "\n".join(
+                item for item in (result.stdout_summary, result.stderr_summary) if item
+            )[:STEP_EVIDENCE_SUMMARY_LIMIT]
+        )
         paths = [
             f"logs/{result.stdout_log}",
             f"logs/{result.stderr_log}",
@@ -513,20 +531,9 @@ class LocalWorker:
 
     @staticmethod
     def _serialize_summary(summary: Mapping[str, Any]) -> str:
-        def sanitize_text(value: str) -> str:
-            without_expressions = _LOCAL_SQLITE_EXPRESSION.sub(
-                LOCAL_DATABASE_URI_MARKER,
-                value,
-            )
-            without_local_databases = _LOCAL_SQLITE_URI.sub(
-                LOCAL_DATABASE_URI_MARKER,
-                without_expressions,
-            )
-            return without_local_databases.replace("\\", "[BACKSLASH]")
-
         def normalize(value: Any) -> Any:
             if isinstance(value, str):
-                return sanitize_text(value)
+                return _sanitize_remote_text(value)
             if isinstance(value, Mapping):
                 return {key: normalize(item) for key, item in value.items()}
             if isinstance(value, list):
