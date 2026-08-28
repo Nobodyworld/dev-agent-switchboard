@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import os
 import socket
+import subprocess
 import sys
+import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from client.python.execution_worker.containment import (
@@ -20,6 +22,8 @@ from client.python.execution_worker.containment import (
 from .config import OperatorLifecycleConfig
 from .models import OperatorLifecycleFailure, RuntimeSummary
 from .runtime import RuntimeLayout, inspect_runtime, touch_owned_stop
+
+_MAX_PRIVATE_PROCESS_OUTPUT = 64 * 1024
 
 
 def _minimal_environment(
@@ -54,6 +58,17 @@ def _write_private_json(path: Path, payload: dict[str, object]) -> None:
             os.fsync(handle.fileno())
     except OSError as error:
         raise OperatorLifecycleFailure("private_configuration_write_failed") from error
+
+
+def _write_private_bytes(path: Path, payload: bytes) -> None:
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "wb", closefd=True) as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except OSError as error:
+        raise OperatorLifecycleFailure("private_diagnostic_write_failed") from error
 
 
 def _record_process(
@@ -96,6 +111,38 @@ class OwnedProcess:
     host: StrictHostProcess
     layout: RuntimeLayout
     stop_file: Path
+    _redacted_token: bytes = field(repr=False)
+    _output: bytearray = field(default_factory=bytearray, repr=False)
+    _output_truncated: bool = False
+    _reader: threading.Thread | None = field(default=None, repr=False)
+
+    def start_reader(self) -> None:
+        stdout = self.host.process.stdout
+        if stdout is None:
+            raise OperatorLifecycleFailure("owned_process_output_unavailable")
+
+        def drain() -> None:
+            while chunk := stdout.read(4096):
+                remaining = _MAX_PRIVATE_PROCESS_OUTPUT - len(self._output)
+                if remaining > 0:
+                    self._output.extend(chunk[:remaining])
+                if len(chunk) > remaining:
+                    self._output_truncated = True
+
+        self._reader = threading.Thread(target=drain, daemon=True)
+        self._reader.start()
+
+    def _persist_output(self, *, timeout: float) -> None:
+        if self._reader is not None:
+            self._reader.join(timeout=timeout)
+            if self._reader.is_alive():
+                raise OperatorLifecycleFailure("owned_process_output_unproven")
+        output = bytes(self._output)
+        if self._redacted_token:
+            output = output.replace(self._redacted_token, b"[REDACTED]")
+        if self._output_truncated:
+            output += b"\n[OUTPUT TRUNCATED]\n"
+        _write_private_bytes(self.layout.process_records / f"{self.kind}.log", output)
 
     def running(self) -> bool:
         return self.host.process.poll() is None
@@ -119,6 +166,7 @@ class OwnedProcess:
             raise OperatorLifecycleFailure("owned_process_cleanup_unproven") from error
         if not outcome.cleanup_verified:
             raise OperatorLifecycleFailure("owned_process_cleanup_unproven")
+        self._persist_output(timeout=min(timeout, 5.0))
         return True
 
 
@@ -131,6 +179,7 @@ def _launch(  # noqa: PLR0913 - containment inputs stay explicit
     layout: RuntimeLayout,
     summary: RuntimeSummary,
     stop_file: Path,
+    token: str,
 ) -> OwnedProcess:
     inspect_runtime(layout.root)
     try:
@@ -138,8 +187,8 @@ def _launch(  # noqa: PLR0913 - containment inputs stay explicit
             argv=argv,
             cwd=cwd,
             environment=environment,
-            stdout=-3,
-            stderr=-3,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
         )
     except (ContainmentLaunchError, OSError) as error:
         raise OperatorLifecycleFailure(f"{kind}_launch_failed") from error
@@ -151,7 +200,15 @@ def _launch(  # noqa: PLR0913 - containment inputs stay explicit
         except ContainmentCleanupError:
             pass
         raise
-    return OwnedProcess(kind=kind, host=host, layout=layout, stop_file=stop_file)
+    owned = OwnedProcess(
+        kind=kind,
+        host=host,
+        layout=layout,
+        stop_file=stop_file,
+        _redacted_token=token.encode("utf-8"),
+    )
+    owned.start_reader()
+    return owned
 
 
 def launch_server(
@@ -187,6 +244,7 @@ def launch_server(
         layout=layout,
         summary=summary,
         stop_file=layout.stop_server,
+        token=token,
     )
 
 
@@ -234,6 +292,7 @@ def launch_worker(
         layout=layout,
         summary=summary,
         stop_file=layout.stop_worker,
+        token=token,
     )
 
 

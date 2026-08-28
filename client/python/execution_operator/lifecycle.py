@@ -175,9 +175,14 @@ def _wait_worker(client: ExecutionClient, config: OperatorLifecycleConfig) -> No
 
 
 def _wait_terminal_run(
-    client: ExecutionClient, config: OperatorLifecycleConfig, work_order_id: int
+    client: ExecutionClient,
+    config: OperatorLifecycleConfig,
+    worker: OwnedProcess,
+    work_order_id: int,
 ) -> ExecutionRunOut:
     def terminal() -> ExecutionRunOut | None:
+        if not worker.running():
+            raise OperatorLifecycleFailure("worker_process_exited")
         runs = client.list_runs(work_order_id)
         if len(runs) > 1:
             raise OperatorLifecycleFailure("unexpected_run_count")
@@ -418,6 +423,7 @@ def _execute_phase(  # noqa: PLR0913 - lifecycle inputs stay explicit
     approval: ApprovalCallback,
     phase: Literal["fresh", "reuse"],
     source: RunSummary | None,
+    worker: OwnedProcess,
 ) -> RunSummary:
     if not approval(phase, _approval_identity(config, phase)):
         raise OperatorLifecycleFailure(f"{phase}_approval_denied")
@@ -428,7 +434,7 @@ def _execute_phase(  # noqa: PLR0913 - lifecycle inputs stay explicit
     )
     _validate_order(client.approve_work_order(order.id), config, "approved")
     _validate_order(client.queue_work_order(order.id), config, "queued")
-    run = _wait_terminal_run(client, config, order.id)
+    run = _wait_terminal_run(client, config, worker, order.id)
     terminal_order = _validate_order(
         client.get_work_order(order.id), config, "succeeded"
     )
@@ -532,6 +538,7 @@ def run_validation_lifecycle(  # noqa: PLR0915 - fail-closed phases stay visible
                 approval=recorded_approval,
                 phase="fresh",
                 source=None,
+                worker=worker,
             )
             report.runs.append(fresh)
             if config.mode == "fresh-then-exact-reuse":
@@ -543,6 +550,7 @@ def run_validation_lifecycle(  # noqa: PLR0915 - fail-closed phases stay visible
                     approval=recorded_approval,
                     phase="reuse",
                     source=fresh,
+                    worker=worker,
                 )
                 report.runs.append(reuse)
             report.active_lease_count = _active_lease_count(layout.database)
@@ -553,6 +561,8 @@ def run_validation_lifecycle(  # noqa: PLR0915 - fail-closed phases stay visible
                 raise OperatorLifecycleFailure("terminal_cleanup_incomplete")
     except OperatorLifecycleFailure as error:
         failure = error
+    except KeyboardInterrupt:
+        failure = OperatorLifecycleFailure("operator_interrupted")
     except (ExecutionClientError, OSError, ValueError, sqlite3.Error) as error:
         failure = OperatorLifecycleFailure("operator_lifecycle_failure")
         failure.__cause__ = error

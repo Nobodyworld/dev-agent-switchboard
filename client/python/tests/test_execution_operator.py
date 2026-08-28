@@ -254,8 +254,33 @@ def test_denied_approval_precedes_work_order_creation(tmp_path: Path) -> None:
             approval=lambda _phase, _identity: False,
             phase="fresh",
             source=None,
+            worker=None,  # type: ignore[arg-type]
         )
     assert client.created is False
+
+
+def test_terminal_wait_fails_immediately_when_owned_worker_exits(
+    tmp_path: Path,
+) -> None:
+    config = replace(_config(tmp_path), terminal_timeout_seconds=60)
+
+    class ExitedWorker:
+        @staticmethod
+        def running() -> bool:
+            return False
+
+    class UnusedClient:
+        @staticmethod
+        def list_runs(_work_order_id: int) -> list[dict[str, object]]:
+            raise AssertionError("API polling must not continue after worker exit")
+
+    with pytest.raises(OperatorLifecycleFailure, match="worker_process_exited"):
+        lifecycle_module._wait_terminal_run(
+            UnusedClient(),  # type: ignore[arg-type]
+            config,
+            ExitedWorker(),  # type: ignore[arg-type]
+            1,
+        )
 
 
 @pytest.mark.skipif(
