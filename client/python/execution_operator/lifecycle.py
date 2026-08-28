@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import hashlib
 import json
 import os
 import sqlite3
@@ -15,7 +14,6 @@ from typing import Any, Literal, cast
 from client.python.execution_worker.client import ExecutionClient, ExecutionClientError
 from client.python.execution_worker.evidence import (
     EvidenceLimits,
-    EvidenceStore,
     verify_reuse_candidate,
 )
 from server.execution.evidence import ExecutionEvidence, ReuseCandidate
@@ -147,6 +145,8 @@ def _validate_order(
         or order.manifest_version != config.manifest_version
         or order.manifest_digest != expected_digest
         or order.preferred_executor != config.worker_id
+        or order.routing_policy.value != "first_available"
+        or order.required_quota_units != 0
         or order.repository_write_allowed
         or order.network_policy.value != "worker_restricted"
         or order.status.value != expected_status
@@ -264,7 +264,7 @@ def _aware_utc(value: dt.datetime) -> dt.datetime:
     return value.astimezone(dt.UTC)
 
 
-def _verify_local_fresh(  # noqa: PLR0911, PLR0912 - verification is explicit
+def _verify_local_fresh(
     config: OperatorLifecycleConfig,
     layout: RuntimeLayout,
     run: ExecutionRunOut,
@@ -275,69 +275,14 @@ def _verify_local_fresh(  # noqa: PLR0911, PLR0912 - verification is explicit
         maximum_artifact_bytes=config.maximum_artifact_bytes,
         maximum_total_bytes=config.maximum_total_evidence_bytes,
     )
-    if run.evidence_retention_expires_at is None:
-        return False
-    retention_expires_at = _aware_utc(run.evidence_retention_expires_at)
-    store = EvidenceStore(
-        root=layout.retained_evidence,
-        run_directory=layout.retained_evidence / f"run-{run.id}",
-        worker_id=config.worker_id,
-        run_id=run.id,
-        created_at=evidence.started_at,
-        retention_expires_at=retention_expires_at,
-        limits=limits,
-    )
-    try:
-        store.verify_ownership()
-        if (
-            store.result.is_symlink()
-            or store.result.stat().st_size > config.maximum_artifact_bytes
-        ):
-            return False
-        payload = json.loads(store.result.read_bytes().decode("utf-8"))
-        if not isinstance(payload, dict) or set(payload) != {
-            "evidence",
-            "result_summary",
-            "reuse_identity",
-            "reuse_identity_hash",
-        }:
-            return False
-        if ExecutionEvidence.model_validate(payload["evidence"]) != evidence:
-            return False
-        total = 0
-        for record in run.artifact_metadata:
-            artifact = store.run_directory.joinpath(*record.relative_path.split("/"))
-            if artifact.is_symlink() or not artifact.is_file():
-                return False
-            if artifact.stat().st_size != record.size_bytes:
-                return False
-            if record.size_bytes > config.maximum_artifact_bytes:
-                return False
-            data = artifact.read_bytes()
-            total += len(data)
-            if (
-                len(data) != record.size_bytes
-                or len(data) > config.maximum_artifact_bytes
-                or total > config.maximum_total_evidence_bytes
-                or hashlib.sha256(data).hexdigest() != record.sha256
-            ):
-                return False
-        store.verify_ownership()
-    except (
-        OSError,
-        UnicodeDecodeError,
-        json.JSONDecodeError,
-        ValueError,
-        RuntimeError,
-    ):
-        return False
-    if run.reuse_identity is None or run.reuse_identity_hash is None:
-        return config.mode == "fresh-only"
     if (
         run.evidence_retention_expires_at is None
+        or run.reuse_identity is None
+        or run.reuse_identity_hash is None
         or run.source_evidence_fingerprint is not None
     ):
         return False
+    retention_expires_at = _aware_utc(run.evidence_retention_expires_at)
     try:
         candidate = ReuseCandidate(
             source_run_id=run.id,
@@ -359,6 +304,18 @@ def _verify_local_fresh(  # noqa: PLR0911, PLR0912 - verification is explicit
     except (OSError, ValueError, RuntimeError):
         return False
     return verification.verified
+
+
+def _route_is_exact(route: RouteProvenanceOut, config: OperatorLifecycleConfig) -> bool:
+    return (
+        route.routing_policy.value == "first_available"
+        and route.selected_worker_id == config.worker_id
+        and route.explicit_pin_applied
+        and route.required_quota_units == 0
+        and route.reserved_quota_units == 0
+        and route.quota_reservation_state.value == "not_required"
+        and route.eligible_candidate_count >= 1
+    )
 
 
 def _verify_run(  # noqa: PLR0913 - trust inputs stay explicit
@@ -386,12 +343,7 @@ def _verify_run(  # noqa: PLR0913 - trust inputs stay explicit
         route = RouteProvenanceOut.model_validate(client.get_work_order_route(order.id))
     except (ExecutionClientError, ValueError) as error:
         raise OperatorLifecycleFailure(f"{phase}_evidence_invalid") from error
-    route_verified = (
-        route.selected_worker_id == config.worker_id
-        and route.routing_policy.value == config.routing_policy
-        and route.explicit_pin_applied
-        and route.quota_reservation_state.value in {"not_required", "consumed"}
-    )
+    route_verified = _route_is_exact(route, config)
     evidence_verified = (
         evidence.work_order_id == order.id
         and evidence.run_id == run.id
@@ -481,24 +433,46 @@ def _verify_run(  # noqa: PLR0913 - trust inputs stay explicit
     )
     if failed_check is not None:
         raise OperatorLifecycleFailure(f"{phase}_verification_failed:{failed_check}")
+    if run.reuse_identity_hash is None:
+        raise OperatorLifecycleFailure(f"{phase}_verification_failed:retained_evidence")
+    if run.evidence_retention_expires_at is None:
+        raise OperatorLifecycleFailure(f"{phase}_verification_failed:retention")
+    source_run_id = run.id if phase == "fresh" else run.reused_from_run_id
+    if source_run_id is None:
+        raise OperatorLifecycleFailure(f"{phase}_verification_failed:source_link")
+    artifacts = [
+        ArtifactSummary(
+            kind=artifact.kind,
+            relative_path=artifact.relative_path,
+            size_bytes=artifact.size_bytes,
+            sha256=artifact.sha256,
+        )
+        for artifact in evidence.artifacts
+    ]
     return RunSummary(
+        schema_version=1,
         work_order_id=order.id,
         run_id=run.id,
+        source_run_id=source_run_id,
         phase=phase,
         worker_id=run.worker_id,
         status=run.status.value,
         reuse_decision=run.reuse_decision.value,
         reused_from_run_id=run.reused_from_run_id,
+        reuse_identity_hash=run.reuse_identity_hash,
         evidence_fingerprint=evidence.fingerprint,
-        evidence_retention_expires_at=(
-            _aware_utc(run.evidence_retention_expires_at)
-            .isoformat()
-            .replace("+00:00", "Z")
-            if run.evidence_retention_expires_at
-            else None
-        ),
+        evidence_retention_expires_at=_aware_utc(run.evidence_retention_expires_at)
+        .isoformat()
+        .replace("+00:00", "Z"),
+        routing_policy="first_available",
+        route_reason=route.reason,
+        required_quota_units=0,
+        reserved_quota_units=0,
+        quota_reservation_state="not_required",
+        eligible_candidate_count=route.eligible_candidate_count,
         step_count=len(evidence.steps),
         artifact_count=len(evidence.artifacts),
+        artifact_total_bytes=sum(artifact.size_bytes for artifact in artifacts),
         route_verified=route_verified,
         evidence_verified=evidence_verified,
         local_evidence_verified=local_verified,
@@ -511,15 +485,7 @@ def _verify_run(  # noqa: PLR0913 - trust inputs stay explicit
             )
             for step in evidence.steps
         ],
-        artifacts=[
-            ArtifactSummary(
-                kind=artifact.kind,
-                relative_path=artifact.relative_path,
-                size_bytes=artifact.size_bytes,
-                sha256=artifact.sha256,
-            )
-            for artifact in evidence.artifacts
-        ],
+        artifacts=artifacts,
     )
 
 
