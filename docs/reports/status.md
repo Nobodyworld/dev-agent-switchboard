@@ -86,15 +86,23 @@ expiry, and existing cleanup facts. The same validator feeds human and JSON
 serialization and rejects paths, tokens, argv, raw bodies, environments,
 private identity, unsafe values, and oversize output.
 
-Python 3.11 correction evidence currently includes Linux-target Mypy over 199
-source files; 83 operator tests with four explicit capability/gated skips; both
+Python 3.11 correction evidence includes Linux-target Mypy over 199 source
+files; 83 operator tests with four explicit capability/gated skips; both
 separate-target lifecycle modes individually and together; real Windows marker,
 root, ancestry, and destination-parent junction rejection; three repeated
 two-mode process/port/cleanup passes; and the affected worker/server/CLI
-matrix. Zscripts validation used only cached pnpm 10.18.1 through ignored
-task-local infrastructure; host-default pnpm 10.24.0 was unchanged. Final
-exact-head matrix and push parity remain pending until the additive commits are
-created.
+matrix. The complete `scripts/dev.py verify` sequence at correction candidate
+`2c85948ce7bf5eda37bf36da263a9e42d8fa6865` passed 822 tests with 16 explicit
+platform/runtime skips, 88% aggregate coverage, all 20 configured thresholds,
+strict Mypy, Ruff, Bandit, and an environment audit with no known
+vulnerabilities. The first environment audit identified PYSEC-2026-3447 in the
+task-owned virtualenv's bootstrap `setuptools` 79.0.1; advancing only that
+disposable environment to fixed 84.0.0 cleared the audit without changing a
+repository requirement. Zscripts validation used only cached pnpm 10.18.1
+through ignored task-local infrastructure; host-default pnpm 10.24.0 was
+unchanged. The final documentation-head matrix and push parity are recorded in
+the delivery report so the tracked evidence does not invalidate its own exact
+SHA.
 
 One retained real full-manifest exercise completed mechanically at implementation
 head `c16599c398083e9c8d4c89d1c4ce7b58cfd95aae`, including zero-step reuse, but

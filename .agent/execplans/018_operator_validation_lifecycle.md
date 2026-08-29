@@ -315,10 +315,17 @@ Focused implementation validation reached 247 passes with one documented
 platform/version skip; the operator coverage suite reached 82% aggregate and
 all six configured module thresholds. The pre-final repository suite reached
 752 passes and 11 documented skips, strict Playwright reached four passes and
-zero skips, and three repeated leakage matrices reached 24/24 passes. Final
-exact-head validation and hosted checks are recorded in the delivery report,
-because changing this living document after those gates would invalidate their
-exact-head binding.
+zero skips, and three repeated leakage matrices reached 24/24 passes. The
+Python 3.11 correction candidate at
+`2c85948ce7bf5eda37bf36da263a9e42d8fa6865` subsequently passed the complete
+`scripts/dev.py verify` sequence with 822 passes, 16 explicit platform/runtime
+skips, 88% aggregate coverage, all 20 configured module thresholds, strict
+Mypy, Ruff, Bandit, and an environment audit with no known vulnerabilities.
+The task-owned environment's bootstrap `setuptools` was advanced from 79.0.1
+to fixed 84.0.0 after the first audit identified PYSEC-2026-3447; no repository
+dependency or host-default tool was changed. Final exact-head validation and
+hosted checks are recorded in the delivery report, because changing this living
+document after those gates would invalidate their exact-head binding.
 
 The lifecycle removes manual runtime construction, launch sequencing, polling,
 evidence reconciliation, shutdown, cleanup verification, and report assembly.
@@ -342,8 +349,12 @@ separate non-`.git` target fixture that lacks both control-plane launchers. The
 two-mode process/port/cleanup selection then passed three consecutive repeats.
 requested affected regression set passed after binding the Zscripts capability
 case to cached pnpm 10.18.1; the host-default pnpm 10.24.0 was not changed.
-Final exact-head matrix results and the pushed SHA are recorded only after the
-additive commits so evidence remains bound to the code it validates.
+The Python 3.11 correction candidate passed the complete repository verify
+sequence with 822 passes, 16 explicit platform/runtime skips, 88% aggregate
+coverage, all 20 configured thresholds, and clean Ruff, Mypy, Bandit, and
+environment-audit results. Strict Playwright, link/secrets/workflow hygiene,
+the standalone no-coverage pytest count, and final push parity are rebound to
+the final documentation head and recorded in the delivery report.
 
 PR #152 remains
 draft and unmerged pending exact-head hosted validation, connector review, and
