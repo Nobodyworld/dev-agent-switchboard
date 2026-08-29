@@ -336,9 +336,10 @@ verified source, identity hash, `first_available` route, pinned worker,
 zero-quota state, eligible count, artifact total, fingerprint, expiry, and
 cleanup facts without private paths or data.
 
-The corrected focused operator module passed 82 tests with four explicit
+The corrected focused operator module passed 83 tests with four explicit
 capability/gated skips. Both modes passed individually and together against a
 separate non-`.git` target fixture that lacks both control-plane launchers. The
+two-mode process/port/cleanup selection then passed three consecutive repeats.
 requested affected regression set passed after binding the Zscripts capability
 case to cached pnpm 10.18.1; the host-default pnpm 10.24.0 was not changed.
 Final exact-head matrix results and the pushed SHA are recorded only after the

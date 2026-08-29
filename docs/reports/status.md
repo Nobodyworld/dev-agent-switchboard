@@ -87,9 +87,10 @@ serialization and rejects paths, tokens, argv, raw bodies, environments,
 private identity, unsafe values, and oversize output.
 
 Python 3.11 correction evidence currently includes Linux-target Mypy over 199
-source files; 82 operator tests with four explicit capability/gated skips; both
+source files; 83 operator tests with four explicit capability/gated skips; both
 separate-target lifecycle modes individually and together; real Windows marker,
-root, and ancestry junction rejection; and the affected worker/server/CLI
+root, ancestry, and destination-parent junction rejection; three repeated
+two-mode process/port/cleanup passes; and the affected worker/server/CLI
 matrix. Zscripts validation used only cached pnpm 10.18.1 through ignored
 task-local infrastructure; host-default pnpm 10.24.0 was unchanged. Final
 exact-head matrix and push parity remain pending until the additive commits are
