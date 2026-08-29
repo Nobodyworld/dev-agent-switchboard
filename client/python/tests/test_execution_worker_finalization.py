@@ -5,11 +5,13 @@ from __future__ import annotations
 import datetime as dt
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+from client.python.execution_worker import worker as worker_module
 from client.python.execution_worker.containment import ContainmentCleanupError
 from client.python.execution_worker.evidence import EvidenceStore
 from client.python.execution_worker.models import AssignedWorkOrder
@@ -140,6 +142,43 @@ def test_serialized_summary_redacts_local_sqlite_uris_recursively() -> None:
     for unsafe in (source_expression, windows_dsn, posix_dsn, "worker-smoke.db"):
         assert unsafe not in serialized
     assert not contains_absolute_local_path(serialized)
+
+
+@pytest.mark.parametrize(
+    "unsafe_summary",
+    [r"failure at C:\private\checkout\test.py", "failure at /private/test.py"],
+)
+def test_compact_step_evidence_redacts_absolute_local_paths(
+    unsafe_summary: str,
+) -> None:
+    result = replace(
+        _large_result("safe-evidence"),
+        stdout_summary=unsafe_summary,
+        stderr_summary="",
+    )
+
+    evidence = worker_module._step_evidence([result], [])
+
+    assert len(evidence) == 1
+    assert not contains_absolute_local_path(evidence[0].summary)
+    assert unsafe_summary not in evidence[0].summary
+
+
+def test_compact_step_evidence_bounds_windows_separator_expansion() -> None:
+    result = replace(
+        _large_result("bounded-evidence"),
+        stdout_summary=(r"server\api\routers\execution.py" + "\n") * 300,
+        stderr_summary="",
+        summaries_truncated=False,
+    )
+
+    evidence = worker_module._step_evidence([result], [])
+
+    assert len(evidence) == 1
+    assert len(evidence[0].summary) <= worker_module.STEP_EVIDENCE_SUMMARY_LIMIT
+    assert evidence[0].summary_truncated is True
+    assert "\\" not in evidence[0].summary
+    assert "[BACKSLASH]" in evidence[0].summary
 
 
 def test_local_record_write_failure_downgrades_success_and_completes_once(

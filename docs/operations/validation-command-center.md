@@ -15,6 +15,14 @@ private URL, or claim of actual financial savings.
 
 ## Operator workflow
 
+For a repository-owned command that starts a private loopback server and
+outbound worker, performs the same explicit fresh/reuse control-plane lifecycle,
+verifies retained evidence, and shuts down only marker-owned processes, see
+[operator validation lifecycle](operator-validation-lifecycle.md).
+The command is complementary to this browser workspace: it does not resolve or
+publish GitHub pull-request state, and the browser does not own local processes
+or retained evidence.
+
 1. Start Switchboard and at least one configured outbound local worker. Keep the
    worker's heartbeat and checkout-poll intervals inside the server freshness
    windows.
