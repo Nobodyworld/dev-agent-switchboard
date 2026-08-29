@@ -766,13 +766,28 @@ New interfaces should be explicit and versioned. Candidate names, subject to loc
 
 ```python
 class OperatorLifecycleConfig: ...
+
+
 class OperatorRuntimeMarker: ...
+
+
 class OperatorLifecycleReport: ...
+
+
 class OperatorLifecycleFailure: ...
+
+
 class OperatorApiClient: ...
+
+
 class OperatorLifecycle: ...
 
-def run_validation_lifecycle(config: OperatorLifecycleConfig) -> OperatorLifecycleReport: ...
+
+def run_validation_lifecycle(
+    config: OperatorLifecycleConfig,
+) -> OperatorLifecycleReport: ...
+
+
 def inspect_validation_runtime(root: Path) -> OperatorLifecycleReport: ...
 ```
 

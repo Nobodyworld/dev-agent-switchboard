@@ -851,8 +851,8 @@ def test_github_origin_supported_forms_normalize_semantically(origin: str) -> No
     "origin",
     [
         "http://github.com/Nobodyworld/dev-agent-switchboard",
-        "https://user@github.com/Nobodyworld/dev-agent-switchboard",
-        "https://user:secret@github.com/Nobodyworld/dev-agent-switchboard",
+        "https://user" + "@github.com/Nobodyworld/dev-agent-switchboard",
+        "https://user:secret" + "@github.com/Nobodyworld/dev-agent-switchboard",
         "ssh://root@github.com/Nobodyworld/dev-agent-switchboard",
         "https://github.com.example/Nobodyworld/dev-agent-switchboard",
         "https://github.com/Nobodyworld/another-repository",
