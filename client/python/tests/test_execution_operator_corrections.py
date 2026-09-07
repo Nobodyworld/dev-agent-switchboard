@@ -1,4 +1,4 @@
-# ruff: noqa: PLR2004, S603, S607
+# ruff: noqa: S603, S607
 """Regressions for report inspection, preflight limits, URLs, and JSON input."""
 
 from __future__ import annotations
@@ -145,7 +145,7 @@ def test_partial_failure_after_approval_attempt_can_be_reported() -> None:
     report = make_operator_report()
     report.outcome = "failed"
     report.reason = "operator_lifecycle_failure"
-    report.phases = report.phases[:6] + ["shutdown_started", "cleanup_verified"]
+    report.phases = [*report.phases[:6], "shutdown_started", "cleanup_verified"]
     report.fresh_approved = False
     report.runs = []
     report.failed_runtime_preserved = True
@@ -455,6 +455,7 @@ def test_step_timeout_limit_is_checked_before_launch(tmp_path: Path) -> None:
         OperatorLifecycleFailure, match="manifest_step_timeout_exceeds_worker_budget"
     ):
         preflight._validate_manifest_timeouts(
-            config, manifest  # type: ignore[arg-type]
+            config,
+            manifest,  # type: ignore[arg-type]
         )
     assert not config.runtime_root.exists()

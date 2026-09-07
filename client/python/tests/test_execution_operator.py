@@ -183,7 +183,6 @@ class _FakeHost:
 
     def finalize_after_exit(self, *, grace_seconds: float) -> SimpleNamespace:
         _ = grace_seconds
-        self.finalize_calls += 1
         return SimpleNamespace(cleanup_verified=True)
 
 
@@ -368,7 +367,11 @@ def test_matching_original_marker_allows_owned_stop_and_report(
     assert (layout.reports / runtime_module.REPORT_TEXT_NAME).is_file()
 
 
-def test_report_rejects_paths_secrets_and_oversize() -> None:
+def test_report_rejects_paths_secrets_and_oversize(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = f"operator-report-test-{uuid.uuid4().hex}"
+    monkeypatch.setenv("SWITCHBOARD_ADMIN_TOKEN", token)
     report = make_operator_report()
     report.runtime = RuntimeSummary(
         schema_version=1,
@@ -383,7 +386,9 @@ def test_report_rejects_paths_secrets_and_oversize() -> None:
         created_at="2026-08-28T00:00:00Z",
     )
     encoded = report.as_json_bytes(maximum_bytes=4096)
-    assert b"token" not in encoded.lower()
+    assert token.encode("utf-8") not in encoded
+    assert b'"SWITCHBOARD_ADMIN_TOKEN"' not in encoded
+    assert "process_token" in json.loads(encoded)["preflight_checks"]
     report.reason = "C:\\private\\checkout"
     with pytest.raises(OperatorLifecycleFailure, match="report_text_policy_rejected"):
         report.as_dict()
@@ -1065,6 +1070,7 @@ def test_real_server_worker_synthetic_lifecycle_modes(  # noqa: PLR0913
     expected_actions: int,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    *,
     host: str,
 ) -> None:
     port = _free_port(host)
