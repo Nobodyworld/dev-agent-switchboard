@@ -17,10 +17,11 @@ from urllib.parse import SplitResult, urlsplit
 
 from client.python.execution_worker.containment import strict_containment_supported
 from server.execution.capabilities import runtime_version_matches
-from server.execution.registry import get_trusted_manifest
+from server.execution.registry import TrustedManifest, get_trusted_manifest
 
 from .config import OperatorLifecycleConfig
 from .models import OperatorLifecycleFailure
+from .report_contract import PREFLIGHT_CHECKS
 
 _COMMAND_TIMEOUT = 10.0
 _OUTPUT_LIMIT = 64 * 1024
@@ -31,20 +32,6 @@ _GITHUB_REPOSITORY_COMPONENT_COUNT = 2
 _GITHUB_COMPONENT = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SCP_GITHUB_ORIGIN = re.compile(
     r"^git@(?P<host>github\.com):(?P<path>[^?#]+)$", re.IGNORECASE
-)
-PREFLIGHT_CHECKS = (
-    "canonical_repository",
-    "clean_source",
-    "target_commit",
-    "source_snapshot",
-    "manifest_contract",
-    "python_runtime",
-    "git_runtime",
-    "worker_capabilities",
-    "root_safety",
-    "loopback_port",
-    "process_token",
-    "report_policy",
 )
 _SUPPORTED_CAPABILITY_KEYS = frozenset(
     {
@@ -360,6 +347,22 @@ def _manifest_capabilities_compatible(  # noqa: PLR0911, PLR0912 - fail closed
     return True
 
 
+def _validate_manifest_timeouts(
+    config: OperatorLifecycleConfig, manifest: TrustedManifest
+) -> None:
+    """Reject limits the generated worker would refuse, before creating state."""
+
+    if manifest.timeout_seconds > config.work_order_timeout_seconds:
+        raise OperatorLifecycleFailure("manifest_timeout_exceeds_worker_budget")
+    if any(
+        step.timeout_seconds > config.work_order_timeout_seconds
+        for step in manifest.execution_steps
+    ):
+        raise OperatorLifecycleFailure("manifest_step_timeout_exceeds_worker_budget")
+    if config.terminal_timeout_seconds < manifest.timeout_seconds:
+        raise OperatorLifecycleFailure("terminal_timeout_below_manifest_budget")
+
+
 def run_preflight(config: OperatorLifecycleConfig) -> PreflightResult:
     """Complete all read-only checks before runtime creation."""
 
@@ -400,6 +403,7 @@ def run_preflight(config: OperatorLifecycleConfig) -> PreflightResult:
         or not manifest.execution_steps
     ):
         raise OperatorLifecycleFailure("trusted_manifest_contract_unsupported")
+    _validate_manifest_timeouts(config, manifest)
     if not _manifest_capabilities_compatible(manifest.required_capabilities):
         raise OperatorLifecycleFailure("worker_capability_mismatch")
     return PreflightResult(

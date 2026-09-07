@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import datetime as dt
-import json
 import os
 import sqlite3
 import time
 from collections.abc import Callable, Mapping
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -26,48 +26,28 @@ from .models import (
     OperatorLifecycleReport,
     RunSummary,
     StepSummary,
+    StoredOperatorLifecycleReport,
     utc_now_text,
 )
 from .preflight import PREFLIGHT_CHECKS, PreflightResult, run_preflight, source_snapshot
 from .processes import OwnedProcess, launch_server, launch_worker, port_is_released
+from .report_contract import (
+    LIFECYCLE_PHASES,
+    REPORT_FIELDS,
+    validate_report_shape,
+)
 from .runtime import (
-    REPORT_JSON_NAME,
     RuntimeLayout,
     create_runtime,
     inspect_runtime,
+    read_runtime_report,
     write_report,
 )
 
 ApprovalCallback = Callable[[Literal["fresh", "reuse"], str], bool]
 _TERMINAL = {"succeeded", "failed", "timed_out", "cancelled"}
 _MAX_WORKERS = 100
-_PHASE_ORDER = {
-    name: index
-    for index, name in enumerate(
-        (
-            "preflight_passed",
-            "runtime_created",
-            "server_healthy",
-            "worker_online",
-            "fresh_created",
-            "fresh_approval_required",
-            "fresh_approved",
-            "fresh_queued",
-            "fresh_running",
-            "fresh_succeeded",
-            "fresh_verified",
-            "reuse_approval_required",
-            "reuse_created",
-            "reuse_approved",
-            "reuse_queued",
-            "reuse_succeeded",
-            "reuse_verified",
-            "shutdown_started",
-            "cleanup_verified",
-            "completed",
-        )
-    )
-}
+_PHASE_ORDER = {name: index for index, name in enumerate(LIFECYCLE_PHASES)}
 
 
 def _record_phase(report: OperatorLifecycleReport, phase: str) -> None:
@@ -636,7 +616,7 @@ def run_validation_lifecycle(  # noqa: PLR0915 - fail-closed phases stay visible
         server = launch_server(config, layout, runtime_summary, token)
         processes.append(server)
         with ExecutionClient(
-            f"http://{config.host}:{config.port}",
+            config.base_url,
             config.worker_id,
             token,
             timeout=config.http_timeout_seconds,
@@ -716,33 +696,22 @@ def run_validation_lifecycle(  # noqa: PLR0915 - fail-closed phases stay visible
 
 
 def inspect_validation_runtime(root: Path) -> OperatorLifecycleReport:
-    """Read a marker and optional report without starting or mutating anything."""
+    """Validate stored state only; never reverify live execution or rewrite it."""
 
     layout, summary = inspect_runtime(root)
-    report_path = layout.reports / REPORT_JSON_NAME
-    if (
-        not report_path.is_file()
-        or report_path.is_symlink()
-        or report_path.stat().st_size > 1024 * 1024
-    ):
-        return OperatorLifecycleReport(
+    payload = read_runtime_report(layout, summary)
+    if payload is None:
+        return StoredOperatorLifecycleReport(
             outcome="inspected", reason="runtime_marker_verified", runtime=summary
         )
     try:
-        payload = json.loads(report_path.read_bytes().decode("utf-8"))
-        if not isinstance(payload, dict) or payload.get("runtime") != {
-            "schema_version": summary.schema_version,
-            "runtime_id": summary.runtime_id,
-            "repository_full_name": summary.repository_full_name,
-            "target_sha": summary.target_sha,
-            "manifest_name": summary.manifest_name,
-            "manifest_version": summary.manifest_version,
-            "manifest_digest": summary.manifest_digest,
-            "mode": summary.mode,
-            "command_identity": summary.command_identity,
-            "created_at": summary.created_at,
-        }:
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != REPORT_FIELDS
+            or payload.get("runtime") != asdict(summary)
+        ):
             raise ValueError
+        validate_report_shape(payload)
         runs = []
         for item in payload.pop("runs"):
             steps = [StepSummary(**step) for step in item.pop("steps")]
@@ -750,17 +719,14 @@ def inspect_validation_runtime(root: Path) -> OperatorLifecycleReport:
                 ArtifactSummary(**artifact) for artifact in item.pop("artifacts")
             ]
             runs.append(RunSummary(**item, steps=steps, artifacts=artifacts))
-        runtime_payload = payload.pop("runtime")
-        _ = runtime_payload
-        report = OperatorLifecycleReport(**payload)
+        payload.pop("runtime")
+        report = StoredOperatorLifecycleReport(**payload)
         report.runtime = summary
         report.runs = runs
         report.as_dict()
         return report
     except (
-        OSError,
-        UnicodeDecodeError,
-        json.JSONDecodeError,
+        OperatorLifecycleFailure,
         TypeError,
         ValueError,
         KeyError,

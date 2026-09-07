@@ -27,6 +27,7 @@ MARKER_NAME = "operator-runtime.json"
 REPORT_JSON_NAME = "operator-report.json"
 REPORT_TEXT_NAME = "operator-report.txt"
 _MAX_MARKER_BYTES = 16 * 1024
+_MAX_REPORT_BYTES = 1024 * 1024
 _MARKER_KEYS = {
     "schema_version",
     "runtime_id",
@@ -166,7 +167,13 @@ def _read_json(path: Path, *, maximum: int) -> object:
         return _strict_json(raw)
     except OperatorLifecycleFailure:
         raise
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        ValueError,
+        RecursionError,
+    ) as error:
         raise OperatorLifecycleFailure("runtime_record_invalid") from error
 
 
@@ -277,6 +284,27 @@ def inspect_runtime(root: Path) -> tuple[RuntimeLayout, RuntimeSummary]:
     return layout, _read_runtime_summary(layout)
 
 
+def read_runtime_report(
+    layout: RuntimeLayout, expected: RuntimeSummary
+) -> object | None:
+    """Read an optional report through the stable owned-record boundary."""
+
+    path = layout.reports / REPORT_JSON_NAME
+    verify_runtime_ownership(layout, expected, destination=path)
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        verify_runtime_ownership(layout, expected, destination=path)
+        return None
+    except OSError as error:
+        raise OperatorLifecycleFailure("runtime_record_invalid") from error
+    payload = _read_json(path, maximum=_MAX_REPORT_BYTES)
+    if not isinstance(payload, dict):
+        raise OperatorLifecycleFailure("runtime_record_invalid")
+    verify_runtime_ownership(layout, expected, destination=path)
+    return payload
+
+
 def write_report(
     layout: RuntimeLayout, report: OperatorLifecycleReport, *, maximum_bytes: int
 ) -> None:
@@ -331,6 +359,7 @@ __all__ = [
     "RuntimeLayout",
     "create_runtime",
     "inspect_runtime",
+    "read_runtime_report",
     "touch_owned_stop",
     "verify_runtime_ownership",
     "write_report",

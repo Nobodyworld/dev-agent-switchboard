@@ -13,6 +13,12 @@ from typing import Any, Literal
 from server.execution.evidence import validate_relative_path
 from server.execution.text_policy import contains_absolute_local_path
 
+from .report_contract import (
+    ReportContractError,
+    validate_report_shape,
+    validate_report_state,
+)
+
 _SAFE_REASON = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,127}$")
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_.:@/-]{1,255}$")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -120,10 +126,24 @@ class OperatorLifecycleReport:
     completed_at: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        for run in self.runs:
-            _validate_run_summary(run)
         payload = dataclasses.asdict(self)
+        try:
+            validate_report_shape(payload)
+        except ReportContractError as error:
+            raise OperatorLifecycleFailure("report_contract_invalid") from error
+        if self.runtime is not None:
+            if not isinstance(self.runtime, RuntimeSummary):
+                raise OperatorLifecycleFailure("report_contract_invalid")
+            validate_runtime_summary(self.runtime)
+        for run in self.runs:
+            if not isinstance(run, RunSummary):
+                raise OperatorLifecycleFailure("report_run_invalid")
+            _validate_run_summary(run)
         _validate_public_value(payload)
+        try:
+            validate_report_state(payload)
+        except ReportContractError as error:
+            raise OperatorLifecycleFailure("report_contract_invalid") from error
         return payload
 
     def as_json_bytes(self, *, maximum_bytes: int) -> bytes:
@@ -179,6 +199,19 @@ class OperatorLifecycleReport:
         return encoded
 
 
+class StoredOperatorLifecycleReport(OperatorLifecycleReport):
+    """An inspected snapshot; its recorded outcome is not a new execution proof."""
+
+    __slots__ = ()
+
+    def as_text(self, *, maximum_bytes: int) -> bytes:
+        prefix = b"inspection: stored state only; live evidence not reverified\n"
+        encoded = prefix + super().as_text(maximum_bytes=maximum_bytes)
+        if len(encoded) > maximum_bytes:
+            raise OperatorLifecycleFailure("report_size_limit_exceeded")
+        return encoded
+
+
 def _validate_public_value(value: object, *, depth: int = 0) -> None:
     if depth > _MAX_DEPTH:
         raise OperatorLifecycleFailure("report_depth_limit_exceeded")
@@ -223,6 +256,10 @@ def _safe_relative_path(value: str) -> bool:
 
 
 def _validate_run_summary(run: RunSummary) -> None:
+    if not all(isinstance(item, StepSummary) for item in run.steps) or not all(
+        isinstance(item, ArtifactSummary) for item in run.artifacts
+    ):
+        raise OperatorLifecycleFailure("report_run_invalid")
     artifact_bytes = sum(item.size_bytes for item in run.artifacts)
     try:
         expiry = dt.datetime.fromisoformat(
@@ -239,6 +276,8 @@ def _validate_run_summary(run: RunSummary) -> None:
         run.phase == "reuse"
         and run.reused_from_run_id == run.source_run_id
         and run.reuse_decision == "reused"
+        and run.step_count == 0
+        and run.artifact_count == 0
     )
     if (
         run.schema_version != 1
@@ -292,6 +331,12 @@ def utc_now_text() -> str:
 
 
 def validate_runtime_summary(summary: RuntimeSummary) -> None:
+    if type(summary.schema_version) is not int or any(
+        type(getattr(summary, item.name)) is not str
+        for item in dataclasses.fields(summary)
+        if item.name != "schema_version"
+    ):
+        raise OperatorLifecycleFailure("runtime_marker_invalid")
     if (
         summary.schema_version != 1
         or not _SAFE_ID.fullmatch(summary.runtime_id)
@@ -314,6 +359,7 @@ __all__ = [
     "RunSummary",
     "RuntimeSummary",
     "StepSummary",
+    "StoredOperatorLifecycleReport",
     "utc_now_text",
     "validate_runtime_summary",
 ]

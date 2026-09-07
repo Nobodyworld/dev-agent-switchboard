@@ -39,6 +39,7 @@ from client.python.execution_operator.models import (
     OperatorLifecycleReport,
     RunSummary,
     RuntimeSummary,
+    StepSummary,
 )
 from client.python.execution_operator.preflight import (
     PreflightResult,
@@ -55,6 +56,7 @@ from client.python.execution_operator.runtime import (
     verify_runtime_ownership,
     write_report,
 )
+from client.python.tests.execution_operator_test_support import make_operator_report
 from server.execution.evidence import (
     EvidenceReuseIdentity,
     compute_reuse_identity_hash,
@@ -367,7 +369,7 @@ def test_matching_original_marker_allows_owned_stop_and_report(
 
 
 def test_report_rejects_paths_secrets_and_oversize() -> None:
-    report = OperatorLifecycleReport(reason="lifecycle_verified", outcome="succeeded")
+    report = make_operator_report()
     report.runtime = RuntimeSummary(
         schema_version=1,
         runtime_id="5c75a6df-cd63-4b86-9eca-38408a4a6650",
@@ -422,19 +424,20 @@ def _run_summary(*, artifact_size: int = 0) -> RunSummary:
         reserved_quota_units=0,
         quota_reservation_state="not_required",
         eligible_candidate_count=1,
-        step_count=0,
+        step_count=1,
         artifact_count=len(artifacts),
         artifact_total_bytes=artifact_size,
         route_verified=True,
         evidence_verified=True,
         local_evidence_verified=True,
         source_checkout_unchanged=True,
+        steps=[StepSummary("python-version", "succeeded", 0.1)],
         artifacts=artifacts,
     )
 
 
 def test_report_derives_exact_artifact_bytes_and_route_identity_facts() -> None:
-    report = OperatorLifecycleReport(runs=[_run_summary(artifact_size=37)])
+    report = make_operator_report(runs=[_run_summary(artifact_size=37)])
     payload = report.as_dict()
     run = payload["runs"][0]
     assert run["artifact_total_bytes"] == 37
@@ -465,13 +468,13 @@ def test_report_derives_exact_artifact_bytes_and_route_identity_facts() -> None:
 )
 def test_report_rejects_unsafe_or_inexact_run_facts(field: str, value: object) -> None:
     run = replace(_run_summary(artifact_size=37), **{field: value})
-    report = OperatorLifecycleReport(runs=[run])
+    report = make_operator_report(runs=[run])
     with pytest.raises(OperatorLifecycleFailure, match="report_run_invalid"):
         report.as_dict()
 
 
 def test_report_schema_cannot_expose_private_process_or_request_data() -> None:
-    encoded = OperatorLifecycleReport(runs=[_run_summary()]).as_json_bytes(
+    encoded = make_operator_report(runs=[_run_summary()]).as_json_bytes(
         maximum_bytes=8192
     )
     for forbidden in (
@@ -671,10 +674,16 @@ def _repository(
     return repository, _git(repository, "rev-parse", "HEAD")
 
 
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-        listener.bind(("127.0.0.1", 0))
-        return int(listener.getsockname()[1])
+def _free_port(host: str = "127.0.0.1") -> int:
+    family = socket.AF_INET6 if host == "::1" else socket.AF_INET
+    try:
+        with socket.socket(family, socket.SOCK_STREAM) as listener:
+            listener.bind((host, 0))
+            return int(listener.getsockname()[1])
+    except OSError as error:
+        if host == "::1":
+            pytest.skip(f"IPv6 loopback unavailable: {error.__class__.__name__}")
+        raise
 
 
 def test_preflight_proves_exact_clean_origin_and_is_non_mutating(
@@ -856,11 +865,11 @@ def test_github_origin_supported_forms_normalize_semantically(origin: str) -> No
         "ssh://root@github.com/Nobodyworld/dev-agent-switchboard",
         "https://github.com.example/Nobodyworld/dev-agent-switchboard",
         "https://github.com/Nobodyworld/another-repository",
+        "https://github.com/Nobodyworld/dev-agent-switchboard/extra",
         "https://github.com:443/Nobodyworld/dev-agent-switchboard",
         "ssh://git@github.com:22/Nobodyworld/dev-agent-switchboard",
         "https://github.com/Nobodyworld/dev-agent-switchboard?ref=main",
         "https://github.com/Nobodyworld/dev-agent-switchboard#fragment",
-        "https://github.com/Nobodyworld/dev-agent-switchboard/extra",
         "C:/checkout/dev-agent-switchboard",
         "file:///checkout/dev-agent-switchboard",
         "git@github.com",
@@ -1042,6 +1051,7 @@ def test_terminal_wait_fails_immediately_when_owned_worker_exits(
         )
 
 
+@pytest.mark.parametrize("host", ["127.0.0.1", "::1"])
 @pytest.mark.parametrize(
     ("mode", "expected_decisions", "expected_actions"),
     [
@@ -1049,13 +1059,15 @@ def test_terminal_wait_fails_immediately_when_owned_worker_exits(
         ("fresh-then-exact-reuse", ["fresh", "reused"], 2),
     ],
 )
-def test_real_server_worker_synthetic_lifecycle_modes(
+def test_real_server_worker_synthetic_lifecycle_modes(  # noqa: PLR0913
     mode: str,
     expected_decisions: list[str],
     expected_actions: int,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    host: str,
 ) -> None:
+    port = _free_port(host)
     repository, sha = _repository(
         tmp_path,
         origin="https://github.com/Nobodyworld/dev-agent-switchboard",
@@ -1076,7 +1088,8 @@ def test_real_server_worker_synthetic_lifecycle_modes(
             "expected_manifest_digest": manifest.digest,
             "mode": mode,
             "runtime_root": str(runtime_root),
-            "port": _free_port(),
+            "host": host,
+            "port": port,
             "startup_timeout_seconds": 60,
             "terminal_timeout_seconds": 180,
         }
@@ -1109,6 +1122,7 @@ def test_real_server_worker_synthetic_lifecycle_modes(
         worker_config = json.loads(
             (runtime_root / "worker-config.json").read_text(encoding="utf-8")
         )
+        assert worker_config["base_url"] == config.base_url
         assert worker_config["repositories"] == {
             "Nobodyworld/dev-agent-switchboard": str(repository)
         }

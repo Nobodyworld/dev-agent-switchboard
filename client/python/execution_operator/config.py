@@ -16,6 +16,7 @@ _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _IDENTITY = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 _MANIFEST = re.compile(r"^[a-z0-9][a-z0-9-]{0,127}$")
 _MAX_PATH_TEXT = 1024
+_MAX_CONFIG_BYTES = 64 * 1024
 _ALLOWED_KEYS = frozenset(
     {
         "schema_version",
@@ -95,6 +96,19 @@ def _absolute_path(value: str, field: str) -> Path:
     return path
 
 
+def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise OperatorConfigurationError("invalid_configuration:duplicate_key")
+        result[key] = value
+    return result
+
+
+def _reject_constant(_value: str) -> object:
+    raise OperatorConfigurationError("invalid_configuration:nonfinite_number")
+
+
 @dataclass(frozen=True, slots=True)
 class OperatorLifecycleConfig:
     """Immutable validated configuration for one new operator-owned runtime."""
@@ -124,6 +138,13 @@ class OperatorLifecycleConfig:
     maximum_total_evidence_bytes: int = 512 * 1024 * 1024
     report_maximum_bytes: int = 128 * 1024
 
+    @property
+    def base_url(self) -> str:
+        """Use one bracket-aware loopback origin for both HTTP consumers."""
+
+        authority = f"[{self.host}]" if self.host == "::1" else self.host
+        return f"http://{authority}:{self.port}"
+
     @classmethod
     def from_mapping(  # noqa: PLR0912 - each security boundary is explicit
         cls, payload: Mapping[str, Any]
@@ -132,7 +153,8 @@ class OperatorLifecycleConfig:
             raise OperatorConfigurationError("invalid_configuration:root")
         if set(payload) - _ALLOWED_KEYS:
             raise OperatorConfigurationError("invalid_configuration:unknown_field")
-        if payload.get("schema_version") != 1:
+        version = payload.get("schema_version")
+        if not isinstance(version, int) or isinstance(version, bool) or version != 1:
             raise OperatorConfigurationError("invalid_configuration:schema_version")
         repository = _text(payload, "repository_full_name", maximum=255)
         sha = _text(payload, "target_sha", maximum=40)
@@ -234,13 +256,18 @@ class OperatorLifecycleConfig:
     @classmethod
     def from_file(cls, path: Path) -> OperatorLifecycleConfig:
         try:
-            raw = path.read_bytes()
-            if len(raw) > 64 * 1024:
+            with path.open("rb") as handle:
+                raw = handle.read(_MAX_CONFIG_BYTES + 1)
+            if len(raw) > _MAX_CONFIG_BYTES:
                 raise OperatorConfigurationError("invalid_configuration:file_size")
-            payload = json.loads(raw.decode("utf-8"))
+            payload = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
         except OperatorConfigurationError:
             raise
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        except (OSError, UnicodeDecodeError, ValueError, RecursionError) as error:
             raise OperatorConfigurationError("invalid_configuration:file") from error
         if not isinstance(payload, Mapping):
             raise OperatorConfigurationError("invalid_configuration:root")

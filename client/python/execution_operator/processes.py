@@ -326,7 +326,7 @@ def launch_worker(
 ) -> OwnedProcess:
     control_plane_root = _control_plane_source_root(config)
     worker_payload: dict[str, object] = {
-        "base_url": f"http://{config.host}:{config.port}",
+        "base_url": config.base_url,
         "worker_id": config.worker_id,
         "display_name": config.worker_display_name,
         "worker_root": str(layout.worker_source),
