@@ -21,18 +21,34 @@ Classification remains `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY`.
 - [x] Issue #157 accepted as the successor contract.
 - [x] Canonical branch `feat/operator-readiness-progress` created from exact merged main.
 - [x] Living ExecPlan created.
-- [ ] Record current CLI/output behavior from the exact branch before implementation.
-- [ ] Implement read-only readiness using the authoritative execution preflight.
-- [ ] Implement optional bounded lifecycle progress observation without changing authority.
-- [ ] Implement human and machine output separation plus reviewed diagnostics.
-- [ ] Make stored inspection visibly state that live evidence is not reverified.
-- [ ] Update CLI tests, lifecycle/preflight regressions, README, operator guide, and moving status.
-- [ ] Run focused validation, both synthetic lifecycle modes over IPv4/IPv6, Windows-specific regressions where available, and complete repository gates.
+- [x] Verify origin, common Git directory, clean primary state, prepared remote head and base, preserved worktree/runtime inventory, and existing stash. Create the sole successor worktree tracking the prepared branch; preserve the older primary checkout unchanged.
+- [x] Record current CLI/output behavior from the exact branch before implementation.
+- [x] Implement read-only readiness using the authoritative execution preflight.
+- [x] Implement optional bounded lifecycle progress observation without changing authority.
+- [x] Implement human and machine output separation plus reviewed diagnostics.
+- [x] Make stored inspection visibly state that live evidence is not reverified.
+- [x] Update CLI tests, lifecycle/preflight regressions, README, operator guide, and moving status.
+- [x] Run focused validation, both synthetic lifecycle modes over IPv4/IPv6, Windows-specific regressions where available, and complete repository gates; enumerate genuine skips and invalid initial harness attempts below.
 - [ ] Push exact branch state normally and record local/remote parity.
 - [ ] Reconcile hosted checks and connector review.
 - [ ] Leave the implementation PR draft and unmerged pending separate owner authorization.
 
 ## Surprises & Discoveries
+
+- Observation: The initial concurrent full pytest and verification invocations had different pytest temporary roots but still shared the server fixture's default SQLite file in the new worktree. Once both reached server tests, setup/teardown errors appeared. Both incomplete invocations were stopped and their processes verified exited; the slice-owned database and temporary state were retained. This is invalid test-harness isolation, not evidence of an operator regression or a passing gate.
+  Evidence: `server.db.DEFAULT_DATABASE_URL` and the server fixture's per-case table reset. Replacement validation invocations explicitly use different task-owned database, storage, file, pytest, and coverage paths. No preserved database was opened or modified, and no product/test change was made to accommodate the harness error.
+
+- Observation: A bounded presentation still needs complete identity validation. Review reproduced a credential collision with the manifest digest that would otherwise make a ready result fail during serialization. Shared preflight now rejects unsafe configured identity before probes and an unsafe verified digest at the manifest check, using closed failure reasons.
+  Evidence: Focused readiness identity/credential-collision regressions; successful readiness requires complete safe identity and consistent timeout/digest facts.
+
+- Observation: Unexpected output errors and interruption at the readiness CLI originally escaped a one-object machine result in the first implementation draft. The command now emits a sanitized command-error object when the output channel is usable. A broken stdout cannot deliver JSON; it exits unsuccessfully after execution has performed its shutdown, with best-effort safe stderr only.
+  Evidence: Focused CLI exception, broken-prompt, stdout-failure, independent-approval, and stored-report byte/timestamp regressions.
+
+- Observation: At prepared head `44091095fadaf5601ec9e5cf26b13669606742c5`, command help contains no readiness surface. Missing lifecycle configuration and missing inspection runtime both exit 1 with human failure text on stdout. Source inspection shows approval prompts also use stdout, while successful lifecycle and inspection use the schema-2 JSON report. Non-interactive input without the corresponding approval flag is already denied.
+  Evidence: Read-only help/missing-input probes in the existing pinned Python 3.11.14 environment, plus `cmd_validation_lifecycle` and `cmd_inspect_validation_runtime` inspection before edits. No runtime or work order was created by these probes.
+
+- Observation: `StoredOperatorLifecycleReport.as_text()` already contains the required stored-state warning, but the CLI only called its JSON serializer.
+  Evidence: The existing stored report class and inspection command on the prepared head.
 
 - Observation: No standalone readiness command exists on merged main; `scripts/dev.py validation-lifecycle` performs preflight only as the first execution phase and `inspect-validation-runtime` reports stored state.
   Evidence: Source inspection of `scripts/dev.py` and issue #157 preparation at the predecessor head; the merged tree is the same validated source tree.
@@ -41,6 +57,14 @@ Classification remains `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY`.
   Evidence: Existing lifecycle report phase contract and issue #157 acceptance language.
 
 ## Decision Log
+
+- Decision: Keep lifecycle and inspection default successful JSON shapes unchanged, add explicit `--format human|json`, and make new readiness default to human output. Prompts and optional progress use stderr. Inspection JSON remains the historical report unchanged and carries its scope notice on stderr.
+  Rationale: Existing JSON consumers and schema-2 retained reports stay compatible while human users gain a supported presentation. Configuration and argument failures receive fixed sanitized diagnostics rather than raw values.
+  Date/Author: 2026-09-07 / Codex implementation
+
+- Decision: Use an optional bounded observer with closed event vocabulary; callback failure disables presentation while execution retains its existing approval and ownership checks.
+  Rationale: Output is an observation channel. Its exceptions cannot authorize work, cause a retry, or suppress owned shutdown.
+  Date/Author: 2026-09-07 / Codex implementation
 
 - Decision: Reuse the same preflight implementation used immediately before execution and expose only a read-only result model around it.
   Rationale: A second readiness implementation could drift from execution and create false confidence. Execution must still rerun preflight because readiness is only a point-in-time observation.
@@ -60,7 +84,13 @@ Classification remains `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY`.
 
 ## Outcomes & Retrospective
 
-Not yet implemented. The intended outcome is one coherent operator-usability improvement: readiness before mutation, truthful progress during execution, and bounded actionable results afterward, with no new execution authority.
+The implementation adds readiness before mutation, actual observed progress during execution, and reviewed corrective guidance. Both execution and readiness use the same eleven-check assessment; the existing execution return type and schema-2 stored reports remain compatible. Readiness has a fixed schema-1 result capped at 16 KiB, with fail-fast check state and exact safe identity/timeout facts. Git probes disable optional metadata locks/refresh writes.
+
+An optional observer receives at most 64 deduplicated closed events, including separate request/approval/queue/run/evidence transitions. It never infers running from queuing, and completion follows report persistence. Callback exceptions disable only presentation. Existing approval and immutable marker ownership continue to govern execution and cleanup.
+
+Lifecycle/inspection JSON success remains the existing report object. New readiness defaults to human output, with explicit JSON available. Prompts/progress use stderr. Human inspection uses the existing stored-state warning; JSON inspection keeps the stored document unchanged and emits that notice on stderr. Runtime reports are neither rewritten nor upgraded by inspection.
+
+Local implementation and repository validation are complete at this pre-publication checkpoint. The corrected isolated full runs both passed, with platform/runtime skips recorded below and no reduced gates. Final code identity, normal-push parity, exact-head hosted checks and connector review are subsequent delivery gates; their live result belongs in draft PR #158 and the delivery report so a self-referential documentation commit does not invalidate its own SHA. Owner authorization remains separate.
 
 ## Context and Orientation
 
@@ -147,6 +177,49 @@ If local branch/worktree state differs from the expected continuation, stop and 
 If implementation or validation fails, keep the branch and slice-owned worktree for diagnosis. Do not weaken tests, delete historical runtimes/evidence, or repair previous reports to make validation pass.
 
 ## Artifacts and Notes
+
+Local validation record (2026-09-07, implementation tree based on prepared head `44091095fadaf5601ec9e5cf26b13669606742c5`):
+
+- The sole successor worktree tracks `origin/feat/operator-readiness-progress`. Initial local and remote feature heads matched the prepared head; remote main matched `78ff87a87e2322f6a77732b5b0368c4379dc0b62`. The clean older primary checkout was preserved, not advanced. All historical worktrees, named runtime/evidence roots, and the security-deferral stash were present and left untouched.
+- Existing Windows Python 3.11.14 environment; pytest 9.1.1, Mypy 1.18.2, Ruff 0.16.2, Bandit 1.9.4, coverage 7.16.0, and pip-audit 2.10.1. Exact cached pnpm 10.18.1 was selected through existing task-local infrastructure; host-default pnpm and settings were unchanged. Local Node 24.19.0 satisfies the project floor; hosted CI separately pins Node 24.12.0. No dependency or workload definition changed.
+- Focused operator, corrections, readiness, progress, and CLI matrix: 246 passed, 6 explicitly skipped. All four real server/worker synthetic combinations (fresh-only and fresh-then-exact-reuse, each on IPv4 and IPv6) passed with separate target source, readiness before runtime creation, independent approvals, observed progress, retained-evidence proof, unchanged canonical state, stopped owned processes, released port, and empty worker source.
+- Standalone strict Playwright: 4 passed, zero skipped. Strict browser mode is also enabled in the full pytest and verification suites.
+- Isolated full pytest passed: 979 passed, 18 skipped, one existing Starlette/httpx deprecation warning, in 1131.31 seconds. The skips are seven unavailable Windows symlink creations, eight explicitly POSIX/Linux-only cases, two real-worker profiles requiring Python 3.12+/3.13+, and one explicitly gated full-manifest operator exercise. The four strict browser cases passed with zero browser skips. No skip predicate or dependency was changed.
+- Complete `python scripts/dev.py verify` passed: Ruff, strict Mypy, Bandit, 979 passed / 18 skipped / one warning in its 1202.17-second coverage suite, all 20 configured thresholds, and environment pip-audit with no known vulnerabilities. Aggregate measured coverage was 2745/3050 statements (90.00%). A separate invocation enforced all 22 CI module thresholds, including interfaces and task service, without changing their values. New diagnostics and progress modules measured 100%; readiness measured 97.17%.
+- The focused, full-pytest, and verification artifacts each contain the same four passing mode/host integrations, giving three complete successful matrix repetitions. Both full artifacts contain all four strict browser cases with no browser skip. Full native Windows evidence includes four real parent/child cancellation cases, eight real junction cases, and six passing strict-containment tests (three Linux-only cases skipped). Each lifecycle matrix asserts unchanged target state, zero active leases/runs, stopped owned processes, bindable released ports, and empty worker source before successful test-owned runtime finalization.
+- Ruff lint, Ruff format (329 files unchanged), strict Mypy (207 source files on both Windows and Linux target platforms), and all-file pre-commit passed. Pre-commit Black checked the explicitly selected Python files; standalone `black --check .` exits zero but selects no files under the existing escaped include expression. Prettier likewise has no applicable hook files under the existing configuration. Those selector limitations are not represented as independent formatting proof and were not changed in this slice.
+- Bandit passed with existing redundant `nosec` warnings only. Requirements-file pip-audit found no known vulnerabilities. An initial sandbox audit bootstrap stalled; its exact process tree was stopped and verified exited before a task-local, noninteractive elevated run passed. No project or host package was changed.
+- Workload catalog validation passed for all four repositories; TODO policy passed; all four tracked JavaScript files passed Node syntax; three TOML and fourteen YAML files parsed; all twenty-five Action references across three workflows are full-SHA pinned. Detect-secrets passed in pre-commit; Gitleaks found no leaks in the 349-commit pre-publication history.
+- The separate workload-factory gate passed all 25 tests with zero skips. The workflow's unchanged selected-function checks (only the external report path substituted) measured security-critical profile validation at 240/240 lines (100.00%) and catalog-readiness projection at 62/67 (92.54%), both above the required 90%. An initial factory invocation used a synchronous database URL and failed before collection; its state was retained and the correct async-driver invocation used separate new task-owned paths.
+- Lychee used the hosted input/exclusion set with cache disabled: 194 total links, 85 unique, 189 successful, 5 excluded, 2 redirects, zero errors or timeouts. Its private report and pytest XML remain outside tracked source. Text-only diff, credential/public-path inspection, and `git diff --check` passed.
+- Final read-only preservation audit found all eight named historical roots, the unchanged seven historical synthetic roots, all three predecessor worktrees at their original heads, and the unchanged security-deferral stash. The primary checkout remains clean at its original older main head. No task-owned process candidate remained. Slice-owned validation evidence, the incomplete-attempt database, and temporary state are retained; there was no cleanup campaign. Normal publication and exact-head hosted/connector results are still separate from this local checkpoint.
+
+Measured CI module gates (percent):
+
+| Module | Measured | Required |
+| --- | ---: | ---: |
+| extensions/contracts | 95.40 | 85 |
+| extensions/interfaces | 94.17 | 85 |
+| extensions/loader | 100.00 | 85 |
+| extensions/runtime | 100.00 | 85 |
+| extensions/builtin/task_metrics | 92.59 | 85 |
+| extensions/builtin/plan_metrics | 95.00 | 85 |
+| extensions/builtin/plan_latency | 87.76 | 80 |
+| extensions/builtin/plan_snapshot | 100.00 | 80 |
+| extensions/builtin/activity_feed | 100.00 | 85 |
+| extensions/observability | 97.73 | 80 |
+| observability/diagnostics | 90.16 | 80 |
+| observability/health | 95.78 | 85 |
+| observability/activity | 94.83 | 80 |
+| observability/overview | 100.00 | 85 |
+| application/task_service | 79.23 | 75 |
+| application/configuration_service | 90.58 | 85 |
+| execution_operator/config | 89.04 | 85 |
+| execution_operator/lifecycle | 88.27 | 75 |
+| execution_operator/models | 90.29 | 90 |
+| execution_operator/preflight | 89.47 | 75 |
+| execution_operator/processes | 77.53 | 75 |
+| execution_operator/runtime | 85.13 | 75 |
 
 Remote preparation evidence:
 

@@ -3,7 +3,8 @@
 > **PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY**
 
 The owned validation lifecycle is the repository-supported way for a trusted
-local operator to coordinate one exact Switchboard validation. It wraps the
+local operator to coordinate one exact validation of a selected allowlisted
+repository. It wraps the
 existing FastAPI execution plane and outbound `LocalWorker`; it does not create
 a second executor, add source-write authority, or turn the read-only workload
 policy into operating-system isolation.
@@ -50,11 +51,12 @@ paths but must never contain the token.
 }
 ```
 
-Run interactively:
+Check the configuration before creating a runtime, then run interactively:
 
 ```powershell
 $env:SWITCHBOARD_ADMIN_TOKEN = "<operator-provisioned-token>"
-python scripts/dev.py validation-lifecycle --config <private-config.json>
+python scripts/dev.py validation-preflight --config <private-config.json>
+python scripts/dev.py validation-lifecycle --config <private-config.json> --format human --progress
 ```
 
 For deliberate non-interactive use, fresh and reuse approval remain separate:
@@ -67,7 +69,9 @@ python scripts/dev.py validation-lifecycle `
 ```
 
 `fresh-only` requires only `--approve-fresh`. Supplying or selecting a mode is
-never itself approval.
+never itself approval. A non-interactive input stream without the required
+approval flag is denied without waiting for input. Interactive prompts are
+written to stderr, including in JSON mode.
 
 The strict versioned model rejects unknown fields, abbreviated or uppercase
 SHAs, malformed digests, unsupported modes or routing policies, non-loopback
@@ -85,23 +89,49 @@ one terminal slash are optional. HTTP, HTTPS userinfo, SSH users other than
 extra path components, encoded or literal traversal, file URLs, and local paths
 are rejected without copying the raw origin into a failure or report.
 
-## Exact preflight
+## Read-only readiness and exact preflight
 
-Preflight finishes before the runtime root or any process is created. It uses
-fixed argv, `shell=False`, bounded output, and short timeouts to verify:
+`validation-preflight` performs the authoritative execution checks without
+creating an owned runtime. It defaults to human output; request a bounded
+machine result with:
 
-1. canonical Git repository and exact GitHub `origin` identity;
-2. no staged, unstaged, or untracked source state;
-3. exact `HEAD`, commit object, and tree snapshot without fetching;
-4. trusted manifest name, version, digest, fixed steps, and read-only policy;
-5. Python, Git, and manifest-required host runtime capabilities;
-6. strict process containment support;
-7. absent, distinct, non-overlapping, non-reparse local roots;
-8. a currently available loopback port;
-9. process-environment token presence, without serializing its value; and
-10. bounded report sanitization availability.
+```powershell
+python scripts/dev.py validation-preflight --config <private-config.json> --format json
+```
 
-Failure here creates no database, directory, process, work order, or report.
+Its version-1 result reports the safe configured logical identity, stable
+check and failure codes, and applicable configured/required timeout facts.
+Each check is `pass`, `fail`, or `not_checked` with an explicit `checked`
+boolean. If a prerequisite fails, later checks remain `not_checked`; they are
+never presented as passed. An invalid configuration cannot supply a trusted
+identity and does not cause the remaining checks to run.
+
+Readiness is a point-in-time observation. It creates no runtime, database,
+server, worker, work order, approval, or report, and reserves no port or source
+state. A passing result is not execution authorization. The lifecycle reruns
+the same authoritative checks immediately before execution; source changes,
+an occupied port, or another changed prerequisite can invalidate earlier
+readiness.
+
+Preflight finishes before the runtime root or any server or worker process is
+created. Its read-only tool probes use fixed argv, `shell=False`, bounded
+output, and short timeouts to verify:
+
+1. the strict configuration contract and safe public identity fields;
+2. supported Python runtime;
+3. strict process containment support;
+4. absent, distinct, non-overlapping, non-reparse local roots;
+5. the trusted internal Switchboard control-plane source;
+6. a currently available loopback port;
+7. process-environment token presence, without serializing its value;
+8. canonical Git repository, matching GitHub `origin`, clean source, exact
+   `HEAD`, commit object, and tree snapshot without fetching;
+9. trusted manifest name, version, digest, fixed steps, and read-only policy;
+10. manifest/step execution and terminal-observation timeout compatibility; and
+11. Git and manifest-required host runtime capabilities.
+
+Failure here creates no owned runtime, database, server, worker, work order,
+or report.
 
 ## Runtime ownership and processes
 
@@ -168,6 +198,19 @@ success, retained-evidence verification, source cleanup, zero leases, and zero
 worker capacity; denial prevents reuse creation. Non-interactive flags record
 the same two deliberate operator actions.
 
+Add `--progress` to observe bounded transitions on stderr. Progress covers
+startup, fresh and reuse approval boundaries, work-order/run observations,
+evidence verification, shutdown, and cleanup only when the lifecycle has
+actually reached or observed them. It does not infer running work from queue
+creation or invent completion from elapsed time. At most 64 events use a
+closed vocabulary and safe bounded fields; progress contains no local paths,
+argv, credentials, raw response bodies, or logs.
+
+Progress is optional and has no execution authority. Observer or output
+failure cannot grant approval, create a retry, replace verification, change
+the lifecycle outcome, or prevent the required owned shutdown path. The
+final verified report remains the evidence of outcome and cleanup.
+
 `fresh-only` submits `reuse_policy: never`, verifies the authoritative run,
 route, exact manifest steps, local retained result, hashes, source snapshot,
 leases, capacity, and cleanup, then shuts down. Success always requires the
@@ -194,6 +237,25 @@ different policy fails verification.
 
 ## Reports and privacy
 
+All three operator commands accept `--format human|json`. `validation-preflight`
+defaults to `human`; `validation-lifecycle` and `inspect-validation-runtime`
+default to `json` for compatibility. Machine stdout contains one bounded JSON
+object for success or failure. Prompts, opt-in progress, human diagnostics,
+and the stored-inspection notice use stderr in JSON mode.
+
+Successful lifecycle JSON remains the existing schema-version-2 report.
+Readiness success and expected configuration/check failures use its own
+version-1 readiness result. Usage errors, interruption, or unexpected command
+errors use the command-error envelope, as do lifecycle and inspection
+failures. This version-1 object contains
+`kind: operator-command-error`, `command`, `outcome: failed`, a stable `reason`,
+and reviewed `guidance`. Human output derives from the same validated models.
+Presentation does not change stored historical report schemas or records.
+
+A broken stdout channel cannot deliver a JSON result. The command exits with
+status 1 and attempts a fixed diagnostic on stderr. Final-output failure is
+handled after the lifecycle's required owned shutdown and cannot bypass it.
+
 The owned `reports` directory receives one schema-version-2 JSON report and one human
 summary generated from the same model. The JSON has bounded strings,
 collections, nesting, artifacts, and serialized bytes; oversize JSON fails
@@ -213,6 +275,27 @@ HTTP bodies, database content, full logs, artifact bytes, raw exceptions, and
 private network details. Private child output is capped, literal-token redacted,
 and retained only under the owned runtime; it is never copied into the report.
 
+## Actionable diagnostics
+
+Failures pair a stable bounded reason with fixed operator guidance. The
+guidance names the category to review without repeating private input or
+performing a fix:
+
+| Failure category | Operator action |
+| --- | --- |
+| Missing process token | Provision the existing admin token in the invoking process environment; keep its value out of configuration and output. |
+| Unavailable runtime, tool, or containment | Check the selected manifest's supported host requirements and the operator's local toolchain. |
+| Dirty or wrong source | Review the selected canonical checkout, logical repository, and exact commit before another attempt. |
+| Unsafe or existing runtime root | Select a new absent, non-overlapping root with safe ancestry; preserve existing runtime evidence. |
+| Occupied loopback port | Review the configured port and choose an available approved loopback endpoint. |
+| Manifest/worker timeout mismatch | Review the configured worker limits against the selected manifest's required execution budget. |
+| Terminal observation budget mismatch | Review the observation timeout against the full required execution and finalization budget. |
+
+Unknown or unsafe failure text is replaced by bounded generic guidance.
+Neither readiness nor diagnostics fetches source, installs tools, supplies
+credentials, edits configuration, releases occupied ports, approves work, or
+automatically retries execution.
+
 ## Failure preservation and read-only inspection
 
 Every failure after marker creation preserves the entire runtime and writes one
@@ -226,10 +309,17 @@ resume a prior runtime, or clean uncertain paths or processes.
 Inspect a preserved or successful owned runtime with:
 
 ```powershell
-python scripts/dev.py inspect-validation-runtime <owned-runtime-root>
+python scripts/dev.py inspect-validation-runtime <owned-runtime-root> --format human
 ```
 
-Inspection validates only the marker and optional bounded report. It does not
+Human output begins with `stored state only; live evidence not reverified`.
+The default JSON mode preserves the existing stored-inspection schema and
+writes that same notice to stderr, outside its single stdout object.
+
+Inspection validates only the marker and optional bounded report. A stored
+success describes the earlier run; inspection does not rehash retained
+artifacts or prove present evidence, live processes, port availability, leases,
+capacity, or current source integrity. It does not
 start processes, bind ports, migrate or query the database, approve work,
 resume, retry, repair, clean, delete, or change timestamps. Foreign or malformed
 state fails closed.

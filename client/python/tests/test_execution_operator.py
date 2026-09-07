@@ -49,6 +49,8 @@ from client.python.execution_operator.preflight import (
     runtime_path_budget_ok,
 )
 from client.python.execution_operator.processes import OwnedProcess
+from client.python.execution_operator.progress import MAX_PROGRESS_EVENTS, ProgressEvent
+from client.python.execution_operator.readiness import inspect_validation_readiness
 from client.python.execution_operator.runtime import (
     create_runtime,
     inspect_runtime,
@@ -1065,7 +1067,7 @@ def test_terminal_wait_fails_immediately_when_owned_worker_exits(
         ("fresh-then-exact-reuse", ["fresh", "reused"], 2),
     ],
 )
-def test_real_server_worker_synthetic_lifecycle_modes(  # noqa: PLR0913
+def test_real_server_worker_synthetic_lifecycle_modes(  # noqa: PLR0913, PLR0915 - end-to-end proof
     mode: str,
     expected_decisions: list[str],
     expected_actions: int,
@@ -1109,6 +1111,7 @@ def test_real_server_worker_synthetic_lifecycle_modes(  # noqa: PLR0913
     token = f"operator-synthetic-{uuid.uuid4().hex}"
     monkeypatch.setenv("SWITCHBOARD_ADMIN_TOKEN", token)
     approvals: list[str] = []
+    observations: list[ProgressEvent] = []
     verified = False
     target_before = (
         _git(repository, "rev-parse", "HEAD"),
@@ -1116,9 +1119,21 @@ def test_real_server_worker_synthetic_lifecycle_modes(  # noqa: PLR0913
         (repository / "README.md").read_bytes(),
     )
     try:
+        readiness = inspect_validation_readiness(config)
+        assert readiness.ready
+        assert json.loads(readiness.as_json_bytes())["approval_granted"] is False
+        assert not runtime_root.exists()
+
+        def approve(phase: str, identity: str) -> bool:
+            assert observations[-1].event == "approval_requested"
+            assert observations[-1].phase == phase
+            approvals.append(identity)
+            return True
+
         report = run_validation_lifecycle(
             config,
-            approval=lambda _phase, identity: not approvals.append(identity),
+            approval=approve,
+            observer=observations.append,
         )
         assert report.outcome == "succeeded"
         assert [run.reuse_decision for run in report.runs] == expected_decisions
@@ -1126,6 +1141,31 @@ def test_real_server_worker_synthetic_lifecycle_modes(  # noqa: PLR0913
         assert len(approvals) == expected_actions
         assert report.active_lease_count == report.worker_active_run_count == 0
         assert report.owned_processes_stopped and report.port_released
+        assert 1 <= len(observations) <= MAX_PROGRESS_EVENTS
+        assert [item.sequence for item in observations] == list(
+            range(1, len(observations) + 1)
+        )
+        assert [item.event for item in observations[-3:]] == [
+            "shutdown_started",
+            "cleanup_verified",
+            "completed",
+        ]
+        for phase in ("fresh", "reuse")[:expected_actions]:
+            events = [item for item in observations if item.phase == phase]
+            names = [item.event for item in events]
+            assert names.index("approval_requested") < names.index(
+                "work_order_approved"
+            )
+            assert names.index("work_order_queued") < names.index("run_observed")
+            assert names.index("run_observed") < names.index("evidence_verified")
+            assert any(
+                item.run_status is not None and item.run_status.value == "succeeded"
+                for item in events
+            )
+        safe_observations = json.dumps([item.as_dict() for item in observations])
+        assert token not in safe_observations
+        assert str(repository) not in safe_observations
+        assert str(runtime_root) not in safe_observations
         worker_config = json.loads(
             (runtime_root / "worker-config.json").read_text(encoding="utf-8")
         )
