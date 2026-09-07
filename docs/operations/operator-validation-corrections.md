@@ -18,8 +18,14 @@ one or two verified runs, explicit approvals, exact action counts, successful
 source/process/port cleanup, zero active leases and worker capacity, and a valid
 completion timestamp. Exact reuse additionally requires distinct work-order and
 run IDs, the original source-run linkage, the same worker and result identity,
-unchanged retention expiry, zero repeated steps/artifacts, and the exact avoided
-step count. An empty or internally contradictory success report is rejected.
+zero repeated steps/artifacts, and the exact avoided step count. An empty or
+internally contradictory success report is rejected.
+
+Each run's retention timestamp describes its own retained record. A reuse run
+creates a separate record and may therefore have a different expiry from its
+source run. The live lifecycle separately re-fetches the original source run and
+verifies that the source evidence expiry did not change; it does not renew it or
+force the two records' expiry timestamps to match.
 
 Partial failures remain reportable. An approval action whose API acknowledgement
 failed is not represented as an acknowledged approval. No failed report is

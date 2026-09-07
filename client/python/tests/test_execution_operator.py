@@ -183,6 +183,7 @@ class _FakeHost:
 
     def finalize_after_exit(self, *, grace_seconds: float) -> SimpleNamespace:
         _ = grace_seconds
+        self.finalize_calls += 1
         return SimpleNamespace(cleanup_verified=True)
 
 

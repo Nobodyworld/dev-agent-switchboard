@@ -238,7 +238,9 @@ def _validate_runs(report: dict[str, Any]) -> None:
     _require(reuse["run_id"] != fresh["run_id"])
     _require(reuse["work_order_id"] != fresh["work_order_id"])
     _require(reuse["source_run_id"] == reuse["reused_from_run_id"] == fresh["run_id"])
-    for name in ("worker_id", "reuse_identity_hash", "evidence_retention_expires_at"):
+    # Each run owns a separate retained record. Unchanged source expiry is
+    # verified by the live lifecycle, not by equating two record lifetimes.
+    for name in ("worker_id", "reuse_identity_hash"):
         _require(fresh[name] == reuse[name])
     _require(reuse["step_count"] == reuse["artifact_count"] == 0)
     _require(report["avoided_deterministic_step_count"] == fresh["step_count"])

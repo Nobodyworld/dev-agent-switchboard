@@ -116,7 +116,7 @@ def test_report_serializers_reject_false_success(field: str, value: object) -> N
         ("source_run_id", 99),
         ("worker_id", "other-worker"),
         ("reuse_identity_hash", "e" * 64),
-        ("evidence_retention_expires_at", "2026-09-12T00:00:00Z"),
+        ("evidence_retention_expires_at", "2026-08-28T00:00:00Z"),
         ("step_count", 1),
         ("artifact_count", 1),
         ("schema_version", True),
@@ -128,6 +128,17 @@ def test_report_rejects_inconsistent_reuse_links(field: str, value: object) -> N
     report.runs[1] = replace(report.runs[1], **{field: value})
     with pytest.raises(OperatorLifecycleFailure):
         report.as_dict()
+
+
+def test_reuse_record_can_have_its_own_retention_expiry() -> None:
+    report = make_operator_report(mode="fresh-then-exact-reuse")
+    source_expiry = report.runs[0].evidence_retention_expires_at
+    report.runs[1] = replace(
+        report.runs[1], evidence_retention_expires_at="2026-09-11T00:00:02Z"
+    )
+    payload = report.as_dict()
+    assert payload["runs"][0]["evidence_retention_expires_at"] == source_expiry
+    assert payload["runs"][1]["evidence_retention_expires_at"] != source_expiry
 
 
 def test_report_rejects_phase_reordering_and_duplicates() -> None:

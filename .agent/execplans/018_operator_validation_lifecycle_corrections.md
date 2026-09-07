@@ -36,6 +36,8 @@ The prior head's green workflows and no-blocker review do not validate this patc
 - [x] Add focused regressions, coherent existing report fixtures, and IPv6
   synthetic lifecycle cases without removing existing boundary tests.
 - [x] Syntax-check all ten changed Python files in the review workspace.
+- [x] Correct hosted-discovered test-label and retention-contract assumptions;
+  preserve source-expiry verification and all ownership test counters.
 - [ ] Complete exact-head hosted lint, types, tests, security, coverage, browser,
   and workload acceptance checks; correct any implementation regressions.
 - [ ] Verify the existing Windows worktree identity and fast-forward synchronization.
@@ -54,16 +56,28 @@ The prior head's green workflows and no-blocker review do not validate this patc
   bypassed them. Reusing that boundary avoids a competing filesystem reader.
 - The generated worker refuses a 5,400-second Accounting manifest under the
   operator's default 3,600-second budget. This must fail before runtime creation.
-- An isolated review-workspace probe passed 66 new regression cases and skipped
-  its Windows-only junction case. Its registry/HTTP/process dependencies were
-  stubbed; it is not full-repository, real-worker, or Windows acceptance evidence.
+- An isolated review-workspace probe initially passed 66 new regression cases
+  and skipped its Windows-only junction case. Its registry/HTTP/process
+  dependencies were stubbed; it is not full-repository, real-worker, or Windows
+  acceptance evidence.
+- Hosted CI exposed the benign `process_token` preflight-check name in a complete
+  report fixture. The corrected test checks absence of an actual environment
+  credential value and credential field, not absence of the word `token`.
+- Real hosted fresh-only acceptance passed on IPv4 and IPv6, then fresh/reuse
+  revealed that each run has its own retained-record expiry. The source expiry
+  remains unchanged and is independently checked by the live lifecycle. The
+  report validator must not equate the two records' lifetimes. A new positive
+  regression allows distinct valid expiries while expired-at-completion records
+  remain rejected. The updated isolated probe passes 67 cases with one Windows
+  skip; exact-head real acceptance remains required.
 
 ## Decision Log
 
 - Preserve report schema 2 and its stored JSON representation. Tighten validation
   and distinguish inspected human output without rewriting historical evidence.
 - Validate retention relative to recorded completion during inspection. Actual
-  reuse remains governed by the existing live evidence verifier.
+  reuse remains governed by the existing live evidence verifier. Preserve each
+  run's own expiry without renewing or reinterpreting original source retention.
 - Keep timeout choices explicit; reject inadequate budgets rather than silently
   raising them. Keep IPv4, localhost, and IPv6 loopback configuration supported.
 - Use the existing feature branch and PR. Do not create replacement branches,
