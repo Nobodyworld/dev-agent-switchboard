@@ -1,3 +1,5 @@
+import subprocess
+import sys
 from argparse import Namespace
 from pathlib import Path
 
@@ -18,9 +20,39 @@ def test_verify_scans_production_server_code_only(
         Namespace(coverage_json=str(tmp_path / "coverage.json"), skip_audit=True)
     )
 
-    assert ["bandit", "-q", "-r", "server", "-x", "server/tests"] in commands
-    pytest_command = next(command for command in commands if "-m" in command)
+    assert [
+        sys.executable,
+        "-m",
+        "bandit",
+        "-q",
+        "-r",
+        "server",
+        "-x",
+        "server/tests",
+    ] in commands
+    pytest_command = next(command for command in commands if "pytest" in command)
     assert "--cov=server.observability.overview" in pytest_command
+
+
+def test_command_runner_fails_closed_on_bandit_manager_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="",
+            stderr=(
+                "[manager]\tERROR\tException occurred when executing tests "
+                "against server\\app.py.\n"
+            ),
+        ),
+    )
+
+    with pytest.raises(SystemExit, match="did not scan every requested file"):
+        dev._run_command([sys.executable, "-m", "bandit", "-q", "server"])
 
 
 def test_cmd_list_extensions_outputs_builtins(capsys, monkeypatch):
@@ -30,6 +62,18 @@ def test_cmd_list_extensions_outputs_builtins(capsys, monkeypatch):
     output = capsys.readouterr().out
     assert "Extension contract:" in output
     assert "builtin.plan_snapshot" in output
+
+
+def test_operator_commands_import_from_source_checkout() -> None:
+    for command in ("validation-lifecycle", "inspect-validation-runtime"):
+        result = subprocess.run(  # noqa: S603
+            [sys.executable, "scripts/dev.py", command, "--help"],
+            cwd=dev.REPOSITORY_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
 
 
 def test_todo_check_ignores_virtual_environments(tmp_path):

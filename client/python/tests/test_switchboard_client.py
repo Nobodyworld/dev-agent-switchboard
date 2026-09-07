@@ -50,7 +50,10 @@ def test_checkout_success_uses_shared_session_and_timeout():
 def test_checkout_failure_propagates_http_error():
     session = Mock(spec=requests.Session)
     response = Mock(spec=requests.Response)
-    response.raise_for_status.side_effect = requests.HTTPError("boom")
+    response.status_code = 400
+    response.raise_for_status.side_effect = requests.HTTPError(
+        "boom", response=response
+    )
     session.request.return_value = response
 
     client = SwitchboardClient(

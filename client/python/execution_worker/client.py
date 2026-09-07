@@ -192,6 +192,113 @@ class ExecutionClient:
         )
         return cast(dict[str, Any], payload)
 
+    def health_ready(self) -> dict[str, Any]:
+        """Read the bounded readiness probe for an owned local server."""
+
+        return cast(dict[str, Any], self._request_json("get", "/health/ready"))
+
+    def list_workers(self) -> dict[str, Any]:
+        """Read the bounded operator worker projection."""
+
+        return cast(
+            dict[str, Any],
+            self._request_json("get", "/api/execution/workers?limit=100&offset=0"),
+        )
+
+    def repository_readiness(
+        self,
+        *,
+        repository_full_name: str,
+        manifest_name: str,
+        manifest_version: str,
+        preferred_executor: str,
+    ) -> dict[str, Any]:
+        """Read non-mutating readiness for one trusted repository contract."""
+
+        owner, repository = repository_full_name.split("/", 1)
+        result = self._request_json(
+            "get",
+            f"/api/execution/trusted-repositories/{owner}/{repository}/readiness",
+            params={
+                "manifest_name": manifest_name,
+                "manifest_version": manifest_version,
+                "routing_policy": "first_available",
+                "required_quota_units": 0,
+                "preferred_executor": preferred_executor,
+            },
+        )
+        return cast(dict[str, Any], result)
+
+    def create_work_order(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        """Create one explicit-approval work order without retrying the write."""
+
+        return cast(
+            dict[str, Any],
+            self._request_json(
+                "post", "/api/execution/work-orders", json=dict(payload)
+            ),
+        )
+
+    def approve_work_order(self, work_order_id: int) -> dict[str, Any]:
+        """Approve one order without implicitly queueing it."""
+
+        return cast(
+            dict[str, Any],
+            self._request_json(
+                "post",
+                f"/api/execution/work-orders/{work_order_id}/approve",
+                json={"queue": False},
+            ),
+        )
+
+    def queue_work_order(self, work_order_id: int) -> dict[str, Any]:
+        """Queue one separately approved work order."""
+
+        return cast(
+            dict[str, Any],
+            self._request_json(
+                "post", f"/api/execution/work-orders/{work_order_id}/queue", json={}
+            ),
+        )
+
+    def assess_work_order_route(self, work_order_id: int) -> dict[str, Any]:
+        """Read current route readiness without reserving state."""
+
+        return cast(
+            dict[str, Any],
+            self._request_json(
+                "get", f"/api/execution/work-orders/{work_order_id}/route-assessment"
+            ),
+        )
+
+    def get_work_order_route(self, work_order_id: int) -> dict[str, Any]:
+        """Read persisted route provenance."""
+
+        return cast(
+            dict[str, Any],
+            self._request_json(
+                "get", f"/api/execution/work-orders/{work_order_id}/route"
+            ),
+        )
+
+    def list_runs(self, work_order_id: int) -> list[dict[str, Any]]:
+        """Read bounded runs for one work order."""
+
+        return cast(
+            list[dict[str, Any]],
+            self._request_json(
+                "get", f"/api/execution/runs?work_order_id={work_order_id}"
+            ),
+        )
+
+    def get_run_evidence(self, run_id: int) -> dict[str, Any]:
+        """Read one compact validated evidence record."""
+
+        return cast(
+            dict[str, Any],
+            self._request_json("get", f"/api/execution/runs/{run_id}/evidence"),
+        )
+
     def register_worker(self, registration: Mapping[str, Any]) -> dict[str, Any]:
         """Register or refresh this worker's declared capabilities."""
 

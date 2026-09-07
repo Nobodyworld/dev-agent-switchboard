@@ -13,8 +13,11 @@ import sys
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from shutil import which
 from typing import Any, cast
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
 TODO_PATTERN = re.compile(r"\b(?:TODO|FIXME)\(P[1-3],\s*[^)]+\)")
 
@@ -27,6 +30,7 @@ TRUSTED_EXECUTABLES = {
     "ruff",
 }
 _PUBLIC_WORKLOAD_REPOSITORY_COUNT = 4
+_BANDIT_MANAGER_ERROR = "[manager]\tERROR\t"
 
 
 def _resolve_executable(bin_name: str, venv_path: Path) -> Path:
@@ -56,7 +60,21 @@ def _run_command(command: Sequence[str]) -> None:
     """Execute a pre-validated subprocess command with strict checking."""
 
     _assert_trusted_command(command)
-    subprocess.run(command, check=True)  # noqa: S603
+    is_bandit = command[0] == "bandit" or (
+        command[0] == sys.executable and tuple(command[1:3]) == ("-m", "bandit")
+    )
+    result = subprocess.run(  # noqa: S603
+        command,
+        check=True,
+        capture_output=is_bandit,
+        text=is_bandit,
+    )
+    if not is_bandit:
+        return
+    print(result.stdout, end="")
+    print(result.stderr, end="", file=sys.stderr)
+    if _BANDIT_MANAGER_ERROR in result.stderr:
+        raise SystemExit("Bandit did not scan every requested file")
 
 
 def _render_template(template: str, context: Mapping[str, str]) -> str:
@@ -160,8 +178,10 @@ def cmd_verify(args: argparse.Namespace) -> None:
     coverage_json.parent.mkdir(parents=True, exist_ok=True)
 
     commands: list[list[str]] = [
-        ["ruff", "check", "."],
+        [sys.executable, "-m", "ruff", "check", "."],
         [
+            sys.executable,
+            "-m",
             "mypy",
             "--config-file",
             "mypy.ini",
@@ -169,7 +189,16 @@ def cmd_verify(args: argparse.Namespace) -> None:
             "client",
             "scripts",
         ],
-        ["bandit", "-q", "-r", "server", "-x", "server/tests"],
+        [
+            sys.executable,
+            "-m",
+            "bandit",
+            "-q",
+            "-r",
+            "server",
+            "-x",
+            "server/tests",
+        ],
         [
             sys.executable,
             "-m",
@@ -181,6 +210,7 @@ def cmd_verify(args: argparse.Namespace) -> None:
             "--cov=server.observability.health",
             "--cov=server.observability.activity",
             "--cov=server.observability.overview",
+            "--cov=client.python.execution_operator",
             "--cov-report=term-missing",
             f"--cov-report=json:{coverage_json}",
         ],
@@ -207,18 +237,20 @@ def cmd_verify(args: argparse.Namespace) -> None:
             "server/observability/activity.py=80",
             "server/observability/overview.py=85",
             "server/application/configuration_service.py=85",
+            "client/python/execution_operator/config.py=85",
+            "client/python/execution_operator/lifecycle.py=75",
+            "client/python/execution_operator/models.py=90",
+            "client/python/execution_operator/preflight.py=75",
+            "client/python/execution_operator/processes.py=75",
+            "client/python/execution_operator/runtime.py=75",
         ],
     )
     cmd_coverage_gate(gate_args)
 
     if not args.skip_audit:
-        print("→ pip-audit")
-        pip_audit = which("pip-audit")
-        if pip_audit is None:
-            raise SystemExit(
-                "pip-audit not found on PATH; install it or pass --skip-audit"
-            )
-        _run_command([pip_audit, "--progress-spinner=off"])
+        command = [sys.executable, "-m", "pip_audit", "--progress-spinner=off"]
+        print(f"→ {' '.join(command)}")
+        _run_command(command)
 
 
 def cmd_check_todos(args: argparse.Namespace) -> None:
@@ -532,6 +564,53 @@ def cmd_bump_version(args: argparse.Namespace) -> None:
     print(f"Version bumped: {current} -> {new_version}")
 
 
+def cmd_validation_lifecycle(args: argparse.Namespace) -> None:
+    """Run one new fail-closed operator validation lifecycle."""
+
+    from client.python.execution_operator.config import (
+        OperatorConfigurationError,
+        OperatorLifecycleConfig,
+    )
+    from client.python.execution_operator.lifecycle import run_validation_lifecycle
+    from client.python.execution_operator.models import OperatorLifecycleFailure
+
+    try:
+        config = OperatorLifecycleConfig.from_file(args.config)
+
+        def approve(phase: str, identity: str) -> bool:
+            flag = args.approve_fresh if phase == "fresh" else args.approve_reuse
+            print(f"Approval required: {identity}")
+            if flag:
+                print(f"Approval accepted non-interactively: {phase}")
+                return True
+            if not sys.stdin.isatty():
+                return False
+            expected = f"APPROVE {identity}"
+            return input(f"Type '{expected}' exactly: ") == expected
+
+        report = run_validation_lifecycle(config, approval=approve)
+    except (OperatorConfigurationError, OperatorLifecycleFailure) as error:
+        print(f"validation-lifecycle: FAIL {error}")
+        raise SystemExit(1) from None
+    print(
+        report.as_json_bytes(maximum_bytes=config.report_maximum_bytes).decode("utf-8")
+    )
+
+
+def cmd_inspect_validation_runtime(args: argparse.Namespace) -> None:
+    """Inspect a marker-owned runtime without mutating it."""
+
+    from client.python.execution_operator.lifecycle import inspect_validation_runtime
+    from client.python.execution_operator.models import OperatorLifecycleFailure
+
+    try:
+        report = inspect_validation_runtime(args.runtime_root)
+        print(report.as_json_bytes(maximum_bytes=1024 * 1024).decode("utf-8"))
+    except (OSError, OperatorLifecycleFailure) as error:
+        print(f"inspect-validation-runtime: FAIL {error}")
+        raise SystemExit(1) from None
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Switchboard developer utilities")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -623,6 +702,32 @@ def build_parser() -> argparse.ArgumentParser:
     bump.add_argument("--part", choices=["major", "minor", "patch"], default="patch")
     bump.add_argument("--version", help="Explicit semantic version override")
     bump.set_defaults(func=cmd_bump_version)
+
+    lifecycle = subparsers.add_parser(
+        "validation-lifecycle",
+        help="Run a new marker-owned fresh or fresh-plus-reuse validation lifecycle",
+    )
+    lifecycle.add_argument(
+        "--config", type=Path, required=True, help="operator JSON configuration"
+    )
+    lifecycle.add_argument(
+        "--approve-fresh",
+        action="store_true",
+        help="explicitly approve the fresh work order in non-interactive use",
+    )
+    lifecycle.add_argument(
+        "--approve-reuse",
+        action="store_true",
+        help="explicitly approve the reuse work order in non-interactive use",
+    )
+    lifecycle.set_defaults(func=cmd_validation_lifecycle)
+
+    inspect_runtime = subparsers.add_parser(
+        "inspect-validation-runtime",
+        help="Read a validation runtime marker/report without mutation",
+    )
+    inspect_runtime.add_argument("runtime_root", type=Path)
+    inspect_runtime.set_defaults(func=cmd_inspect_validation_runtime)
 
     return parser
 

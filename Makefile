@@ -52,7 +52,7 @@ todo-check:
 
 coverage: venv
 	mkdir -p reports
-	$(ACTIVATE) pytest --cov=server.extensions --cov=server.application.task_service --cov=server.application.configuration_service --cov=server.observability.diagnostics --cov=server.observability.health --cov=server.observability.activity --cov=server.observability.overview --cov-report=term-missing --cov-report=json:reports/coverage.json
+	$(ACTIVATE) pytest --cov=server.extensions --cov=server.application.task_service --cov=server.application.configuration_service --cov=server.observability.diagnostics --cov=server.observability.health --cov=server.observability.activity --cov=server.observability.overview --cov=client.python.execution_operator --cov-report=term-missing --cov-report=json:reports/coverage.json
 	$(ACTIVATE) python scripts/dev.py coverage-gate --json reports/coverage.json \
 	 --module server/extensions/loader.py=85 \
 	 --module server/extensions/runtime.py=85 \
@@ -67,7 +67,13 @@ coverage: venv
 	 --module server/observability/health.py=85 \
 	 --module server/observability/activity.py=80 \
 	 --module server/observability/overview.py=85 \
-	 --module server/application/configuration_service.py=85
+	 --module server/application/configuration_service.py=85 \
+	 --module client/python/execution_operator/config.py=85 \
+	 --module client/python/execution_operator/lifecycle.py=75 \
+	 --module client/python/execution_operator/models.py=90 \
+	 --module client/python/execution_operator/preflight.py=75 \
+	 --module client/python/execution_operator/processes.py=75 \
+	 --module client/python/execution_operator/runtime.py=75
 
 qa: fmt lint typecheck test security todo-check coverage
 

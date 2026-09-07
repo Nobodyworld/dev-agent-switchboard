@@ -46,7 +46,8 @@ router = APIRouter(dependencies=[Depends(require_admin_token)])
     "/api/execution/github/requests",
     response_model=ExecutionHistoryPageOut,
 )
-async def list_github_validation_requests(  # noqa: PLR0913, PLR0917
+async def list_github_validation_requests(  # noqa: PLR0913
+    *,
     session: SessionDependency,
     limit: int = Query(default=25, ge=1, le=MAX_OPERATOR_LIMIT),
     offset: int = Query(default=0, ge=0, le=MAX_OPERATOR_OFFSET),

@@ -1,42 +1,9 @@
 import argparse
 import importlib
 import sys
-import types
-from typing import Any, cast
 from unittest import TestCase, mock
 
-
-class _DummyRequestError(Exception):
-    pass
-
-
-class _DummyHTTPError(_DummyRequestError):
-    pass
-
-
-class _DummySession:
-    def request(self, method: str, url: str, **kwargs):  # pragma: no cover - stub
-        raise NotImplementedError
-
-    def close(self) -> None:  # pragma: no cover - stub
-        return None
-
-
-class _DummyResponse:
-    def json(self):  # pragma: no cover - stub
-        return {}
-
-    def raise_for_status(self) -> None:  # pragma: no cover - stub
-        return None
-
-
-requests_stub = types.ModuleType("requests")
-requests_stub.RequestException = _DummyRequestError
-requests_stub.HTTPError = _DummyHTTPError
-requests_stub.Session = _DummySession
-requests_stub.Response = _DummyResponse
-sys.modules["requests"] = requests_stub
-requests = cast(Any, requests_stub)
+import requests
 
 
 class _DummySwitchboardClient:

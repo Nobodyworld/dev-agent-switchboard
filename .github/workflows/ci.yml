@@ -281,7 +281,7 @@ jobs:
       - name: Run coverage suite
         run: |
           mkdir -p reports
-          pytest --cov=server/extensions --cov=server.application.task_service --cov=server.observability --cov=server.application.configuration_service --cov-report=term-missing --cov-report=json:reports/coverage.json
+          pytest --cov=server/extensions --cov=server.application.task_service --cov=server.observability --cov=server.application.configuration_service --cov=client.python.execution_operator --cov-report=term-missing --cov-report=json:reports/coverage.json
 
       - name: Enforce coverage thresholds
         run: |
@@ -301,7 +301,13 @@ jobs:
             --module server/observability/activity.py=80 \
             --module server/observability/overview.py=85 \
             --module server/application/task_service.py=75 \
-            --module server/application/configuration_service.py=85
+            --module server/application/configuration_service.py=85 \
+            --module client/python/execution_operator/config.py=85 \
+            --module client/python/execution_operator/lifecycle.py=75 \
+            --module client/python/execution_operator/models.py=90 \
+            --module client/python/execution_operator/preflight.py=75 \
+            --module client/python/execution_operator/processes.py=75 \
+            --module client/python/execution_operator/runtime.py=75
 
       - name: Upload coverage artifact
         if: always()

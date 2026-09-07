@@ -22,7 +22,14 @@ def main() -> int:
         "--config", type=Path, required=True, help="operator-owned JSON (no token)"
     )
     parser.add_argument("--once", action="store_true", help="attempt a single checkout")
+    parser.add_argument(
+        "--stop-file",
+        type=Path,
+        help="operator-owned graceful-drain signal (must be absolute)",
+    )
     arguments = parser.parse_args()
+    if arguments.stop_file is not None and not arguments.stop_file.is_absolute():
+        parser.error("--stop-file must be absolute")
     config = WorkerConfig.from_mapping(
         json.loads(arguments.config.read_text(encoding="utf-8"))
     )
@@ -37,8 +44,15 @@ def main() -> int:
                 signal.SIGTERM,
                 lambda _signal, _frame: worker.request_shutdown(),
             )
+        if hasattr(signal, "SIGBREAK"):
+            signal.signal(
+                signal.SIGBREAK,
+                lambda _signal, _frame: worker.request_shutdown(),
+            )
         while True:
             worker.poll_once()
+            if arguments.stop_file is not None and arguments.stop_file.is_file():
+                worker.request_shutdown()
             if arguments.once or worker.shutting_down:
                 client.heartbeat_worker(status="draining")
                 return 0

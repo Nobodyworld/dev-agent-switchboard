@@ -1,6 +1,6 @@
 # Public Developer Preview Status
 
-_Last reviewed: 2026-08-27_
+_Last reviewed: 2026-08-28_
 
 ## Classification
 
@@ -14,21 +14,103 @@ The repository is public for source inspection, controlled local evaluation, and
 
 ```text
 repository: Nobodyworld/dev-agent-switchboard
-current merged main: e9b56ac0d5936e39d811b240a8091a54e1b4ff26
-source: squash merge of PR #147
-completed predecessor issue: #146 — closed not_planned / TARGET-STATE-BLOCKED
-active issue: #149
-active draft PR: #150
-active branch: test/reviewed-main-fresh-reuse-acceptance
-active ExecPlan: .agent/execplans/017_reviewed_main_fresh_reuse_acceptance.md
-prepared planning head: f933464cb78b44e83c16408424908eaed256c681
-prepared-head Commitlint: 33104129597 success
-prepared-head Workload acceptance: 33104129604 success
-prepared-head CI: GitHub PR #150 is authoritative for the latest state
-current PR head and newest hosted checks: GitHub PR #150 is authoritative and intentionally not self-referenced after the documentation commit
+current merged main: fbaf2f6170a9f5a27e6573d9d664923cef8f6ae6
+source: squash merge of PR #150
+completed predecessor issue: #149
+active issue: #151
+active draft PR: #152
+active branch: feat/operator-validation-lifecycle
+active ExecPlan: .agent/execplans/018_operator_validation_lifecycle.md
+current PR head and hosted checks: GitHub PR #152 is authoritative after publication
 ```
 
 PR #145 merged the public workload onboarding factory after exact-head local validation, hosted validation, and connector review. The merge retained the repository’s developer-preview classification and did not authorize release, deployment, live external target execution, MCP, paid-provider routing, or expanded worker types.
+
+## Owned operator validation lifecycle
+
+Issue #151 / draft PR #152 adds one repository-supported local orchestration
+surface around the existing reviewed execution plane:
+
+```text
+python scripts/dev.py validation-lifecycle --config <private-json>
+python scripts/dev.py inspect-validation-runtime <owned-runtime-root>
+```
+
+It supports `fresh-only` and `fresh-then-exact-reuse`, requires a separate
+explicit approval for every work order, creates only a new atomically
+marker-owned runtime, and preserves all failed or uncertain state. Strict
+preflight verifies clean exact source, origin, manifest, host tools,
+capabilities, containment, safe roots, loopback port, process-only token
+presence, and bounded reporting before mutation. It starts the existing server
+and outbound worker from Switchboard's internally derived control-plane source,
+not from the selected target checkout. The target remains only the worker's
+operator-approved logical repository mapping. The lifecycle verifies authoritative terminal
+and retained evidence, and requires zero leases/capacity plus stopped processes
+and a released port before success.
+
+The machine JSON and human report come from one bounded safe model. Tokens,
+paths, machine/user identity, raw environment, argv, commands, HTTP bodies,
+database content, logs, artifacts, and raw exceptions are excluded. Existing,
+foreign, malformed, linked, or ambiguous runtime state fails closed; inspection
+does not resume, repair, clean, or mutate it. Manual server and worker entry
+points remain supported.
+
+Every post-creation private write, stop signal, termination, finalization,
+cleanup, and report write revalidates the complete original random marker
+identity through one bounded, regular-file-only, no-follow stable read. Valid
+marker replacement, missing or malformed markers, changed-during-read state,
+and marker/root/ancestry junction or reparse state forbid further mutation and
+preserve the runtime and held process state.
+
+Real server/worker synthetic coverage proves fresh-only and exact reuse with
+distinct work-order/run identities, same-worker retained evidence, unchanged
+source expiry, no reuse fallback, zero repeated deterministic steps/artifacts,
+and seven avoided steps. Failure-preservation, cancellation, port, process,
+cleanup, approval, report-size, and credential-leak boundaries have focused
+coverage.
+
+Blocking exact-head review 5055382298 and CI run 33213404514 identified the
+Linux Mypy portability error, Actions' valid non-`.git` origin mismatch,
+Switchboard-only control-plane launch assumption, replaceable runtime marker,
+and incomplete fresh/report identity contract at head
+`7db2fb4674ffba4c2f92497871f4cf0931234e7a`. The additive correction uses
+guarded reparse metadata, a closed semantic GitHub origin parser, distinct
+control-plane and target roots, full original-marker binding, mandatory
+retained-evidence identity/hash verification in both modes, and exact pinned
+`first_available` zero-quota route proof.
+
+Report schema 2 retains the verified identity hash, source run ID, route policy
+and bounded reason, required and reserved quota units, reservation state,
+eligible-candidate count, exact artifact total bytes, evidence fingerprint,
+expiry, and existing cleanup facts. The same validator feeds human and JSON
+serialization and rejects paths, tokens, argv, raw bodies, environments,
+private identity, unsafe values, and oversize output.
+
+Python 3.11 correction evidence includes Linux-target Mypy over 199 source
+files; 83 operator tests with four explicit capability/gated skips; both
+separate-target lifecycle modes individually and together; real Windows marker,
+root, ancestry, and destination-parent junction rejection; three repeated
+two-mode process/port/cleanup passes; and the affected worker/server/CLI
+matrix. The complete `scripts/dev.py verify` sequence at correction candidate
+`2c85948ce7bf5eda37bf36da263a9e42d8fa6865` passed 822 tests with 16 explicit
+platform/runtime skips, 88% aggregate coverage, all 20 configured thresholds,
+strict Mypy, Ruff, Bandit, and an environment audit with no known
+vulnerabilities. The first environment audit identified PYSEC-2026-3447 in the
+task-owned virtualenv's bootstrap `setuptools` 79.0.1; advancing only that
+disposable environment to fixed 84.0.0 cleared the audit without changing a
+repository requirement. Zscripts validation used only cached pnpm 10.18.1
+through ignored task-local infrastructure; host-default pnpm 10.24.0 was
+unchanged. The final documentation-head matrix and push parity are recorded in
+the delivery report so the tracked evidence does not invalidate its own exact
+SHA.
+
+One retained real full-manifest exercise completed mechanically at implementation
+head `c16599c398083e9c8d4c89d1c4ce7b58cfd95aae`, including zero-step reuse, but
+is not treated as security-clean acceptance: pinned Bandit 1.8.6 under Python
+3.14 emitted manager errors for the requested files while returning zero. The
+developer gate and worker parser now fail closed on that condition; a separate
+Python 3.13 Bandit run passed. PR #152 remains draft and unmerged, and no
+release, deployment, production-readiness, or expanded-authority claim follows.
 
 ## Current merged product capability
 
