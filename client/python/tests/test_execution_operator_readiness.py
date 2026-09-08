@@ -9,7 +9,7 @@ import os
 import socket
 import subprocess
 import uuid
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import pytest
@@ -234,6 +234,84 @@ def test_timeout_diagnostic_facts_retain_configured_and_required_limits(
     assert observed.timeouts.configured_terminal_seconds == 3900
     assert observed.timeouts.required_manifest_seconds == 120
     assert observed.timeouts.required_maximum_step_seconds == 60
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "::1"])
+def test_readiness_rejects_bound_non_listening_port(
+    ready_config: OperatorLifecycleConfig, host: str
+) -> None:
+    family = socket.AF_INET6 if host == "::1" else socket.AF_INET
+    with socket.socket(family, socket.SOCK_STREAM) as reserved:
+        try:
+            reserved.bind((host, 0))
+        except OSError as error:
+            if host == "::1":
+                pytest.skip(f"IPv6 loopback unavailable: {error.__class__.__name__}")
+            raise
+        config = replace(ready_config, host=host, port=int(reserved.getsockname()[1]))
+        with pytest.raises(OperatorLifecycleFailure, match="loopback_port_occupied"):
+            processes.assert_port_bindable(config.host, config.port)
+        result = inspect_validation_readiness(config)
+        assert not result.ready
+        assert result.reason == "loopback_port_occupied"
+        with pytest.raises(OperatorLifecycleFailure, match="loopback_port_occupied"):
+            preflight.run_preflight(config)
+        assert not config.runtime_root.exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows dangling junction readiness")
+def test_readiness_rejects_dangling_runtime_root_junction(
+    ready_config: OperatorLifecycleConfig, tmp_path: Path
+) -> None:
+    # Short task-owned siblings keep the existing Windows path budget meaningful.
+    root = tmp_path.parent / f"j157-{uuid.uuid4().hex[:8]}"
+    absent = tmp_path.parent / f"a157-{uuid.uuid4().hex[:8]}"
+    assert not root.exists() and not absent.exists()
+    subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(root), str(absent)],
+        check=True,
+        shell=False,
+        capture_output=True,
+    )
+    metadata = root.lstat()
+    assert preflight._metadata_is_reparse(metadata)
+    assert not root.exists() and not root.is_symlink()
+    payload = asdict(ready_config)
+    payload.update(
+        schema_version=1,
+        canonical_checkout=str(ready_config.canonical_checkout),
+        runtime_root=str(root),
+    )
+    config = OperatorLifecycleConfig.from_mapping(payload)
+    assert config.runtime_root == root
+    result = inspect_validation_readiness(config)
+    assert not result.ready
+    assert result.reason == "runtime_root_already_exists"
+    with pytest.raises(OperatorLifecycleFailure, match="runtime_root_already_exists"):
+        preflight.run_preflight(config)
+    assert root.lstat() == metadata
+    assert not absent.exists()
+
+
+def test_runtime_root_inspection_failure_is_bounded_and_stops_dependent_checks(
+    ready_config: OperatorLifecycleConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = Path.lstat
+
+    def denied_root(path: Path) -> os.stat_result:
+        if path == ready_config.runtime_root:
+            raise PermissionError("private root inspection failure")
+        return original(path)
+
+    monkeypatch.setattr(Path, "lstat", denied_root)
+    result = inspect_validation_readiness(ready_config)
+    assert not result.ready and result.reason == "path_inspection_failed"
+    failed_at = preflight.READINESS_CHECKS.index("root_safety")
+    assert result.checks[failed_at].status == "fail"
+    assert all(item.status == "not_checked" for item in result.checks[failed_at + 1 :])
+    assert b"private root" not in result.as_json_bytes()
+    with pytest.raises(OperatorLifecycleFailure, match="path_inspection_failed"):
+        preflight.run_preflight(ready_config)
 
 
 @pytest.mark.parametrize("change", ["dirty", "occupied_port"])

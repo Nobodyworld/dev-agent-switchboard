@@ -29,11 +29,17 @@ Classification remains `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY`.
 - [x] Make stored inspection visibly state that live evidence is not reverified.
 - [x] Update CLI tests, lifecycle/preflight regressions, README, operator guide, and moving status.
 - [x] Run focused validation, both synthetic lifecycle modes over IPv4/IPv6, Windows-specific regressions where available, and complete repository gates; enumerate genuine skips and invalid initial harness attempts below.
-- [ ] Push exact branch state normally and record local/remote parity.
-- [ ] Reconcile hosted checks and connector review.
+- [x] Push initial implementation `a06a311477b5dd22ed25a8d6f03002c770825297` normally and verify exact local/remote parity.
+- [x] Perform connector-backed review, reproduce its two readiness findings with three failing cases, and apply the narrow shared-preflight correction with four passing regressions.
+- [x] Complete corrected full pytest, repository verification, and all coverage thresholds; reconcile exact counts and unchanged skips below.
+- [ ] Push the additive correction normally and verify exact local/remote parity.
+- [ ] Reconcile final exact-head hosted checks and connector review.
 - [ ] Leave the implementation PR draft and unmerged pending separate owner authorization.
 
 ## Surprises & Discoveries
+
+- Observation: Connector-backed review of initial implementation head `a06a311477b5dd22ed25a8d6f03002c770825297` identified two readiness gaps not caught by the first green local matrix. Three new real regressions reproduced `ready=True` for a bound-but-not-listening IPv4 socket, a bound-but-not-listening IPv6 socket, and a dangling Windows junction at the runtime root. The existing server-launch bindability check already rejected both occupied sockets, and a no-follow `lstat` proved the dangling junction still existed despite `exists()`/`is_symlink()` both returning false.
+  Evidence: The private three-case reproduction XML records failures before any correction. The narrow shared-preflight correction reuses launch-time bindability and uses no-follow root presence, with existing sanitized inspection-failure reasons. Four regression cases then passed, including the inspection-error branch, and core/corrections/readiness passed 186 tests with six unchanged skips. Corrected full pytest and verification each passed 983 tests with 18 unchanged skips. No historical runtime was involved.
 
 - Observation: The initial concurrent full pytest and verification invocations had different pytest temporary roots but still shared the server fixture's default SQLite file in the new worktree. Once both reached server tests, setup/teardown errors appeared. Both incomplete invocations were stopped and their processes verified exited; the slice-owned database and temporary state were retained. This is invalid test-harness isolation, not evidence of an operator regression or a passing gate.
   Evidence: `server.db.DEFAULT_DATABASE_URL` and the server fixture's per-case table reset. Replacement validation invocations explicitly use different task-owned database, storage, file, pytest, and coverage paths. No preserved database was opened or modified, and no product/test change was made to accommodate the harness error.
@@ -90,7 +96,7 @@ An optional observer receives at most 64 deduplicated closed events, including s
 
 Lifecycle/inspection JSON success remains the existing report object. New readiness defaults to human output, with explicit JSON available. Prompts/progress use stderr. Human inspection uses the existing stored-state warning; JSON inspection keeps the stored document unchanged and emits that notice on stderr. Runtime reports are neither rewritten nor upgraded by inspection.
 
-Local implementation and repository validation are complete at this pre-publication checkpoint. The corrected isolated full runs both passed, with platform/runtime skips recorded below and no reduced gates. Final code identity, normal-push parity, exact-head hosted checks and connector review are subsequent delivery gates; their live result belongs in draft PR #158 and the delivery report so a self-referential documentation commit does not invalidate its own SHA. Owner authorization remains separate.
+The initial implementation passed local and hosted validation and was pushed normally as `a06a311477b5dd22ed25a8d6f03002c770825297`. Independent connector-backed review then identified the two readiness gaps reproduced and corrected above. The complete local matrix now passes on that narrow additive correction, including real Windows dangling-junction and bound-socket regressions. Final code identity, normal-push parity, exact-head hosted checks and connector review remain subsequent delivery gates; their live result belongs in draft PR #158 and the delivery report so a self-referential documentation commit does not invalidate its own SHA. Owner authorization remains separate.
 
 ## Context and Orientation
 
@@ -178,7 +184,7 @@ If implementation or validation fails, keep the branch and slice-owned worktree 
 
 ## Artifacts and Notes
 
-Local validation record (2026-09-07, implementation tree based on prepared head `44091095fadaf5601ec9e5cf26b13669606742c5`):
+Initial implementation validation record (2026-09-07, resulting commit `a06a311477b5dd22ed25a8d6f03002c770825297`, based on prepared head `44091095fadaf5601ec9e5cf26b13669606742c5`):
 
 - The sole successor worktree tracks `origin/feat/operator-readiness-progress`. Initial local and remote feature heads matched the prepared head; remote main matched `78ff87a87e2322f6a77732b5b0368c4379dc0b62`. The clean older primary checkout was preserved, not advanced. All historical worktrees, named runtime/evidence roots, and the security-deferral stash were present and left untouched.
 - Existing Windows Python 3.11.14 environment; pytest 9.1.1, Mypy 1.18.2, Ruff 0.16.2, Bandit 1.9.4, coverage 7.16.0, and pip-audit 2.10.1. Exact cached pnpm 10.18.1 was selected through existing task-local infrastructure; host-default pnpm and settings were unchanged. Local Node 24.19.0 satisfies the project floor; hosted CI separately pins Node 24.12.0. No dependency or workload definition changed.
@@ -220,6 +226,18 @@ Measured CI module gates (percent):
 | execution_operator/preflight | 89.47 | 75 |
 | execution_operator/processes | 77.53 | 75 |
 | execution_operator/runtime | 85.13 | 75 |
+
+Additive review-correction checkpoint:
+
+- Both review findings were independently re-reviewed against the frozen local correction and found resolved; no new blocker, authority expansion, or portability issue was found. Final remote confirmation still requires the correction push.
+- The initial head subsequently passed all three hosted workflows: CI `34170657681`, Workload acceptance `34170657673`, and Commitlint `34170657693`. Those green runs are historical evidence for the initial head, not proof of the unpushed review correction.
+- Corrected core/corrections/readiness: 186 passed, six unchanged skips. Corrected CLI/progress/developer CLI: 64 passed, zero skips. Together these disjoint focused selections total 250 passed, six skipped. The separate four new regressions passed after three pre-fix reproductions failed.
+- Corrected standalone strict browser: four passed, zero skipped. Linux-target Mypy again passed all 207 source files; Ruff formatting remained unchanged.
+- Corrected full pytest passed 983 tests with 18 unchanged skips and one existing dependency deprecation warning in 1085.57 seconds. All four browser cases passed in strict mode. Real Windows junction coverage now includes the dangling-runtime-root case in addition to the eight previously passing native junction cases.
+- Corrected repository verification passed Ruff, Windows strict Mypy, Bandit, 983 tests / 18 unchanged skips / one warning in 1170.54 seconds, all 20 configured thresholds, and the environment audit with no known vulnerabilities. Measured aggregate coverage is 2754/3057 statements (90.09%). All 22 CI thresholds were separately enforced again; compared with the initial table, preflight improved to 89.67% and processes to 78.65%, with every other listed value unchanged.
+- Corrected focused, full, and verification artifacts each prove all four lifecycle mode/host combinations, giving three complete matrix repetitions at the corrected source. Both full artifacts and the standalone browser artifact have four passing strict browser cases and zero browser skips. Nine real Windows junction cases and the four real cancellation cases pass; the 18 full-suite skips retain exactly the initial categories recorded above.
+- Requirements audit, catalog/TODO, all four JavaScript syntax checks, three TOML and fourteen YAML parses, all twenty-five full-SHA Action references, and Lychee passed again. The corrected factory matrix passed 25 tests with no skips and retained the same 100.00% and 92.54% selected-function coverage results. New private artifacts are retained separately from every earlier attempt.
+- The corrected final preservation census again found no task-owned process candidate, all eight named historical roots, the unchanged seven historical synthetic roots, all predecessor worktrees at their original heads, the clean older primary checkout, and the security-deferral stash. No cleanup was performed. Final all-file pre-commit passed, with the same documented Prettier no-file selector limitation. Additive normal publication remains the local delivery step at this checkpoint; subsequent exact-head hosted and connector state is recorded in PR #158.
 
 Remote preparation evidence:
 

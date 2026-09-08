@@ -113,6 +113,12 @@ the same authoritative checks immediately before execution; source changes,
 an occupied port, or another changed prerequisite can invalidate earlier
 readiness.
 
+The port check includes the same temporary bindability probe used at server
+launch, so a bound socket is rejected even when it is not listening. The probe
+closes its own socket and does not reserve the port. Runtime-root presence is
+checked without following links: dangling symlinks or Windows junctions still
+count as existing roots, and uncertain inspection fails closed.
+
 Preflight finishes before the runtime root or any server or worker process is
 created. Its read-only tool probes use fixed argv, `shell=False`, bounded
 output, and short timeouts to verify:

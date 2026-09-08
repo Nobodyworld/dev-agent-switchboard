@@ -48,11 +48,14 @@ historical schema-2 JSON unchanged.
 
 The substantive local implementation and validation evidence are maintained in
 ExecPlan 019. The Windows Python 3.11 full suite and repository verification each
-passed 979 tests with 18 explicit platform/runtime/gated skips; aggregate measured
-coverage is 90.00%, all 20 verification and 22 CI module gates passed, and strict
+passed 983 tests with 18 explicit platform/runtime/gated skips; aggregate measured
+coverage is 90.09%, all 20 verification and 22 CI module gates passed, and strict
 Playwright passed all four cases with zero browser skips. The separate workload
 factory thresholds also passed. Initial invalid concurrent test isolation is
-recorded in the plan, not counted as passing evidence. Exact-head hosted state
+recorded in the plan, not counted as passing evidence. Connector review also
+reproduced bound-but-not-listening socket and dangling-runtime-junction readiness
+gaps; the shared preflight correction and all four new regressions now pass.
+Exact-head hosted state
 after publication remains authoritative in GitHub. PR #158 stays draft and
 unmerged pending hosted validation, connector review, and a separate owner
 decision. No dependency, workload, credential,

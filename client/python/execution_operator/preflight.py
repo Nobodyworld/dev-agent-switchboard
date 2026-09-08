@@ -457,7 +457,14 @@ def _validate_containment() -> None:
 
 
 def _validate_roots(config: OperatorLifecycleConfig) -> None:
-    if config.runtime_root.exists() or config.runtime_root.is_symlink():
+    try:
+        config.runtime_root.lstat()
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        raise OperatorLifecycleFailure("path_inspection_failed") from error
+    else:
+        # No-follow presence includes dangling symlinks and Windows junctions.
         raise OperatorLifecycleFailure("runtime_root_already_exists")
     if not runtime_path_budget_ok(config.runtime_root):
         raise OperatorLifecycleFailure("runtime_path_budget_exceeded")
@@ -487,12 +494,16 @@ def _validate_control_plane(config: OperatorLifecycleConfig) -> None:
 
 
 def _validate_port(config: OperatorLifecycleConfig) -> None:
+    # Reuse launch-time semantics, without reserving the port after this probe.
+    from .processes import assert_port_bindable  # noqa: PLC0415 - import cycle
+
     try:
         available = _port_appears_available(config.host, config.port)
     except OSError as error:
         raise OperatorLifecycleFailure("loopback_port_probe_failed") from error
     if not available:
         raise OperatorLifecycleFailure("loopback_port_occupied")
+    assert_port_bindable(config.host, config.port)
 
 
 def _validate_token() -> None:
