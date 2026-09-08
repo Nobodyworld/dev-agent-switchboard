@@ -1,6 +1,6 @@
 # Public Developer Preview Status
 
-_Last reviewed: 2026-08-28_
+_Last reviewed: 2026-09-07_
 
 ## Classification
 
@@ -14,21 +14,56 @@ The repository is public for source inspection, controlled local evaluation, and
 
 ```text
 repository: Nobodyworld/dev-agent-switchboard
-current merged main: fbaf2f6170a9f5a27e6573d9d664923cef8f6ae6
-source: squash merge of PR #150
-completed predecessor issue: #149
-active issue: #151
-active draft PR: #152
-active branch: feat/operator-validation-lifecycle
-active ExecPlan: .agent/execplans/018_operator_validation_lifecycle.md
-current PR head and hosted checks: GitHub PR #152 is authoritative after publication
+current merged main: 78ff87a87e2322f6a77732b5b0368c4379dc0b62
+source: squash merge of PR #152
+completed predecessor issue: #151
+active issue: #157
+active draft PR: #158
+active branch: feat/operator-readiness-progress
+active ExecPlan: .agent/execplans/019_operator_readiness_progress.md
+current PR head and hosted checks: GitHub PR #158 is authoritative after publication
 ```
 
 PR #145 merged the public workload onboarding factory after exact-head local validation, hosted validation, and connector review. The merge retained the repository’s developer-preview classification and did not authorize release, deployment, live external target execution, MCP, paid-provider routing, or expanded worker types.
 
-## Owned operator validation lifecycle
+## Operator readiness and progress
 
-Issue #151 / draft PR #152 adds one repository-supported local orchestration
+Issue #157 / draft PR #158 extends the existing lifecycle with read-only
+`validation-preflight --config <private-json>`, optional bounded progress,
+reviewed corrective guidance, and explicit human versus JSON CLI output.
+Readiness and execution share one authoritative preflight sequence; readiness
+creates no runtime, database, server, worker, work order, approval, or report.
+It reports passed, failed, and unperformed checks with safe logical identity
+and configured versus required timeout facts. Execution reruns those checks
+immediately before runtime creation; readiness reserves nothing and grants no
+approval.
+
+Progress carries only closed transition names and actually observed run states.
+Queuing does not imply running. Observer failure disables presentation and
+cannot authorize work, cause retries, or suppress owned shutdown. Both fresh
+and reuse approval boundaries remain explicit. Machine stdout contains one
+JSON object; prompts, progress, and human diagnostics use stderr. Stored
+inspection states `stored state only; live evidence not reverified` and keeps
+historical schema-2 JSON unchanged.
+
+The substantive local implementation and validation evidence are maintained in
+ExecPlan 019. The Windows Python 3.11 full suite and repository verification each
+passed 983 tests with 18 explicit platform/runtime/gated skips; aggregate measured
+coverage is 90.09%, all 20 verification and 22 CI module gates passed, and strict
+Playwright passed all four cases with zero browser skips. The separate workload
+factory thresholds also passed. Initial invalid concurrent test isolation is
+recorded in the plan, not counted as passing evidence. Connector review also
+reproduced bound-but-not-listening socket and dangling-runtime-junction readiness
+gaps; the shared preflight correction and all four new regressions now pass.
+Exact-head hosted state
+after publication remains authoritative in GitHub. PR #158 stays draft and
+unmerged pending hosted validation, connector review, and a separate owner
+decision. No dependency, workload, credential,
+isolation, provider, MCP, source-write, release, or deployment scope is added.
+
+## Owned operator validation lifecycle (merged predecessor)
+
+Completed issue #151 / merged PR #152 added one repository-supported local orchestration
 surface around the existing reviewed execution plane:
 
 ```text
@@ -86,7 +121,7 @@ expiry, and existing cleanup facts. The same validator feeds human and JSON
 serialization and rejects paths, tokens, argv, raw bodies, environments,
 private identity, unsafe values, and oversize output.
 
-Python 3.11 correction evidence includes Linux-target Mypy over 199 source
+Historical Python 3.11 correction evidence includes Linux-target Mypy over 199 source
 files; 83 operator tests with four explicit capability/gated skips; both
 separate-target lifecycle modes individually and together; real Windows marker,
 root, ancestry, and destination-parent junction rejection; three repeated
@@ -109,7 +144,8 @@ head `c16599c398083e9c8d4c89d1c4ce7b58cfd95aae`, including zero-step reuse, but
 is not treated as security-clean acceptance: pinned Bandit 1.8.6 under Python
 3.14 emitted manager errors for the requested files while returning zero. The
 developer gate and worker parser now fail closed on that condition; a separate
-Python 3.13 Bandit run passed. PR #152 remains draft and unmerged, and no
+Python 3.13 Bandit run passed. PR #152 was draft and unmerged at that historical
+checkpoint; it subsequently merged as the current main identified above. No
 release, deployment, production-readiness, or expanded-authority claim follows.
 
 ## Current merged product capability

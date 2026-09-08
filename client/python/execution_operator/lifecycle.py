@@ -31,6 +31,7 @@ from .models import (
 )
 from .preflight import PREFLIGHT_CHECKS, PreflightResult, run_preflight, source_snapshot
 from .processes import OwnedProcess, launch_server, launch_worker, port_is_released
+from .progress import ProgressObserver, ProgressPhase, ProgressPublisher
 from .report_contract import (
     LIFECYCLE_PHASES,
     REPORT_FIELDS,
@@ -191,11 +192,14 @@ def _wait_worker(client: ExecutionClient, config: OperatorLifecycleConfig) -> No
     )
 
 
-def _wait_terminal_run(
+def _wait_terminal_run(  # noqa: PLR0913 - observation inputs remain explicit
     client: ExecutionClient,
     config: OperatorLifecycleConfig,
     worker: OwnedProcess,
     work_order_id: int,
+    *,
+    progress: ProgressPublisher | None = None,
+    phase: ProgressPhase = "fresh",
 ) -> ExecutionRunOut:
     def terminal() -> ExecutionRunOut | None:
         if not worker.running():
@@ -209,6 +213,10 @@ def _wait_terminal_run(
             run = ExecutionRunOut.model_validate(runs[0])
         except ValueError as error:
             raise OperatorLifecycleFailure("run_response_invalid") from error
+        if run.work_order_id != work_order_id or run.worker_id != config.worker_id:
+            raise OperatorLifecycleFailure("run_identity_mismatch")
+        if progress is not None:
+            progress.emit("run_observed", phase=phase, run_status=run.status)
         return run if run.status.value in _TERMINAL else None
 
     return cast(
@@ -480,12 +488,17 @@ def _execute_phase(  # noqa: PLR0913 - lifecycle inputs stay explicit
     source: RunSummary | None,
     worker: OwnedProcess,
     report: OperatorLifecycleReport,
+    progress: ProgressPublisher | None = None,
 ) -> RunSummary:
+    progress = progress or ProgressPublisher()
     if phase == "reuse":
         _record_phase(report, "reuse_approval_required")
+        progress.emit("approval_requested", phase=phase)
         if not approval(phase, _approval_identity(config, phase)):
+            progress.emit("approval_denied", phase=phase)
             raise OperatorLifecycleFailure("reuse_approval_denied")
         report.operator_action_count += 1
+        progress.emit("approval_accepted", phase=phase)
     order = _validate_order(
         client.create_work_order(_work_order_payload(config, phase=phase)),
         config,
@@ -493,11 +506,15 @@ def _execute_phase(  # noqa: PLR0913 - lifecycle inputs stay explicit
         preflight.manifest_digest,
     )
     _record_phase(report, f"{phase}_created")
+    progress.emit("work_order_created", phase=phase)
     if phase == "fresh":
         _record_phase(report, "fresh_approval_required")
+        progress.emit("approval_requested", phase=phase)
         if not approval(phase, _approval_identity(config, phase)):
+            progress.emit("approval_denied", phase=phase)
             raise OperatorLifecycleFailure("fresh_approval_denied")
         report.operator_action_count += 1
+        progress.emit("approval_accepted", phase=phase)
     _validate_order(
         client.approve_work_order(order.id),
         config,
@@ -509,6 +526,7 @@ def _execute_phase(  # noqa: PLR0913 - lifecycle inputs stay explicit
     else:
         report.reuse_approved = True
     _record_phase(report, f"{phase}_approved")
+    progress.emit("work_order_approved", phase=phase)
     _validate_order(
         client.queue_work_order(order.id),
         config,
@@ -516,9 +534,12 @@ def _execute_phase(  # noqa: PLR0913 - lifecycle inputs stay explicit
         preflight.manifest_digest,
     )
     _record_phase(report, f"{phase}_queued")
+    progress.emit("work_order_queued", phase=phase)
     if phase == "fresh":
         _record_phase(report, "fresh_running")
-    run = _wait_terminal_run(client, config, worker, order.id)
+    run = _wait_terminal_run(
+        client, config, worker, order.id, progress=progress, phase=phase
+    )
     terminal_order = _validate_order(
         client.get_work_order(order.id),
         config,
@@ -527,6 +548,7 @@ def _execute_phase(  # noqa: PLR0913 - lifecycle inputs stay explicit
     )
     if run.status.value == "succeeded":
         _record_phase(report, f"{phase}_succeeded")
+    progress.emit("evidence_verification_started", phase=phase)
     summary = _verify_run(
         client=client,
         config=config,
@@ -538,6 +560,7 @@ def _execute_phase(  # noqa: PLR0913 - lifecycle inputs stay explicit
         source=source,
     )
     _record_phase(report, f"{phase}_verified")
+    progress.emit("evidence_verified", phase=phase)
     return summary
 
 
@@ -594,13 +617,23 @@ def _stop_owned(processes: list[OwnedProcess], timeout: float) -> bool:
     return verified
 
 
-def run_validation_lifecycle(  # noqa: PLR0915 - fail-closed phases stay visible
-    config: OperatorLifecycleConfig, *, approval: ApprovalCallback
+def run_validation_lifecycle(  # noqa: PLR0912, PLR0915 - phases stay visible
+    config: OperatorLifecycleConfig,
+    *,
+    approval: ApprovalCallback,
+    observer: ProgressObserver | None = None,
 ) -> OperatorLifecycleReport:
     """Run one new lifecycle; failures after creation preserve and report runtime."""
 
-    preflight = run_preflight(config)
-    layout, runtime_summary = create_runtime(config, preflight)
+    progress = ProgressPublisher(observer)
+    progress.emit("preflight_started")
+    try:
+        preflight = run_preflight(config)
+        progress.emit("preflight_passed")
+        layout, runtime_summary = create_runtime(config, preflight)
+    except (OperatorLifecycleFailure, KeyboardInterrupt):
+        progress.emit("failed")
+        raise
     report = OperatorLifecycleReport(
         runtime=runtime_summary,
         phases=["preflight_passed", "runtime_created"],
@@ -611,10 +644,12 @@ def run_validation_lifecycle(  # noqa: PLR0915 - fail-closed phases stay visible
     failure: OperatorLifecycleFailure | None = None
     token = os.environ.get("SWITCHBOARD_ADMIN_TOKEN", "")
     try:
+        progress.emit("runtime_created")
         if not token.strip():
             raise OperatorLifecycleFailure("admin_token_missing")
         server = launch_server(config, layout, runtime_summary, token)
         processes.append(server)
+        progress.emit("server_started")
         with ExecutionClient(
             config.base_url,
             config.worker_id,
@@ -624,11 +659,14 @@ def run_validation_lifecycle(  # noqa: PLR0915 - fail-closed phases stay visible
             _wait_server(client, config)
             report.server_ready = True
             _record_phase(report, "server_healthy")
+            progress.emit("server_ready")
             worker = launch_worker(config, layout, runtime_summary, token)
             processes.append(worker)
+            progress.emit("worker_started")
             _wait_worker(client, config)
             report.worker_ready = True
             _record_phase(report, "worker_online")
+            progress.emit("worker_ready")
             fresh = _execute_phase(
                 client=client,
                 config=config,
@@ -639,6 +677,7 @@ def run_validation_lifecycle(  # noqa: PLR0915 - fail-closed phases stay visible
                 source=None,
                 worker=worker,
                 report=report,
+                progress=progress,
             )
             report.runs.append(fresh)
             _assert_control_plane_clean(report, client, config, layout)
@@ -653,6 +692,7 @@ def run_validation_lifecycle(  # noqa: PLR0915 - fail-closed phases stay visible
                     source=fresh,
                     worker=worker,
                     report=report,
+                    progress=progress,
                 )
                 report.runs.append(reuse)
                 report.avoided_deterministic_step_count = fresh.step_count
@@ -666,6 +706,7 @@ def run_validation_lifecycle(  # noqa: PLR0915 - fail-closed phases stay visible
         failure.__cause__ = error
     finally:
         _record_phase(report, "shutdown_started")
+        progress.emit("shutdown_started")
         report.owned_processes_stopped = _stop_owned(
             processes, config.shutdown_timeout_seconds
         )
@@ -683,13 +724,24 @@ def run_validation_lifecycle(  # noqa: PLR0915 - fail-closed phases stay visible
             and report.canonical_checkout_unchanged
         ):
             _record_phase(report, "cleanup_verified")
+            if (
+                report.active_lease_count == 0
+                and report.worker_active_run_count == 0
+                and _worker_source_empty(layout)
+            ):
+                progress.emit("cleanup_verified")
         if failure is None:
             _record_phase(report, "completed")
         report.outcome = "failed" if failure else "succeeded"
         report.reason = failure.reason if failure else "lifecycle_verified"
         report.failed_runtime_preserved = failure is not None
         report.completed_at = utc_now_text()
-        write_report(layout, report, maximum_bytes=config.report_maximum_bytes)
+        try:
+            write_report(layout, report, maximum_bytes=config.report_maximum_bytes)
+        except (OperatorLifecycleFailure, OSError, ValueError, KeyboardInterrupt):
+            progress.emit("failed")
+            raise
+        progress.emit("failed" if failure else "completed")
     if failure is not None:
         raise failure
     return report

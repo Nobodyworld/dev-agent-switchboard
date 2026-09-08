@@ -13,7 +13,7 @@ import sys
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Never, cast
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
@@ -564,6 +564,84 @@ def cmd_bump_version(args: argparse.Namespace) -> None:
     print(f"Version bumped: {current} -> {new_version}")
 
 
+def _operator_stderr(message: str) -> bool:
+    """Best-effort presentation cannot become execution authority."""
+
+    try:
+        print(message, file=sys.stderr, flush=True)
+    except (Exception, KeyboardInterrupt, SystemExit):
+        return False
+    return True
+
+
+def _operator_stdout(text: str) -> None:
+    try:
+        print(text, flush=True)
+    except (Exception, KeyboardInterrupt, SystemExit):
+        _operator_stderr("Operator output unavailable; inspect retained state.")
+        raise SystemExit(1) from None
+
+
+def _operator_failure(command: str, output_format: str, reason: object) -> Never:
+    from client.python.execution_operator.diagnostics import operator_diagnostic
+
+    diagnostic = operator_diagnostic(reason)
+    _operator_stderr(f"{command}: {diagnostic.reason}. {diagnostic.guidance}")
+    if output_format == "json":
+        _operator_stdout(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "kind": "operator-command-error",
+                    "command": command,
+                    "outcome": "failed",
+                    "reason": diagnostic.reason,
+                    "guidance": diagnostic.guidance,
+                },
+                sort_keys=True,
+            )
+        )
+    raise SystemExit(1)
+
+
+def cmd_validation_preflight(args: argparse.Namespace) -> None:
+    """Observe readiness without creating runtime or execution state."""
+
+    from client.python.execution_operator.config import (
+        OperatorConfigurationError,
+        OperatorLifecycleConfig,
+    )
+    from client.python.execution_operator.diagnostics import operator_diagnostic
+    from client.python.execution_operator.readiness import (
+        configuration_readiness_failure,
+        inspect_validation_readiness,
+    )
+
+    try:
+        try:
+            config = OperatorLifecycleConfig.from_file(args.config)
+        except OperatorConfigurationError:
+            result = configuration_readiness_failure("invalid_configuration")
+        else:
+            result = inspect_validation_readiness(config)
+        if not result.ready:
+            diagnostic = operator_diagnostic(result.reason)
+            _operator_stderr(f"{diagnostic.reason}. {diagnostic.guidance}")
+        encoded = (
+            result.as_json_bytes(maximum_bytes=64 * 1024)
+            if args.output_format == "json"
+            else result.as_text(maximum_bytes=64 * 1024)
+        )
+    except (Exception, KeyboardInterrupt):
+        _operator_failure(
+            "validation-preflight", args.output_format, "operator_lifecycle_failure"
+        )
+        return
+    _operator_stdout(encoded.decode("utf-8"))
+    if not result.ready:
+        raise SystemExit(1)
+
+
 def cmd_validation_lifecycle(args: argparse.Namespace) -> None:
     """Run one new fail-closed operator validation lifecycle."""
 
@@ -573,28 +651,55 @@ def cmd_validation_lifecycle(args: argparse.Namespace) -> None:
     )
     from client.python.execution_operator.lifecycle import run_validation_lifecycle
     from client.python.execution_operator.models import OperatorLifecycleFailure
+    from client.python.execution_operator.progress import ProgressEvent
+
+    output_format = getattr(args, "output_format", "json")
+
+    def observe(event: ProgressEvent) -> None:
+        _operator_stderr("progress: " + json.dumps(event.as_dict(), sort_keys=True))
 
     try:
         config = OperatorLifecycleConfig.from_file(args.config)
 
         def approve(phase: str, identity: str) -> bool:
             flag = args.approve_fresh if phase == "fresh" else args.approve_reuse
-            print(f"Approval required: {identity}")
-            if flag:
-                print(f"Approval accepted non-interactively: {phase}")
-                return True
-            if not sys.stdin.isatty():
+            expected_identity = (
+                f"{phase}:{config.repository_full_name}@{config.target_sha}"
+            )
+            if phase not in {"fresh", "reuse"} or identity != expected_identity:
                 return False
-            expected = f"APPROVE {identity}"
-            return input(f"Type '{expected}' exactly: ") == expected
+            visible = _operator_stderr(f"Approval required: {identity}")
+            if flag:
+                _operator_stderr(f"Approval accepted non-interactively: {phase}")
+                return True
+            try:
+                if not visible or not sys.stdin.isatty():
+                    return False
+                expected = f"APPROVE {identity}"
+                if not _operator_stderr(f"Type '{expected}' exactly:"):
+                    return False
+                return input() == expected
+            except (Exception, KeyboardInterrupt, SystemExit):
+                return False
 
-        report = run_validation_lifecycle(config, approval=approve)
+        options: dict[str, Any] = {"approval": approve}
+        if getattr(args, "progress", False):
+            options["observer"] = observe
+        report = run_validation_lifecycle(config, **options)
+        encoded = (
+            report.as_json_bytes(maximum_bytes=config.report_maximum_bytes)
+            if output_format == "json"
+            else report.as_text(maximum_bytes=config.report_maximum_bytes)
+        )
     except (OperatorConfigurationError, OperatorLifecycleFailure) as error:
-        print(f"validation-lifecycle: FAIL {error}")
-        raise SystemExit(1) from None
-    print(
-        report.as_json_bytes(maximum_bytes=config.report_maximum_bytes).decode("utf-8")
-    )
+        _operator_failure("validation-lifecycle", output_format, str(error))
+        return
+    except (Exception, KeyboardInterrupt):
+        _operator_failure(
+            "validation-lifecycle", output_format, "operator_lifecycle_failure"
+        )
+        return
+    _operator_stdout(encoded.decode("utf-8"))
 
 
 def cmd_inspect_validation_runtime(args: argparse.Namespace) -> None:
@@ -603,17 +708,44 @@ def cmd_inspect_validation_runtime(args: argparse.Namespace) -> None:
     from client.python.execution_operator.lifecycle import inspect_validation_runtime
     from client.python.execution_operator.models import OperatorLifecycleFailure
 
+    output_format = getattr(args, "output_format", "json")
     try:
         report = inspect_validation_runtime(args.runtime_root)
-        print(report.as_json_bytes(maximum_bytes=1024 * 1024).decode("utf-8"))
-    except (OSError, OperatorLifecycleFailure) as error:
-        print(f"inspect-validation-runtime: FAIL {error}")
-        raise SystemExit(1) from None
+        encoded = (
+            report.as_json_bytes(maximum_bytes=1024 * 1024)
+            if output_format == "json"
+            else report.as_text(maximum_bytes=1024 * 1024)
+        )
+    except OperatorLifecycleFailure as error:
+        _operator_failure("inspect-validation-runtime", output_format, error.reason)
+        return
+    except (Exception, KeyboardInterrupt):
+        _operator_failure(
+            "inspect-validation-runtime", output_format, "runtime_root_invalid"
+        )
+        return
+    if output_format == "json":
+        _operator_stderr("stored state only; live evidence not reverified")
+    _operator_stdout(encoded.decode("utf-8"))
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Switchboard developer utilities")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+class _OperatorArgumentError(Exception):
+    """Carry no user-supplied argument text into operator diagnostics."""
+
+
+class _OperatorArgumentParser(argparse.ArgumentParser):
+    def error(self, _message: str) -> Never:
+        raise _OperatorArgumentError
+
+
+def build_parser(*, operator_errors: bool = False) -> argparse.ArgumentParser:
+    parser_type = (
+        _OperatorArgumentParser if operator_errors else argparse.ArgumentParser
+    )
+    parser = parser_type(description="Switchboard developer utilities")
+    subparsers = parser.add_subparsers(
+        dest="command", required=True, parser_class=parser_type
+    )
 
     bootstrap = subparsers.add_parser(
         "bootstrap", help="Create a venv and install tooling"
@@ -703,6 +835,15 @@ def build_parser() -> argparse.ArgumentParser:
     bump.add_argument("--version", help="Explicit semantic version override")
     bump.set_defaults(func=cmd_bump_version)
 
+    readiness = subparsers.add_parser(
+        "validation-preflight", help="Observe read-only point-in-time readiness"
+    )
+    readiness.add_argument("--config", type=Path, required=True)
+    readiness.add_argument(
+        "--format", dest="output_format", choices=["human", "json"], default="human"
+    )
+    readiness.set_defaults(func=cmd_validation_preflight)
+
     lifecycle = subparsers.add_parser(
         "validation-lifecycle",
         help="Run a new marker-owned fresh or fresh-plus-reuse validation lifecycle",
@@ -720,6 +861,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="explicitly approve the reuse work order in non-interactive use",
     )
+    lifecycle.add_argument(
+        "--format", dest="output_format", choices=["human", "json"], default="json"
+    )
+    lifecycle.add_argument(
+        "--progress", action="store_true", help="observe bounded progress on stderr"
+    )
     lifecycle.set_defaults(func=cmd_validation_lifecycle)
 
     inspect_runtime = subparsers.add_parser(
@@ -727,14 +874,44 @@ def build_parser() -> argparse.ArgumentParser:
         help="Read a validation runtime marker/report without mutation",
     )
     inspect_runtime.add_argument("runtime_root", type=Path)
+    inspect_runtime.add_argument(
+        "--format", dest="output_format", choices=["human", "json"], default="json"
+    )
     inspect_runtime.set_defaults(func=cmd_inspect_validation_runtime)
 
     return parser
 
 
 def main(argv: Iterable[str] | None = None) -> None:
-    parser = build_parser()
-    args = parser.parse_args(list(argv) if argv is not None else None)
+    arguments = list(argv) if argv is not None else sys.argv[1:]
+    operator_commands = {
+        "validation-preflight",
+        "validation-lifecycle",
+        "inspect-validation-runtime",
+    }
+    operator_command = bool(arguments and arguments[0] in operator_commands)
+    parser = build_parser(operator_errors=operator_command)
+    if operator_command:
+        try:
+            args = parser.parse_args(arguments)
+        except _OperatorArgumentError:
+            output_format = (
+                "human" if arguments[0] == "validation-preflight" else "json"
+            )
+            if "--format=json" in arguments or any(
+                pair == ["--format", "json"]
+                for pair in (arguments[i : i + 2] for i in range(len(arguments)))
+            ):
+                output_format = "json"
+            elif "--format=human" in arguments or any(
+                pair == ["--format", "human"]
+                for pair in (arguments[i : i + 2] for i in range(len(arguments)))
+            ):
+                output_format = "human"
+            _operator_failure(arguments[0], output_format, "invalid_arguments")
+            return
+    else:
+        args = parser.parse_args(arguments)
     args.func(args)
 
 

@@ -11,7 +11,8 @@ import socket
 import stat
 import subprocess
 import sys
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from urllib.parse import SplitResult, urlsplit
 
@@ -19,7 +20,7 @@ from client.python.execution_worker.containment import strict_containment_suppor
 from server.execution.capabilities import runtime_version_matches
 from server.execution.registry import TrustedManifest, get_trusted_manifest
 
-from .config import OperatorLifecycleConfig
+from .config import OperatorConfigurationError, OperatorLifecycleConfig
 from .models import OperatorLifecycleFailure
 from .report_contract import PREFLIGHT_CHECKS
 
@@ -30,6 +31,16 @@ _MAX_WINDOWS_RUNTIME_ROOT_LENGTH = 80
 _WINDOWS_REPARSE_POINT_FALLBACK = 0x0400
 _GITHUB_REPOSITORY_COMPONENT_COUNT = 2
 _GITHUB_COMPONENT = re.compile(r"^[A-Za-z0-9_.-]+$")
+_PUBLIC_IDENTITY_RULES = {
+    "repository_full_name": (re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"), 255),
+    "target_sha": (re.compile(r"^[0-9a-f]{40}$"), 40),
+    "manifest_name": (re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"), 128),
+    "manifest_version": (re.compile(r"^[A-Za-z0-9_.-]{1,64}$"), 64),
+    "worker_id": (re.compile(r"^[A-Za-z0-9_.-]{1,128}$"), 128),
+    "expected_manifest_digest": (re.compile(r"^[0-9a-f]{64}$"), 64),
+    "verified_manifest_digest": (re.compile(r"^[0-9a-f]{64}$"), 64),
+}
+_CREDENTIAL = re.compile(r"(?i)(?:gh[pousr]_|github_pat_|sk-[a-z0-9]{16})")
 _SCP_GITHUB_ORIGIN = re.compile(
     r"^git@(?P<host>github\.com):(?P<path>[^?#]+)$", re.IGNORECASE
 )
@@ -42,6 +53,57 @@ _SUPPORTED_CAPABILITY_KEYS = frozenset(
         "pnpm",
         "python",
         "repository_write",
+    }
+)
+READINESS_CHECKS = (
+    "configuration",
+    "python_runtime",
+    "strict_containment",
+    "root_safety",
+    "control_plane_source",
+    "loopback_port",
+    "process_token",
+    "canonical_source",
+    "manifest_contract",
+    "manifest_timeouts",
+    "worker_capabilities",
+)
+PREFLIGHT_FAILURE_REASONS = frozenset(
+    {
+        "invalid_configuration",
+        "public_identity_rejected",
+        "python_version_unsupported",
+        "strict_containment_unsupported",
+        "runtime_root_already_exists",
+        "runtime_path_budget_exceeded",
+        "runtime_parent_reparse_ancestry",
+        "runtime_parent_invalid",
+        "runtime_source_overlap",
+        "path_inspection_failed",
+        "control_plane_source_reparse_ancestry",
+        "control_plane_source_invalid",
+        "control_plane_target_overlap",
+        "loopback_port_occupied",
+        "loopback_port_probe_failed",
+        "admin_token_missing",
+        "git_probe_failed",
+        "canonical_checkout_invalid",
+        "canonical_checkout_reparse_ancestry",
+        "source_head_invalid",
+        "source_head_mismatch",
+        "source_object_invalid",
+        "source_checkout_dirty",
+        "source_tree_invalid",
+        "source_origin_invalid",
+        "source_origin_mismatch",
+        "trusted_manifest_not_found",
+        "trusted_manifest_digest_mismatch",
+        "trusted_manifest_contract_unsupported",
+        "manifest_timeout_exceeds_worker_budget",
+        "manifest_step_timeout_exceeds_worker_budget",
+        "terminal_timeout_below_manifest_budget",
+        "worker_capability_mismatch",
+        "preflight_probe_failed",
     }
 )
 
@@ -63,6 +125,24 @@ class PreflightResult:
     @property
     def manifest_step_count(self) -> int:
         return len(self.manifest_steps)
+
+
+@dataclass(frozen=True, slots=True)
+class PreflightCheck:
+    name: str
+    status: str
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PreflightAssessment:
+    """Private execution proof and the checks actually performed to obtain it."""
+
+    result: PreflightResult | None
+    checks: tuple[PreflightCheck, ...]
+    reason: str
+    manifest_timeout_seconds: int | None
+    maximum_step_timeout_seconds: int | None
 
 
 def _run_git(checkout: Path, arguments: tuple[str, ...]) -> bytes:
@@ -90,7 +170,10 @@ def _run_git(checkout: Path, arguments: tuple[str, ...]) -> bytes:
 
 def _probe_environment() -> dict[str, str]:
     allowed = ("PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "HOME", "USERPROFILE")
-    return {key: os.environ[key] for key in allowed if key in os.environ}
+    environment = {key: os.environ[key] for key in allowed if key in os.environ}
+    # Even a clean status probe must not refresh or lock the target Git index.
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    return environment
 
 
 def _one_line(value: bytes, reason: str) -> str:
@@ -363,35 +446,118 @@ def _validate_manifest_timeouts(
         raise OperatorLifecycleFailure("terminal_timeout_below_manifest_budget")
 
 
-def run_preflight(config: OperatorLifecycleConfig) -> PreflightResult:
-    """Complete all read-only checks before runtime creation."""
-
+def _validate_python_runtime() -> None:
     if sys.version_info < (3, 11):
         raise OperatorLifecycleFailure("python_version_unsupported")
+
+
+def _validate_containment() -> None:
     if not strict_containment_supported():
         raise OperatorLifecycleFailure("strict_containment_unsupported")
-    if config.runtime_root.exists():
+
+
+def _validate_roots(config: OperatorLifecycleConfig) -> None:
+    try:
+        config.runtime_root.lstat()
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        raise OperatorLifecycleFailure("path_inspection_failed") from error
+    else:
+        # No-follow presence includes dangling symlinks and Windows junctions.
         raise OperatorLifecycleFailure("runtime_root_already_exists")
     if not runtime_path_budget_ok(config.runtime_root):
         raise OperatorLifecycleFailure("runtime_path_budget_exceeded")
     assert_no_reparse_ancestry(
         config.runtime_root.parent, "runtime_parent_reparse_ancestry"
     )
-    canonical = config.canonical_checkout.resolve(strict=True)
-    runtime_parent = config.runtime_root.parent.resolve(strict=True)
+    try:
+        canonical = config.canonical_checkout.resolve(strict=True)
+    except OSError as error:
+        raise OperatorLifecycleFailure("canonical_checkout_invalid") from error
+    try:
+        runtime_parent = config.runtime_root.parent.resolve(strict=True)
+    except OSError as error:
+        raise OperatorLifecycleFailure("runtime_parent_invalid") from error
+    if not runtime_parent.is_dir():
+        raise OperatorLifecycleFailure("runtime_parent_invalid")
     prospective = runtime_parent / config.runtime_root.name
     if _contains(prospective, canonical) or _contains(canonical, prospective):
         raise OperatorLifecycleFailure("runtime_source_overlap")
-    if not _port_appears_available(config.host, config.port):
+
+
+def _validate_control_plane(config: OperatorLifecycleConfig) -> None:
+    # Deferred to avoid the process/runtime imports forming an import cycle.
+    from .processes import _control_plane_source_root  # noqa: PLC0415
+
+    _control_plane_source_root(config)
+
+
+def _validate_port(config: OperatorLifecycleConfig) -> None:
+    # Reuse launch-time semantics, without reserving the port after this probe.
+    from .processes import assert_port_bindable  # noqa: PLC0415 - import cycle
+
+    try:
+        available = _port_appears_available(config.host, config.port)
+    except OSError as error:
+        raise OperatorLifecycleFailure("loopback_port_probe_failed") from error
+    if not available:
         raise OperatorLifecycleFailure("loopback_port_occupied")
-    token_present = bool(os.environ.get("SWITCHBOARD_ADMIN_TOKEN", "").strip())
-    if not token_present:
+    assert_port_bindable(config.host, config.port)
+
+
+def _validate_token() -> None:
+    if not os.environ.get("SWITCHBOARD_ADMIN_TOKEN", "").strip():
         raise OperatorLifecycleFailure("admin_token_missing")
-    snapshot = source_snapshot(config)
+
+
+def safe_readiness_identity(field: str, value: object) -> str | None:
+    """Use one closed public-identity policy before execution and presentation."""
+
+    rule = _PUBLIC_IDENTITY_RULES.get(field)
+    if rule is None or not isinstance(value, str):
+        return None
+    pattern, maximum = rule
+    token = os.environ.get("SWITCHBOARD_ADMIN_TOKEN", "").strip()
+    if (
+        len(value) > maximum
+        or pattern.fullmatch(value) is None
+        or _CREDENTIAL.search(value)
+        or (token and token in value)
+        or any(part in {".", ".."} for part in value.split("/"))
+    ):
+        return None
+    return value
+
+
+def _validate_configuration(config: OperatorLifecycleConfig) -> None:
+    payload = asdict(config)
+    payload.update(
+        schema_version=1,
+        canonical_checkout=str(config.canonical_checkout),
+        runtime_root=str(config.runtime_root),
+    )
+    try:
+        OperatorLifecycleConfig.from_mapping(payload)
+    except (OperatorConfigurationError, ValueError, TypeError, OverflowError) as error:
+        raise OperatorLifecycleFailure("invalid_configuration") from error
+    for field in _PUBLIC_IDENTITY_RULES:
+        if field == "verified_manifest_digest":
+            continue
+        value = getattr(config, field)
+        if field == "expected_manifest_digest" and value is None:
+            continue
+        if safe_readiness_identity(field, value) is None:
+            raise OperatorLifecycleFailure("invalid_configuration")
+
+
+def _validated_manifest(config: OperatorLifecycleConfig) -> TrustedManifest:
     manifest = get_trusted_manifest(config.manifest_name, config.manifest_version)
     if manifest is None:
         raise OperatorLifecycleFailure("trusted_manifest_not_found")
     digest = manifest.digest
+    if safe_readiness_identity("verified_manifest_digest", digest) is None:
+        raise OperatorLifecycleFailure("public_identity_rejected")
     if (
         config.expected_manifest_digest is not None
         and digest != config.expected_manifest_digest
@@ -403,17 +569,104 @@ def run_preflight(config: OperatorLifecycleConfig) -> PreflightResult:
         or not manifest.execution_steps
     ):
         raise OperatorLifecycleFailure("trusted_manifest_contract_unsupported")
-    _validate_manifest_timeouts(config, manifest)
-    if not _manifest_capabilities_compatible(manifest.required_capabilities):
-        raise OperatorLifecycleFailure("worker_capability_mismatch")
-    return PreflightResult(
-        source=snapshot,
-        manifest_digest=digest,
-        manifest_steps=tuple(
-            (step.id, step.required) for step in manifest.execution_steps
+    return manifest
+
+
+@dataclass(slots=True)
+class _PreflightProbes:
+    config: OperatorLifecycleConfig
+    source: SourceSnapshot | None = None
+    manifest: TrustedManifest | None = None
+
+    def inspect_source(self) -> None:
+        self.source = source_snapshot(self.config)
+
+    def inspect_manifest(self) -> None:
+        self.manifest = _validated_manifest(self.config)
+
+    def inspect_timeouts(self) -> None:
+        assert self.manifest is not None
+        _validate_manifest_timeouts(self.config, self.manifest)
+
+    def inspect_capabilities(self) -> None:
+        assert self.manifest is not None
+        if not _manifest_capabilities_compatible(self.manifest.required_capabilities):
+            raise OperatorLifecycleFailure("worker_capability_mismatch")
+
+    def ordered(self) -> tuple[Callable[[], None], ...]:
+        return (
+            lambda: _validate_configuration(self.config),
+            _validate_python_runtime,
+            _validate_containment,
+            lambda: _validate_roots(self.config),
+            lambda: _validate_control_plane(self.config),
+            lambda: _validate_port(self.config),
+            _validate_token,
+            self.inspect_source,
+            self.inspect_manifest,
+            self.inspect_timeouts,
+            self.inspect_capabilities,
+        )
+
+
+def assess_preflight(config: OperatorLifecycleConfig) -> PreflightAssessment:
+    """Run the single authoritative sequence, stopping at its first failure."""
+
+    probes = _PreflightProbes(config)
+    checks: list[PreflightCheck] = []
+    reason = "ready"
+    for name, probe in zip(READINESS_CHECKS, probes.ordered(), strict=True):
+        if reason != "ready":
+            checks.append(PreflightCheck(name, "not_checked"))
+            continue
+        try:
+            probe()
+        except OperatorLifecycleFailure as error:
+            reason = (
+                error.reason
+                if error.reason in PREFLIGHT_FAILURE_REASONS
+                else "preflight_probe_failed"
+            )
+        except Exception:
+            reason = "preflight_probe_failed"
+        checks.append(
+            PreflightCheck(
+                name,
+                "pass" if reason == "ready" else "fail",
+                None if reason == "ready" else reason,
+            )
+        )
+    manifest = probes.manifest
+    result = None
+    if reason == "ready" and manifest is not None and probes.source is not None:
+        result = PreflightResult(
+            source=probes.source,
+            manifest_digest=manifest.digest,
+            manifest_steps=tuple(
+                (step.id, step.required) for step in manifest.execution_steps
+            ),
+            token_present=True,
+        )
+    return PreflightAssessment(
+        result=result,
+        checks=tuple(checks),
+        reason=reason,
+        manifest_timeout_seconds=(manifest.timeout_seconds if manifest else None),
+        maximum_step_timeout_seconds=(
+            max(step.timeout_seconds for step in manifest.execution_steps)
+            if manifest
+            else None
         ),
-        token_present=token_present,
     )
+
+
+def run_preflight(config: OperatorLifecycleConfig) -> PreflightResult:
+    """Repeat all read-only checks immediately before runtime creation."""
+
+    assessment = assess_preflight(config)
+    if assessment.result is None:
+        raise OperatorLifecycleFailure(assessment.reason)
+    return assessment.result
 
 
 __all__ = [

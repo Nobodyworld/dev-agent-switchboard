@@ -14,6 +14,7 @@ Switchboard is a reference implementation for coordinating multiple agents again
 - **Compact validation evidence** — `validate-switchboard@1` records strict step outcomes, parsed test/coverage/security summaries, dependency-lock hashes, retained artifact hashes, and a deterministic fingerprint without returning full local logs.
 - **Source-controlled workload factory** — four reviewed public catalog entries include the legacy Switchboard and Modular Accounting contracts plus `validate-zscripts@1` and `validate-industry-resilience@1`; profiles are compiled from typed repository source, never uploaded or target-authored configuration.
 - **Validation Broker workspace** — operators can configure local-worker routing, resolve a GitHub pull request to an exact head, approve and queue it, distinguish fresh execution from exact reuse, publish current or stale evidence, and inspect bounded history without assembling API calls by hand.
+- **Operator readiness and progress** — check an exact private configuration before creating a runtime, observe bounded lifecycle transitions, and receive sanitized corrective guidance while fresh and reuse approvals remain explicit.
 - **Live state synchronization** — plan changes are broadcast to the dashboard and clients over WebSockets.
 - **Live-file hosting** — agents can fetch mutable documents by URL; mutation endpoints can be protected with an admin token.
 - **Operational visibility** — health, readiness, diagnostics, metrics hooks, structured logs, and rate limiting.
@@ -87,6 +88,27 @@ exact commit. A fresh run remains the default; `allow_exact` may reuse retained
 evidence only after same-worker identity, ownership, expiry, containment, size,
 and SHA-256 verification. Approval and repository mapping are trust decisions,
 not setup steps to automate.
+
+For a separate owned server/worker lifecycle, prepare the private configuration
+in the [operator guide](docs/operations/operator-validation-lifecycle.md), then
+check its current readiness and run with human output and optional progress:
+
+```bash
+python scripts/dev.py validation-preflight --config <private-config.json>
+python scripts/dev.py validation-lifecycle --config <private-config.json> --format human --progress
+```
+
+Readiness uses the same checks as execution but creates no runtime or work
+order and grants no approval. Execution checks again; readiness reserves
+neither the source state nor the loopback port. Fresh and reuse require
+separate deliberate confirmations, or their explicit approval flags for
+non-interactive use. Progress describes only observed transitions on stderr.
+
+Use `--format json` for one bounded JSON object on stdout, with prompts and
+progress on stderr. Readiness defaults to human output; lifecycle and stored
+runtime inspection retain their JSON defaults. Inspection is explicitly
+`stored state only; live evidence not reverified` and does not repeat retained
+evidence verification.
 
 ### 4. Create a task
 
@@ -204,7 +226,7 @@ See [SECURITY.md](SECURITY.md) and [docs/configuration.md](docs/configuration.md
 - **[Configuration](docs/configuration.md)** — environment variables and runtime settings.
 - **[Agent Integration](docs/ai-interface.md)** — how agents interact with Switchboard.
 - **[Local Worker Operations](docs/operations/local-worker.md)** — trusted repository mapping, worker configuration, execution, evidence retention, and limitations.
-- **[Owned Validation Lifecycle](docs/operations/operator-validation-lifecycle.md)** — exact preflight, explicit fresh/reuse approval, marker-owned runtime, contained startup/shutdown, retained-evidence verification, and bounded reports.
+- **[Owned Validation Lifecycle](docs/operations/operator-validation-lifecycle.md)** — read-only readiness, bounded progress and diagnostics, explicit fresh/reuse approval, marker-owned startup/shutdown, retained-evidence verification, and compatible stored reports.
 - **[Trusted Workload Onboarding](docs/operations/trusted-workload-onboarding.md)** — reviewed catalog entries, fixed manifests, worker mapping, and acceptance evidence.
 - **[Validation Command Center](docs/operations/validation-command-center.md)** — browser workflow, bounded projections, exact-reuse metrics, and publication controls.
 - **[Public Status](docs/reports/status.md)** — current developer-preview posture and release boundaries.
