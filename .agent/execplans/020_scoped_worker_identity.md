@@ -257,7 +257,7 @@ Use only Python standard-library cryptographic randomness/comparison primitives 
 
 Preflight on 2026-09-14 matched local/remote prepared head `4099ad9eab97b14acd8f293a5eadd8791b61fdd3` and main `ce0cb9e9fdfadf8e31a751789c795743330e8624`. The owner confirmed PR #160 remains open/draft/unmerged. Bounded Git status excluded exactly the three preserved cache roots, confirmed no tracked entries there and no other dirt. One detached slice worktree preserves the primary and all four retained worktrees. First source correction removes the extra final newline; unchanged-head CI is not rerun.
 
-All existing execution routes require administrator authority. Their final classification remains administrator-only; dedicated worker routes are added separately. No execution route is public. Explicit per-route dependencies and an enumerated regression will guard this boundary.
+The matrix classifies the accepted mode with a configured administrator token. All 42 existing execution routes use the administrator dependency; dedicated worker routes are added separately. Explicit per-route dependencies and an enumerated regression guard this boundary. The pre-existing unconfigured demo mode makes the administrator dependency optional; it is not an accepted credentialed worker/operator lifecycle. Credential management refuses that mode, and worker-shaped credentials are rejected outside the dedicated worker routes even there.
 
 | Existing route | Handler | Current authority | Final authority |
 |---|---|---|---|
@@ -339,7 +339,7 @@ Credential management adds administrator-only `POST /api/execution/worker-creden
 
 ### Implementation decisions and validation in progress (2026-09-14)
 
-- Existing 42 execution routes remain administrator-only with explicit route dependencies. Nine new worker routes and four credential-management routes make 55 execution routes in total. The matrix regression also compares the route inventory against generated OpenAPI so a new unclassified execution route fails the gate.
+- Existing 42 execution routes retain explicit administrator dependencies in the configured mode classified above. Nine new worker routes and four credential-management routes make 55 execution routes in total. The matrix regression also compares the route inventory against generated OpenAPI so a new unclassified execution route fails the gate.
 - `WorkerExecutionClient` has exactly nine lifecycle methods plus resource `close`; it shares only transport and worker operations with the broad administrator subtype. It never inherits administrator methods. `LocalWorker` requires this narrow interface. Authentication rejection latches the worker client closed and cancels active execution without completion.
 - Dedicated routes reject identity substitution; manifest reads require the owned run ID. Credential management requires a configured administrator and expected credential ID for rotation/revocation. One new table is additive and bounds state to one row per worker; no previous table is changed.
 - The operator lifecycle preserves the existing report/progress schema and marker checks. Revocation failure makes the outcome fail with a bounded reason. Successful shutdown records revocation in the database before stopping the owned processes.
@@ -421,6 +421,7 @@ No public execution route is added. Malformed/unknown/revoked credentials, dupli
 - `server/api/routers/worker_credentials.py`
 - `server/api/routers/worker_execution.py`
 - `server/execution/credentials.py`
+- `server/execution/operator_projection.py`
 - `server/execution/text_policy.py`
 - `server/models.py`
 - `server/tests/test_worker_credentials.py`
@@ -460,3 +461,20 @@ Validation files remain external to tracked evidence. The three earlier partiall
 
 
 The existing optional commit-message hook invocation fails because its pinned `conventional-pre-commit` version does not support the configured `--config` option. The same pinned validator passed with strict parsing and the exact eleven types in `conventional.yaml`; the normal `pre-commit --all-files` gate remains passing. No hook/configuration change, hook bypass flag, scanner suppression, or Git stash change is part of this slice. Hosted Commitlint remains a separate required check. Ruff also removed the now-unused test-only S105 suppression after the generated malformed-token fixture replaced the literal.
+
+### Hosted validation correction (2026-09-15)
+
+The first implementation commit `2da9019c3f4b147e56a65cc9f9bd98e01b73b416` passed the recorded Windows validation and was pushed normally. Hosted Commitlint and all three workload-acceptance jobs passed. CI passed lint, typecheck, security, secrets, links and Accounting acceptance, but its test job stopped at 117 passes, four skips and the first real IPv4 operator lifecycle failure (`loopback_port_not_released`). Dependent coverage and browser jobs were skipped, so that hosted run is not accepted.
+
+A focused reproduction in the existing Ubuntu runtime proved the defect. Issuance reserves an offline identity with an empty repository list; the administrator worker-summary output required at least one repository. Polling before registration therefore returned HTTP 500. The server closed those failed connections, leaving server-side TCP TIME_WAIT entries which the unchanged exclusive-bind release check correctly rejected. The output summary now permits the empty provisioned state; authenticated registration still requires at least one reviewed repository. A new regression checks visibility, offline/unavailable state, no advertised authority, rejection of empty registration, and successful registration of the same identity. Real IPv4/IPv6 lifecycle cases also reject server tracebacks. No shutdown ordering, port probe, timeout, readiness, cleanup, or approval boundary is weakened. Corrected focused and complete validation remains required before the next normal push.
+
+### Corrected candidate validation (2026-09-15)
+
+- Native Linux focused proof: 31 passed, zero skipped. All four real IPv4/IPv6 fresh-only and fresh-then-exact-reuse scenarios passed with empty server-port socket tables at the unchanged exclusive-bind check. The two bound-but-not-listening rejection cases passed. Issuance/rotation/revocation, prior-schema/repeated startup, the full route/client boundary and both real active-process credential-loss cases passed.
+- Windows focused security/operator/readiness/progress proof: 168 passed, four skipped (three unavailable symlink cases and the explicitly opt-in full Switchboard lifecycle).
+- Complete `python scripts/dev.py verify`: 1,012 passed, 16 skipped, 348 warnings in 1,000.54 seconds. Strict Playwright ran all four browser cases with zero skips; all eight server-backed workload cases and nine real Windows junction cases passed. All 20 verify coverage gates and both additional CI module gates passed. Informational measured aggregate coverage is 89.96% (2,769/3,078 statements); no threshold changed. The installed dependency audit found no known vulnerabilities.
+- Both Windows and Linux-target Mypy passed over 212 source files. Ruff check/format, Black, Bandit, TODO checks and the unchanged four-entry workload catalog passed. All ten applicable pre-commit hooks passed without modifying source; the existing Prettier regex matched no files. Staged Gitleaks and detect-secrets passed. Lychee passed 195 checks with five configured exclusions, two redirects and zero errors.
+- The original complete declared-dependency audits, workload factory coverage and Action/config checks remain applicable: this correction changes one output list constraint, focused assertions and documentation; dependency declarations, factory logic and workflows are unchanged. Complete pytest was rerun on the corrected source as part of verify. Original failed Linux traces and corrected XML/log evidence are retained externally; all historical and failed runtimes remain preserved.
+- The accepted authority matrix explicitly assumes a configured administrator token. Documentation now calls out the preserved optional administrator guard in legacy unconfigured demo mode, where credential management refuses operation. No worker credential is accepted outside the worker allowlist in either mode.
+
+Normal correction publication and its exact-head hosted checks are next. The first implementation head's failed CI is historical and must not be retried or represented as passing. Independent connector review and owner ready/merge authorization remain outstanding; this implementation task preserves draft/unmerged state.

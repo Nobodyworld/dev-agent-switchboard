@@ -90,8 +90,12 @@ only these lifecycle operations and `close()`.
 
 Path/body/query substitution is rejected. Existing execution routes, catalog,
 routing, credential management, approval, queueing, cancellation, GitHub and
-operator surfaces remain administrator-only. No execution route is public.
-The existing `/health/ready` probe is separate and exposes no credential.
+operator surfaces require administrator authority when the administrator token
+is configured, as required for accepted worker/operator operation. The existing
+unconfigured demo mode retains its optional administrator guard; credential
+management refuses that mode. Worker-shaped credentials are rejected outside
+the worker allowlist in both modes. The existing `/health/ready` probe is
+separate and exposes no credential.
 
 A worker client permanently stops HTTP requests after 401/403. During an active
 run, its monitor cancels the process tree through existing containment rules,

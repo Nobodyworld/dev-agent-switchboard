@@ -124,7 +124,8 @@ class ExecutionWorkerSummaryOut(OperatorProjectionModel):
     desktop_available: bool
     network_policy_capability: Literal["disabled", "worker_restricted"]
     repository_write_capability: Literal[False]
-    repository_full_names: list[str] = Field(min_length=1, max_length=32)
+    # Provisioned identities advertise no repositories until registration.
+    repository_full_names: list[str] = Field(max_length=32)
     status: str = Field(min_length=1, max_length=32)
     activity_state: Literal["active", "stale", "capacity_constrained", "unavailable"]
     active_run_count: int = Field(ge=0)

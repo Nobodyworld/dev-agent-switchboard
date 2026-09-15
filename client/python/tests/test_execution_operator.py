@@ -1220,6 +1220,11 @@ def test_real_server_worker_synthetic_lifecycle_modes(  # noqa: PLR0913, PLR0915
                 manifest.execution_steps
             )
         assert inspect_validation_runtime(runtime_root).as_dict() == report.as_dict()
+        server_log = (runtime_root / "processes" / "server.log").read_text(
+            encoding="utf-8"
+        )
+        assert "Traceback" not in server_log
+        assert "ValidationError" not in server_log
         for path in (
             runtime_root / "operator-runtime.json",
             runtime_root / "worker-config.json",

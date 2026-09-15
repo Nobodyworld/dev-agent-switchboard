@@ -153,6 +153,48 @@ def test_issuance_rotation_revocation_and_no_plaintext(api, caplog):
     assert token not in caplog.text and rotated["worker_token"] not in caplog.text
 
 
+def test_provisioned_worker_is_visible_but_unavailable_until_registration(api):
+    issued = issue(api)
+    response = api.get("/api/execution/workers?limit=100&offset=0")
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    item = response.json()["items"][0]
+    assert item["worker_id"] == "worker-a"
+    assert item["repository_full_names"] == []
+    assert item["status"] == "offline"
+    assert item["activity_state"] == "unavailable"
+    assert item["active_run_count"] == 0
+    assert item["repository_write_capability"] is False
+    assert issued["worker_token"] not in response.text
+    registration = {
+        "worker_id": "worker-a",
+        "display_name": "Worker A",
+        "operating_system": "windows",
+        "architecture": "amd64",
+        "repository_full_names": [],
+    }
+    headers = worker_headers(issued)
+    assert (
+        api.post(
+            "/api/execution/worker/workers", json=registration, headers=headers
+        ).status_code
+        == 422
+    )
+    registration["repository_full_names"] = ["Nobodyworld/dev-agent-switchboard"]
+    assert (
+        api.post(
+            "/api/execution/worker/workers", json=registration, headers=headers
+        ).status_code
+        == 200
+    )
+    registered = api.get("/api/execution/workers?limit=100&offset=0")
+    assert registered.status_code == 200
+    assert registered.json()["total"] == 1
+    item = registered.json()["items"][0]
+    assert item["repository_full_names"] == registration["repository_full_names"]
+    assert item["status"] == "online"
+
+
 @pytest.mark.parametrize(
     "kind",
     [
