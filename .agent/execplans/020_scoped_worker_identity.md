@@ -28,7 +28,7 @@ This remains `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY`. It is not an O
 - [x] Add rotation/revocation, impersonation, ownership-loss, leakage, migration, and lifecycle regressions.
 - [x] Update operations/security docs, moving status, and this living plan.
 - [x] Run complete local validation.
-- [ ] Verify exact-head hosted workflows after normal publication.
+- [x] Verify exact-head hosted workflows after normal publication (validated implementation `b0632c4427029ae0ac96b32ff57da63a9097eb54`; final documentation-only head checks are recorded on PR #160).
 - [ ] Connector review complete with no unresolved blocker.
 - [ ] Owner separately authorizes ready transition and merge.
 
@@ -74,7 +74,7 @@ This remains `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY`. It is not an O
 
 ## Outcomes & Retrospective
 
-Implemented the scoped credential contract in one isolated slice worktree while preserving the primary checkout and all retained state. The administrator explicitly issues a server-generated secret; the database retains one verifier record per worker. The worker uses nine dedicated routes and loses authority on subsequent requests after rotation/revocation. Real process tests prove that both transitions cancel an already-started subprocess, retain failure evidence, leave the authoritative run unfinished, and stop further checkout. Final validation and hosted publication evidence are recorded below as they complete. The PR remains draft and unmerged; independent review and any later ready/merge decision remain separate.
+Implemented the scoped credential contract in one isolated slice worktree while preserving the primary checkout and all retained state. The administrator explicitly issues a server-generated secret; the database retains one verifier record per worker. The worker uses nine dedicated routes and loses authority on subsequent requests after rotation/revocation. Real process tests prove that both transitions cancel an already-started subprocess, retain failure evidence, leave the authoritative run unfinished, and stop further checkout. Complete local validation and successful hosted implementation validation are recorded below. The PR remains draft and unmerged; independent review and any later ready/merge decision remain separate.
 
 ## Context and Orientation
 
@@ -445,7 +445,7 @@ No public execution route is added. Malformed/unknown/revoked credentials, dupli
 | Bandit | PASS: repository server scope; no manager scan errors |
 | Dependency audits | PASS: server requirements, declared client requirements and installed validation environment; no known vulnerabilities |
 | detect-secrets | PASS with the existing baseline; no baseline regeneration |
-| Gitleaks | PASS: staged candidate; historical full-history scan covered 353 commits; final committed history must be rescanned before push |
+| Gitleaks | PASS: staged candidate; historical scan covered 353 commits; subsequent normal publications passed full-history scans through 356 commits, with each new committed head rescanned before its push |
 | Lychee 0.24.2 | PASS: 195 successes, five configured exclusions, two redirects, zero errors |
 | Workload catalog | PASS: four reviewed entries; no catalog changes |
 | Workload factory/readiness coverage | PASS: 25 tests; 100% and 92.54% against unchanged 90% gates |
@@ -478,10 +478,28 @@ A focused reproduction in the existing Ubuntu runtime proved the defect. Issuanc
 - The original complete declared-dependency audits, workload factory coverage and Action/config checks remain applicable: this correction changes one output list constraint, focused assertions and documentation; dependency declarations, factory logic and workflows are unchanged. Complete pytest was rerun on the corrected source as part of verify. Original failed Linux traces and corrected XML/log evidence are retained externally; all historical and failed runtimes remain preserved.
 - The accepted authority matrix explicitly assumes a configured administrator token. Documentation now calls out the preserved optional administrator guard in legacy unconfigured demo mode, where credential management refuses operation. No worker credential is accepted outside the worker allowlist in either mode.
 
-Normal correction publication and its exact-head hosted checks are next. The first implementation head's failed CI is historical and must not be retried or represented as passing. Independent connector review and owner ready/merge authorization remain outstanding; this implementation task preserves draft/unmerged state.
+Normal correction publication and its subsequent hosted test/browser follow-up are recorded below. The first implementation head's failed CI is historical and must not be retried or represented as passing. Independent connector review and owner ready/merge authorization remain outstanding; this implementation task preserves draft/unmerged state.
 
 ### Strict browser synchronization correction
 
 The normally published correction `2f73d3f8ed0ad00b2206c786e784e9d491154d16` passed hosted full pytest (1,012 passed, 16 skipped), Commitlint, workload acceptances, lint/typecheck/security/secrets/links and Accounting acceptance. Its strict browser job reported three passes and one failure: the quota-refresh test observed 15 instead of its requested 14. The existing browser test waited for a transient "Saved profile revision" message, then typed while the asynchronous worker refresh could still repopulate the form with the previous value. The test now waits for the existing "Editing revision" completion state before editing or inducing the next revision conflict. Both expected values and explicit quota confirmation remain unchanged. This is a test synchronization correction; no product JavaScript, routing, credential authority or approval behavior changes. Strict browser and staged checks must pass before normal publication; unchanged failed heads are not rerun.
 
 Corrected strict Playwright passed all four cases with zero skips in 23.47 seconds. The only changes after the complete 1,012-test local verification are this browser wait correction and the living evidence text; production source, schema, credential logic and workload fixtures are unchanged. The changed-file inventory now contains 45 files.
+
+### Successful hosted implementation validation and handoff
+
+All workflows passed for implementation head `b0632c4427029ae0ac96b32ff57da63a9097eb54` on 2026-09-15:
+
+| Workflow | Run | Evidence |
+|---|---|---|
+| CI | `34925371826` | All nine jobs passed: lint, typecheck, security, secrets, links, Accounting acceptance, full pytest, coverage and strict browser |
+| Workload acceptance | `34925371888` | All three jobs passed: reviewed factory coverage, Zscripts and Industry Resilience |
+| Commitlint | `34925371841` | Passed |
+
+Hosted full pytest and coverage each passed 1,012 tests with 16 explicit skips. All 22 module thresholds passed. The strict browser job passed all four cases with zero skips. Hosted general-suite skips are nine Windows-only junction cases, four browsers absent from that job but covered by the strict browser job, two workload Python-version requirements covered by their dedicated acceptance jobs, and the opt-in full Switchboard lifecycle. Local Windows proof covers all nine junction cases. The full Switchboard opt-in acceptance remains not run.
+
+The test-only browser synchronization follow-up changed no production source: Git tree IDs for `server`, `client`, `scripts` and `web/static` are identical to the complete local validation source at `2f73d3f8ed0ad00b2206c786e784e9d491154d16`. Documentation-only handoff changes retain those same source objects. The exact final published SHA and its hosted results are recorded on PR #160 and issue #159; both retain draft/open status pending independent connector review and owner decisions.
+
+Preservation was rechecked: one new detached implementation worktree, all five pre-existing worktrees and their heads unchanged, primary still at prepared `4099ad9eab97b14acd8f293a5eadd8791b61fdd3`, main still `ce0cb9e9fdfadf8e31a751789c795743330e8624`, and `security-deferral-wip` unchanged. The three authorized primary cache exclusions remain untracked and preserved. No issue-owned validation process remains on Windows or Linux; all seven recorded Linux diagnostic/acceptance ports are free. The four Windows operator scenarios proved owned process shutdown and port release. Three failed Windows and three failed Linux synthetic roots remain preserved with external evidence. No branch, retained worktree, historical runtime or evidence was removed.
+
+The remaining boundaries are independent connector review, separately authorized ready/merge decisions, the explicit opt-in full Switchboard acceptance, platform-specific skips and the pre-existing optional commit-message wrapper incompatibility. None authorizes production, isolation, automatic approval/retry/merge, release or deployment.

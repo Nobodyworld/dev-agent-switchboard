@@ -24,6 +24,26 @@ active ExecPlan: .agent/execplans/020_scoped_worker_identity.md
 current PR head and hosted checks: GitHub PR #160 is authoritative after publication
 ```
 
+## Scoped worker identity (validated draft)
+
+Issue #159 / draft PR #160 implements separate administrator and worker authority.
+A server-generated worker secret is bound to one worker ID; persistence retains
+one verifier row with bounded lifecycle metadata. The worker uses nine scoped
+routes and stops after credential rejection without fabricated completion.
+Both manual and owned-lifecycle paths keep the administrator credential out of
+the accepted worker process. The existing unconfigured demo mode is separately
+documented and cannot provision worker credentials.
+
+Implementation `b0632c4427029ae0ac96b32ff57da63a9097eb54` passed complete local
+verification (1,012 tests, 16 explicit skips), native Linux focused proof (31
+passes), strict Playwright (four passes, zero skips), security/secret scans and
+all 22 module coverage thresholds. Hosted CI `34925371826`, Workload acceptance
+`34925371888` and Commitlint `34925371841` passed. ExecPlan 020 records exact
+route/client matrices, migration proof, genuine skips and the 45-file inventory.
+PR #160 records any subsequent documentation-only head and its hosted results.
+The PR remains draft/unmerged pending independent connector review and separate
+owner ready/merge decisions. This adds no isolation or production authorization.
+
 PR #145 merged the public workload onboarding factory after exact-head local validation, hosted validation, and connector review. The merge retained the repository’s developer-preview classification and did not authorize release, deployment, live external target execution, MCP, paid-provider routing, or expanded worker types.
 
 ## Operator readiness and progress
