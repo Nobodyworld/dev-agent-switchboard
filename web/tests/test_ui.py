@@ -728,7 +728,8 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
         page.fill("#profileCapacity", "20")
         page.fill("#profileRemaining", "15")
         page.click('#routingProfileForm button[type="submit"]')
-        expect(page.locator("#profileStatus")).to_contain_text("revision 1")
+        # The saved notice precedes the refresh that repopulates this form.
+        expect(page.locator("#profileStatus")).to_contain_text("Editing revision 1")
         page.fill("#profileRemaining", "14")
         page.once("dialog", lambda dialog: dialog.accept())
         page.click("#resetProfileQuota")
@@ -739,7 +740,7 @@ def test_validation_broker_operator_workflow_is_accessible_and_responsive(  # no
         expect(page.locator("#profileRevision")).to_have_value("1")
         page.fill("#profileCost", "4")
         page.click('#routingProfileForm button[type="submit"]')
-        expect(page.locator("#profileStatus")).to_contain_text("revision 2")
+        expect(page.locator("#profileStatus")).to_contain_text("Editing revision 2")
 
         _put_json(
             page,

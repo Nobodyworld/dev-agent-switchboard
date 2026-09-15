@@ -425,6 +425,7 @@ No public execution route is added. Malformed/unknown/revoked credentials, dupli
 - `server/execution/text_policy.py`
 - `server/models.py`
 - `server/tests/test_worker_credentials.py`
+- `web/tests/test_ui.py`
 
 
 ### Local validation ledger (2026-09-14)
@@ -478,3 +479,9 @@ A focused reproduction in the existing Ubuntu runtime proved the defect. Issuanc
 - The accepted authority matrix explicitly assumes a configured administrator token. Documentation now calls out the preserved optional administrator guard in legacy unconfigured demo mode, where credential management refuses operation. No worker credential is accepted outside the worker allowlist in either mode.
 
 Normal correction publication and its exact-head hosted checks are next. The first implementation head's failed CI is historical and must not be retried or represented as passing. Independent connector review and owner ready/merge authorization remain outstanding; this implementation task preserves draft/unmerged state.
+
+### Strict browser synchronization correction
+
+The normally published correction `2f73d3f8ed0ad00b2206c786e784e9d491154d16` passed hosted full pytest (1,012 passed, 16 skipped), Commitlint, workload acceptances, lint/typecheck/security/secrets/links and Accounting acceptance. Its strict browser job reported three passes and one failure: the quota-refresh test observed 15 instead of its requested 14. The existing browser test waited for a transient "Saved profile revision" message, then typed while the asynchronous worker refresh could still repopulate the form with the previous value. The test now waits for the existing "Editing revision" completion state before editing or inducing the next revision conflict. Both expected values and explicit quota confirmation remain unchanged. This is a test synchronization correction; no product JavaScript, routing, credential authority or approval behavior changes. Strict browser and staged checks must pass before normal publication; unchanged failed heads are not rerun.
+
+Corrected strict Playwright passed all four cases with zero skips in 23.47 seconds. The only changes after the complete 1,012-test local verification are this browser wait correction and the living evidence text; production source, schema, credential logic and workload fixtures are unchanged. The changed-file inventory now contains 45 files.
