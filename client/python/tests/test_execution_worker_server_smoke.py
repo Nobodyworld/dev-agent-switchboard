@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from client.python.execution_worker import worker as worker_module
 from client.python.execution_worker.capabilities import discover_worker_registration
-from client.python.execution_worker.client import ExecutionClient
+from client.python.execution_worker.client import ExecutionClient, WorkerExecutionClient
 from client.python.execution_worker.config import WorkerConfig
 from client.python.execution_worker.evidence import EvidenceStore
 from client.python.execution_worker.worker import LocalWorker
@@ -445,10 +445,12 @@ class _AsgiSession:
                     request_target,
                     headers=kwargs.get("headers"),
                     json=kwargs.get("json"),
+                    params=kwargs.get("params"),
                 )
                 return raw.status_code, raw.content, dict(raw.headers), str(raw.url)
 
-        status_code, content, headers, response_url = asyncio.run(send())
+        with patch("server.api.dependencies.get_admin_token", return_value=_TOKEN):
+            status_code, content, headers, response_url = asyncio.run(send())
         return _AsgiResponse(status_code, content, headers, response_url)
 
     def close(self) -> None:
@@ -682,16 +684,16 @@ def test_server_backed_worker_smoke_executes_exact_sha_and_releases_lease(
             base_url="http://switchboard.test",
             worker_id="server-smoke-worker",
             display_name="Server smoke worker",
-            admin_token=_TOKEN,
+            worker_token=_TOKEN,
             worker_root=tmp_path / "worker-root",
             evidence_root=tmp_path / "evidence-root",
             repositories={"Nobodyworld/dev-agent-switchboard": canonical},
             heartbeat_interval_seconds=5,
         )
-        with ExecutionClient(
+        with _scoped_client(
             config.base_url,
             config.worker_id,
-            config.admin_token,
+            config.worker_token,
             session=_AsgiSession(app),  # type: ignore[arg-type]
         ) as client:
             worker = LocalWorker(config, client)
@@ -810,7 +812,7 @@ def _run_catalog_profile_acceptance(  # noqa: PLR0913, PLR0915 - acceptance inpu
         base_url="http://switchboard.test",
         worker_id=f"{manifest_name}-mapped-worker",
         display_name=f"{manifest_name} mapped worker",
-        admin_token=_TOKEN,
+        worker_token=_TOKEN,
         worker_root=tmp_path / f"{manifest_name}-mapped-worktrees",
         evidence_root=tmp_path / f"{manifest_name}-mapped-evidence",
         repositories={repository_name: canonical},
@@ -822,7 +824,7 @@ def _run_catalog_profile_acceptance(  # noqa: PLR0913, PLR0915 - acceptance inpu
         base_url="http://switchboard.test",
         worker_id=f"{manifest_name}-unmapped-worker",
         display_name=f"{manifest_name} unmapped worker",
-        admin_token=_TOKEN,
+        worker_token=_TOKEN,
         worker_root=tmp_path / f"{manifest_name}-unmapped-worktrees",
         evidence_root=tmp_path / f"{manifest_name}-unmapped-evidence",
         repositories={"Nobodyworld/dev-agent-switchboard": canonical},
@@ -834,7 +836,7 @@ def _run_catalog_profile_acceptance(  # noqa: PLR0913, PLR0915 - acceptance inpu
         base_url="http://switchboard.test",
         worker_id=f"{manifest_name}-mismatch-worker",
         display_name=f"{manifest_name} mismatched worker",
-        admin_token=_TOKEN,
+        worker_token=_TOKEN,
         worker_root=tmp_path / f"{manifest_name}-mismatch-worktrees",
         evidence_root=tmp_path / f"{manifest_name}-mismatch-evidence",
         repositories={repository_name: canonical},
@@ -844,22 +846,22 @@ def _run_catalog_profile_acceptance(  # noqa: PLR0913, PLR0915 - acceptance inpu
     )
     try:
         with (
-            ExecutionClient(
+            _scoped_client(
                 mapped_config.base_url,
                 mapped_config.worker_id,
-                mapped_config.admin_token,
+                mapped_config.worker_token,
                 session=_AsgiSession(app),  # type: ignore[arg-type]
             ) as mapped_client,
-            ExecutionClient(
+            _scoped_client(
                 unmapped_config.base_url,
                 unmapped_config.worker_id,
-                unmapped_config.admin_token,
+                unmapped_config.worker_token,
                 session=_AsgiSession(app),  # type: ignore[arg-type]
             ) as unmapped_client,
-            ExecutionClient(
+            _scoped_client(
                 mismatch_config.base_url,
                 mismatch_config.worker_id,
-                mismatch_config.admin_token,
+                mismatch_config.worker_token,
                 session=_AsgiSession(app),  # type: ignore[arg-type]
             ) as mismatch_client,
         ):
@@ -1265,17 +1267,17 @@ def test_server_backed_local_record_failure_completes_once_and_releases_lease(
             base_url="http://switchboard.test",
             worker_id="record-failure-worker",
             display_name="Record failure worker",
-            admin_token=_TOKEN,
+            worker_token=_TOKEN,
             worker_root=tmp_path / "worker-root",
             evidence_root=tmp_path / "evidence-root",
             repositories={"Nobodyworld/dev-agent-switchboard": canonical},
             heartbeat_interval_seconds=5,
         )
         session = _CountingAsgiSession(app)
-        with ExecutionClient(
+        with _scoped_client(
             config.base_url,
             config.worker_id,
-            config.admin_token,
+            config.worker_token,
             session=session,  # type: ignore[arg-type]
         ) as client:
             worker = LocalWorker(config, client)
@@ -1359,17 +1361,17 @@ def test_validate_switchboard_twice_retains_retrievable_exact_sha_evidence(  # n
             base_url="http://switchboard.test",
             worker_id="validation-evidence-worker",
             display_name="Validation evidence worker",
-            admin_token=_TOKEN,
+            worker_token=_TOKEN,
             worker_root=tmp_path / "worker-root",
             evidence_root=tmp_path / "evidence-root",
             repositories={"Nobodyworld/dev-agent-switchboard": canonical},
             execution_timeout_seconds=3600,
             heartbeat_interval_seconds=5,
         )
-        with ExecutionClient(
+        with _scoped_client(
             config.base_url,
             config.worker_id,
-            config.admin_token,
+            config.worker_token,
             session=_AsgiSession(app),  # type: ignore[arg-type]
         ) as client:
             worker = LocalWorker(config, client)
@@ -1556,17 +1558,17 @@ def test_mocked_github_request_executes_exact_local_head_and_publishes_once(  # 
             base_url="http://switchboard.test",
             worker_id="github-acceptance-worker",
             display_name="GitHub acceptance worker",
-            admin_token=_TOKEN,
+            worker_token=_TOKEN,
             worker_root=tmp_path / "github-worker-root",
             evidence_root=tmp_path / "github-evidence-root",
             repositories={"Nobodyworld/dev-agent-switchboard": canonical},
             execution_timeout_seconds=3600,
             heartbeat_interval_seconds=5,
         )
-        with ExecutionClient(
+        with _scoped_client(
             config.base_url,
             config.worker_id,
-            config.admin_token,
+            config.worker_token,
             session=_AsgiSession(app),  # type: ignore[arg-type]
         ) as client:
             worker = LocalWorker(config, client)
@@ -1724,7 +1726,7 @@ def test_routed_github_validation_executes_then_reuses_real_local_worker(  # noq
         base_url="http://switchboard.test",
         worker_id="operator-worker-cheap",
         display_name="Operator worker cheap",
-        admin_token=_TOKEN,
+        worker_token=_TOKEN,
         worker_root=tmp_path / "operator-cheap-worktrees",
         evidence_root=tmp_path / "operator-cheap-evidence",
         repositories={"Nobodyworld/dev-agent-switchboard": canonical},
@@ -1735,7 +1737,7 @@ def test_routed_github_validation_executes_then_reuses_real_local_worker(  # noq
         base_url="http://switchboard.test",
         worker_id="operator-worker-expensive",
         display_name="Operator worker expensive",
-        admin_token=_TOKEN,
+        worker_token=_TOKEN,
         worker_root=tmp_path / "operator-expensive-worktrees",
         evidence_root=tmp_path / "operator-expensive-evidence",
         repositories={"Nobodyworld/dev-agent-switchboard": canonical},
@@ -1744,16 +1746,16 @@ def test_routed_github_validation_executes_then_reuses_real_local_worker(  # noq
     )
     try:
         with (
-            ExecutionClient(
+            _scoped_client(
                 cheap_config.base_url,
                 cheap_config.worker_id,
-                cheap_config.admin_token,
+                cheap_config.worker_token,
                 session=_AsgiSession(app),  # type: ignore[arg-type]
             ) as cheap_client,
-            ExecutionClient(
+            _scoped_client(
                 expensive_config.base_url,
                 expensive_config.worker_id,
-                expensive_config.admin_token,
+                expensive_config.worker_token,
                 session=_AsgiSession(app),  # type: ignore[arg-type]
             ) as expensive_client,
         ):
@@ -2070,7 +2072,7 @@ def test_accounting_catalog_routes_real_worker_then_reuses_exact_evidence(  # no
         base_url="http://switchboard.test",
         worker_id="accounting-mapped-worker",
         display_name="Accounting mapped worker",
-        admin_token=_TOKEN,
+        worker_token=_TOKEN,
         worker_root=tmp_path / "accounting-mapped-worktrees",
         evidence_root=tmp_path / "accounting-mapped-evidence",
         repositories={repository_name: canonical},
@@ -2081,7 +2083,7 @@ def test_accounting_catalog_routes_real_worker_then_reuses_exact_evidence(  # no
         base_url="http://switchboard.test",
         worker_id="accounting-unmapped-worker",
         display_name="Accounting unmapped worker",
-        admin_token=_TOKEN,
+        worker_token=_TOKEN,
         worker_root=tmp_path / "accounting-unmapped-worktrees",
         evidence_root=tmp_path / "accounting-unmapped-evidence",
         repositories={"Nobodyworld/dev-agent-switchboard": canonical},
@@ -2090,16 +2092,16 @@ def test_accounting_catalog_routes_real_worker_then_reuses_exact_evidence(  # no
     )
     try:
         with (
-            ExecutionClient(
+            _scoped_client(
                 mapped_config.base_url,
                 mapped_config.worker_id,
-                mapped_config.admin_token,
+                mapped_config.worker_token,
                 session=_AsgiSession(app),  # type: ignore[arg-type]
             ) as mapped_client,
-            ExecutionClient(
+            _scoped_client(
                 unmapped_config.base_url,
                 unmapped_config.worker_id,
-                unmapped_config.admin_token,
+                unmapped_config.worker_token,
                 session=_AsgiSession(app),  # type: ignore[arg-type]
             ) as unmapped_client,
         ):
@@ -2341,3 +2343,14 @@ def test_accounting_catalog_routes_real_worker_then_reuses_exact_evidence(  # no
     finally:
         app.dependency_overrides.clear()
         asyncio.run(engine.dispose())
+
+
+def _scoped_client(base_url, worker_id, _token, *, session):
+    with patch(
+        "server.api.routers.worker_credentials.get_admin_token", return_value=_TOKEN
+    ):
+        admin = ExecutionClient(base_url, worker_id, _TOKEN, session=session)
+        issued = admin.issue_worker_credential()
+    return WorkerExecutionClient(
+        base_url, worker_id, issued["worker_token"], session=session
+    )

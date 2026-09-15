@@ -46,6 +46,8 @@ def contains_absolute_local_path(value: str) -> bool:
 def validate_no_absolute_local_path(value: str) -> str:
     """Return safe text or raise when it contains an absolute local path."""
 
+    if contains_worker_credential(value):
+        raise ValueError("text must not contain a worker credential")
     if contains_absolute_local_path(value):
         raise ValueError("text must not contain an absolute local path")
     return value
@@ -65,7 +67,8 @@ def validate_no_absolute_local_paths(value: object) -> object:
     if isinstance(value, str):
         return validate_no_absolute_local_path(value)
     if isinstance(value, Mapping):
-        for nested in value.values():
+        for key, nested in value.items():
+            validate_no_absolute_local_paths(key)
             validate_no_absolute_local_paths(nested)
     elif isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
         for nested in value:
@@ -79,3 +82,8 @@ __all__ = [
     "validate_no_absolute_local_paths",
     "validate_optional_no_absolute_local_path",
 ]
+
+
+def contains_worker_credential(value: str) -> bool:
+    """Reject even partial credential-shaped text in normal evidence."""
+    return "swb_w1." in value.lower()

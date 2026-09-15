@@ -42,6 +42,7 @@ from .runtime import (
     create_runtime,
     inspect_runtime,
     read_runtime_report,
+    verify_runtime_ownership,
     write_report,
 )
 
@@ -643,6 +644,7 @@ def run_validation_lifecycle(  # noqa: PLR0912, PLR0915 - phases stay visible
     processes: list[OwnedProcess] = []
     failure: OperatorLifecycleFailure | None = None
     token = os.environ.get("SWITCHBOARD_ADMIN_TOKEN", "")
+    credential_id: str | None = None
     try:
         progress.emit("runtime_created")
         if not token.strip():
@@ -660,7 +662,14 @@ def run_validation_lifecycle(  # noqa: PLR0912, PLR0915 - phases stay visible
             report.server_ready = True
             _record_phase(report, "server_healthy")
             progress.emit("server_ready")
-            worker = launch_worker(config, layout, runtime_summary, token)
+            verify_runtime_ownership(layout, runtime_summary)
+            if not server.running():
+                raise OperatorLifecycleFailure("owned_server_unavailable")
+            issued = client.issue_worker_credential()
+            credential_id = issued["credential_id"]
+            worker_token = issued.pop("worker_token")
+            worker = launch_worker(config, layout, runtime_summary, worker_token)
+            del worker_token
             processes.append(worker)
             progress.emit("worker_started")
             _wait_worker(client, config)
@@ -707,6 +716,28 @@ def run_validation_lifecycle(  # noqa: PLR0912, PLR0915 - phases stay visible
     finally:
         _record_phase(report, "shutdown_started")
         progress.emit("shutdown_started")
+        if credential_id is not None:
+            try:
+                verify_runtime_ownership(layout, runtime_summary)
+                if not processes[0].running():
+                    raise OperatorLifecycleFailure("owned_server_unavailable")
+                with ExecutionClient(
+                    config.base_url,
+                    config.worker_id,
+                    token,
+                    timeout=config.http_timeout_seconds,
+                ) as shutdown_client:
+                    shutdown_client.revoke_worker_credential(credential_id)
+            except (
+                OperatorLifecycleFailure,
+                ExecutionClientError,
+                OSError,
+                ValueError,
+            ):
+                if failure is None:
+                    failure = OperatorLifecycleFailure(
+                        "worker_credential_revocation_unproven"
+                    )
         report.owned_processes_stopped = _stop_owned(
             processes, config.shutdown_timeout_seconds
         )

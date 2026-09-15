@@ -597,6 +597,22 @@ class ExecutionWorker(Base):
     )
 
 
+class WorkerCredential(Base):
+    """One non-recoverable current credential per logical worker."""
+
+    __tablename__ = "execution_worker_credentials"
+    worker_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("execution_workers.worker_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    credential_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    verifier: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, nullable=False)
+    rotated_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class WorkerRoutingProfile(Base):
     """Privileged operator-owned cost and quota state for one worker."""
 

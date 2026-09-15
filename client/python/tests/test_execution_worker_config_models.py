@@ -44,7 +44,7 @@ def test_worker_config_rejects_wrong_json_types(
     field: str,
     value: object,
 ) -> None:
-    monkeypatch.setenv("SWITCHBOARD_ADMIN_TOKEN", _TOKEN)
+    monkeypatch.setenv("SWITCHBOARD_WORKER_TOKEN", _TOKEN)
     payload = _payload(tmp_path)
     payload[field] = value
 
@@ -55,7 +55,7 @@ def test_worker_config_rejects_wrong_json_types(
 def test_worker_config_rejects_unsupported_concurrency(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("SWITCHBOARD_ADMIN_TOKEN", _TOKEN)
+    monkeypatch.setenv("SWITCHBOARD_WORKER_TOKEN", _TOKEN)
     payload = _payload(tmp_path)
     payload["max_concurrency"] = 2
 

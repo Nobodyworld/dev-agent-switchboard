@@ -337,3 +337,14 @@ push, merge, or publish a target repository; add credentials or automatic
 approval; add provider routing; start browser, Docker, Unity, GPU, desktop, RPA,
 MCP, or tunnel workers; expose a public service; deploy; release; or make a
 production-readiness claim.
+
+## Scoped child-worker identity
+
+The operator/server keep administrator authority. After server health, the
+operator deliberately issues one runtime worker credential and launches the
+child with only `SWITCHBOARD_WORKER_TOKEN`. The child receives no administrator
+token. Shutdown revokes the exact credential while marker/server ownership is
+proven; an unproven revocation is reported as lifecycle failure. Tokens never
+enter JSON configuration, markers, process records, progress, reports or argv.
+See [worker credential operations](worker-credentials.md) for rotation,
+revocation, migration and fail-closed behavior.

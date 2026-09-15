@@ -26,7 +26,7 @@ class WorkerConfig:
     base_url: str
     worker_id: str
     display_name: str
-    admin_token: str = field(repr=False)
+    worker_token: str = field(repr=False)
     worker_root: Path
     repositories: Mapping[str, Path]
     evidence_root: Path
@@ -64,8 +64,8 @@ class WorkerConfig:
             raise ValueError("worker_id must not be empty")
         if not self.display_name.strip():
             raise ValueError("display_name must not be empty")
-        if not self.admin_token.strip():
-            raise ValueError("admin_token must not be empty")
+        if not self.worker_token.strip():
+            raise ValueError("worker_token must not be empty")
         if self.max_concurrency != MAX_WORKER_CONCURRENCY:
             raise ValueError("Phase 1 worker supports max_concurrency == 1 only")
         if self.poll_interval_seconds <= 0:
@@ -154,6 +154,15 @@ class WorkerConfig:
 
         if not isinstance(payload, Mapping):
             raise ValueError("worker configuration must be a mapping")
+        if any(
+            "token" in str(key).lower() or "secret" in str(key).lower()
+            for key in payload
+        ):
+            raise ValueError("credentials must not be supplied in worker JSON")
+        if "SWITCHBOARD_ADMIN_TOKEN" in os.environ:
+            raise ValueError(
+                "administrator credential must be absent from worker environment"
+            )
         repositories = payload.get("repositories")
         if not isinstance(repositories, Mapping) or not repositories:
             raise ValueError("repositories must be a mapping")
@@ -208,7 +217,7 @@ class WorkerConfig:
             base_url=required_text("base_url"),
             worker_id=required_text("worker_id"),
             display_name=required_text("display_name"),
-            admin_token=os.environ.get("SWITCHBOARD_ADMIN_TOKEN", ""),
+            worker_token=os.environ.get("SWITCHBOARD_WORKER_TOKEN", ""),
             worker_root=Path(worker_root),
             repositories=normalized_repositories,
             evidence_root=Path(evidence_root),

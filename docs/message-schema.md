@@ -140,12 +140,13 @@ nonterminal work order, so the next checkout receives a higher attempt number.
 
 `WorkerRegistrationIn` declares a stable `worker_id`, display/platform details,
 tool and browser capabilities, capacity, supported network policy, and a
-required `repository_write_capability: false`. The same Phase 1 admin token
-temporarily protects worker operations. Registration and heartbeat reject
+required `repository_write_capability: false`. Dedicated worker routes require
+`SWITCHBOARD_WORKER_TOKEN` bound to the exact worker ID. Registration and heartbeat reject
 routing-profile fields and `last_checkout_poll_at`; every known authenticated
 checkout records that timestamp from server time for the requester only.
 
-`POST /api/execution/checkout` accepts only:
+`POST /api/execution/worker/checkout` (or the administrator compatibility route
+`POST /api/execution/checkout`) accepts only:
 
 ```json
 {"worker_id": "local-linux-worker"}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
@@ -13,6 +14,7 @@ from server.application import (
     build_task_service,
 )
 from server.db import get_session
+from server.execution.credentials import WorkerPrincipal, authenticate
 from server.execution.service import ExecutionService
 from server.github_adapter.repository import GitHubAdapterRepository
 from server.github_adapter.service import (
@@ -87,7 +89,7 @@ def require_admin_token(request: Request) -> None:
         token = header.split(" ", 1)[1].strip()
     if not token:
         token = request.headers.get("X-Switchboard-Admin-Token")
-    if token != configured:
+    if token is None or not hmac.compare_digest(token.encode(), configured.encode()):
         raise HTTPException(status_code=401, detail="Invalid or missing admin token")
 
 
@@ -98,3 +100,33 @@ GitHubAdapterServiceDependency = Annotated[
 ]
 OptionalSessionDependency = Annotated[AsyncSession | None, Depends(get_session)]
 OptionalTaskServiceDependency = Annotated[TaskService | None, Depends(get_task_service)]
+
+
+async def require_worker_token(
+    request: Request, session: SessionDependency
+) -> WorkerPrincipal:
+    """Authenticate only the closed worker bearer format; never fall back to admin."""
+    headers = request.headers.getlist("Authorization")
+    if (
+        len(headers) != 1
+        or not headers[0].startswith("Bearer ")
+        or request.headers.getlist("X-Switchboard-Admin-Token")
+    ):
+        raise HTTPException(status_code=401, detail="worker_authentication_failed")
+    principal = await authenticate(session, headers[0][7:])
+    if principal is None:
+        raise HTTPException(status_code=401, detail="worker_authentication_failed")
+    if any(len(request.query_params.getlist(key)) != 1 for key in request.query_params):
+        raise HTTPException(status_code=403, detail="worker_scope_denied")
+    for key, value in request.query_params.multi_items():
+        if key == "worker_id" and value == principal.worker_id:
+            continue
+        if key == "run_id" and request.url.path.startswith(
+            "/api/execution/worker/manifests/"
+        ):
+            continue
+        raise HTTPException(status_code=403, detail="worker_scope_denied")
+    return principal
+
+
+WorkerPrincipalDependency = Annotated[WorkerPrincipal, Depends(require_worker_token)]

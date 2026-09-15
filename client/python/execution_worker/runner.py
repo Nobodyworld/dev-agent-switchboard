@@ -84,7 +84,8 @@ class StepResult:
 
 
 def _redact(value: str, config: WorkerConfig) -> str:
-    for pattern in config.redacted_value_patterns:
+    value = re.sub(r"(?i)swb_w1\.[A-Za-z0-9.]*", "[REDACTED]", value)
+    for pattern in (config.worker_token, *config.redacted_value_patterns):
         if pattern:
             value = value.replace(pattern, "[REDACTED]")
     value = _WINDOWS_ABSOLUTE_PATH.sub("[LOCAL_PATH]", value)
@@ -110,7 +111,10 @@ def environment_summary(
 def _summary(path: Path, limit: int, config: WorkerConfig) -> tuple[str, bool]:
     size = path.stat().st_size if path.exists() else 0
     lookahead = max(
-        (len(value.encode("utf-8")) for value in config.redacted_value_patterns),
+        (
+            len(value.encode("utf-8"))
+            for value in (config.worker_token, *config.redacted_value_patterns)
+        ),
         default=0,
     )
     with path.open("rb") as handle:

@@ -105,6 +105,13 @@ class _FakeClient:
     def __exit__(self, *_args: object) -> None:
         pass
 
+    def issue_worker_credential(self) -> dict[str, str]:
+        return {"credential_id": "a" * 32, "worker_token": "synthetic-worker-value"}
+
+    def revoke_worker_credential(self, credential_id: str) -> dict[str, str]:
+        assert credential_id == "a" * 32
+        return {}
+
     def create_work_order(self, payload: dict[str, object]) -> dict[str, object]:
         phase = payload["resource_metadata"]["operator_lifecycle_phase"]
         self.orders.append(phase)

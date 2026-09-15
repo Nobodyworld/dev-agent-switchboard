@@ -18,16 +18,17 @@ This remains `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY`. It is not an O
 - [x] PR #158 squash-merged as `ce0cb9e9fdfadf8e31a751789c795743330e8624`; resulting-main CI and Workload acceptance passed.
 - [x] Canonical branch `feat/scoped-worker-identity` created from exact merged main.
 - [x] Initial source/auth boundary inspected and implementation plan created.
-- [ ] Record exact current route/client call graph before implementation edits.
-- [ ] Implement persisted worker credential verifier state and additive/idempotent startup compatibility.
-- [ ] Implement administrator-only issue/rotate/revoke surfaces with one-time plaintext return.
-- [ ] Implement worker-auth principal/dependencies and narrow route authorization.
-- [ ] Split the worker HTTP client from the broad administrator/operator execution client.
-- [ ] Migrate manual local worker to process-private `SWITCHBOARD_WORKER_TOKEN`.
-- [ ] Migrate owned operator validation lifecycle so the child worker never receives `SWITCHBOARD_ADMIN_TOKEN`.
-- [ ] Add rotation/revocation, impersonation, ownership-loss, leakage, migration, and lifecycle regressions.
-- [ ] Update operations/security docs, moving status, and this living plan.
-- [ ] Run complete local validation and exact-head hosted workflows.
+- [x] Record exact current route/client call graph before implementation edits (2026-09-14).
+- [x] Implement persisted worker credential verifier state and additive/idempotent startup compatibility.
+- [x] Implement administrator-only issue/rotate/revoke surfaces with one-time plaintext return.
+- [x] Implement worker-auth principal/dependencies and narrow route authorization.
+- [x] Split the worker HTTP client from the broad administrator/operator execution client.
+- [x] Migrate manual local worker to process-private `SWITCHBOARD_WORKER_TOKEN`.
+- [x] Migrate owned operator validation lifecycle so the child worker never receives `SWITCHBOARD_ADMIN_TOKEN`.
+- [x] Add rotation/revocation, impersonation, ownership-loss, leakage, migration, and lifecycle regressions.
+- [x] Update operations/security docs, moving status, and this living plan.
+- [x] Run complete local validation.
+- [ ] Verify exact-head hosted workflows after normal publication.
 - [ ] Connector review complete with no unresolved blocker.
 - [ ] Owner separately authorizes ready transition and merge.
 
@@ -73,7 +74,7 @@ This remains `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY`. It is not an O
 
 ## Outcomes & Retrospective
 
-Pending implementation. Record the final exact credential contract, route allowlist, migration result, worker/lifecycle behavior, validation totals, explicit skips, and any deferred security limitations here before review completion.
+Implemented the scoped credential contract in one isolated slice worktree while preserving the primary checkout and all retained state. The administrator explicitly issues a server-generated secret; the database retains one verifier record per worker. The worker uses nine dedicated routes and loses authority on subsequent requests after rotation/revocation. Real process tests prove that both transitions cancel an already-started subprocess, retain failure evidence, leave the authoritative run unfinished, and stop further checkout. Final validation and hosted publication evidence are recorded below as they complete. The PR remains draft and unmerged; independent review and any later ready/merge decision remain separate.
 
 ## Context and Orientation
 
@@ -251,3 +252,211 @@ class WorkerExecutionClient:
 The worker client must not expose administrator work-order creation/approval/queueing, routing/profile mutation, GitHub publication, credential administration, or other operator authority.
 
 Use only Python standard-library cryptographic randomness/comparison primitives unless existing project dependencies already provide a clearly superior reviewed primitive; do not add an authentication framework merely for this slice.
+
+## Execution route and client authority inventory (before implementation)
+
+Preflight on 2026-09-14 matched local/remote prepared head `4099ad9eab97b14acd8f293a5eadd8791b61fdd3` and main `ce0cb9e9fdfadf8e31a751789c795743330e8624`. The owner confirmed PR #160 remains open/draft/unmerged. Bounded Git status excluded exactly the three preserved cache roots, confirmed no tracked entries there and no other dirt. One detached slice worktree preserves the primary and all four retained worktrees. First source correction removes the extra final newline; unchanged-head CI is not rerun.
+
+All existing execution routes require administrator authority. Their final classification remains administrator-only; dedicated worker routes are added separately. No execution route is public. Explicit per-route dependencies and an enumerated regression will guard this boundary.
+
+| Existing route | Handler | Current authority | Final authority |
+|---|---|---|---|
+| `GET /api/execution/catalog` | `get_trusted_catalog` | Administrator | Administrator |
+| `GET /api/execution/catalog-readiness` | `get_catalog_readiness` | Administrator | Administrator |
+| `GET /api/execution/trusted-repositories` | `list_trusted_repositories` | Administrator | Administrator |
+| `GET /api/execution/trusted-repositories/{owner}/{repository}` | `get_trusted_repository_detail` | Administrator | Administrator |
+| `GET /api/execution/trusted-repositories/{owner}/{repository}/readiness` | `get_named_trusted_repository_readiness` | Administrator | Administrator |
+| `GET /api/execution/catalog/{repository_full_name:path}/readiness` | `get_trusted_repository_readiness` | Administrator | Administrator |
+| `GET /api/execution/operator/overview` | `get_operator_overview` | Administrator | Administrator |
+| `GET /api/execution/operator/history` | `list_operator_history` | Administrator | Administrator |
+| `GET /api/execution/workers` | `list_execution_workers` | Administrator | Administrator |
+| `GET /api/execution/manifests` | `list_manifests` | Administrator | Administrator |
+| `GET /api/execution/manifests/{name}/{version}` | `get_manifest` | Administrator | Administrator |
+| `POST /api/execution/work-orders` | `create_work_order` | Administrator | Administrator |
+| `GET /api/execution/work-orders` | `list_work_orders` | Administrator | Administrator |
+| `GET /api/execution/work-orders/{work_order_id}` | `get_work_order` | Administrator | Administrator |
+| `POST /api/execution/work-orders/{work_order_id}/approve` | `approve_work_order` | Administrator | Administrator |
+| `POST /api/execution/work-orders/{work_order_id}/queue` | `queue_work_order` | Administrator | Administrator |
+| `POST /api/execution/work-orders/{work_order_id}/reject` | `reject_work_order` | Administrator | Administrator |
+| `POST /api/execution/work-orders/{work_order_id}/cancel` | `cancel_work_order` | Administrator | Administrator |
+| `POST /api/execution/work-orders/{work_order_id}/expire` | `expire_work_order` | Administrator | Administrator |
+| `POST /api/execution/work-orders/{work_order_id}/requeue` | `requeue_stale_work_order` | Administrator | Administrator |
+| `GET /api/execution/work-orders/{work_order_id}/route-assessment` | `assess_work_order_route` | Administrator | Administrator |
+| `GET /api/execution/work-orders/{work_order_id}/route` | `get_work_order_route` | Administrator | Administrator |
+| `POST /api/execution/routing-profiles` | `create_routing_profile` | Administrator | Administrator |
+| `GET /api/execution/routing-profiles` | `list_routing_profiles` | Administrator | Administrator |
+| `GET /api/execution/routing-profiles/{worker_id}` | `get_routing_profile` | Administrator | Administrator |
+| `PUT /api/execution/routing-profiles/{worker_id}` | `replace_routing_profile` | Administrator | Administrator |
+| `POST /api/execution/routing-profiles/{worker_id}/quota-reset` | `reset_routing_quota` | Administrator | Administrator |
+| `POST /api/execution/workers` | `register_worker` | Administrator | Administrator |
+| `POST /api/execution/workers/{worker_id}/heartbeat` | `heartbeat_worker` | Administrator | Administrator |
+| `POST /api/execution/checkout` | `checkout_execution_work` | Administrator | Administrator |
+| `GET /api/execution/runs` | `list_runs` | Administrator | Administrator |
+| `GET /api/execution/runs/{run_id}` | `get_run` | Administrator | Administrator |
+| `GET /api/execution/runs/{run_id}/route` | `get_run_route` | Administrator | Administrator |
+| `GET /api/execution/runs/{run_id}/evidence` | `get_run_evidence` | Administrator | Administrator |
+| `POST /api/execution/runs/{run_id}/reuse-candidate` | `resolve_reuse_candidate` | Administrator | Administrator |
+| `POST /api/execution/runs/{run_id}/heartbeat` | `heartbeat_run` | Administrator | Administrator |
+| `POST /api/execution/runs/{run_id}/complete` | `complete_run` | Administrator | Administrator |
+| `POST /api/execution/leases/expire` | `expire_stale_execution_leases` | Administrator | Administrator |
+| `GET /api/execution/github/requests` | `list_github_validation_requests` | Administrator | Administrator |
+| `POST /api/execution/github/pull-requests/validate` | `request_pull_request_validation` | Administrator | Administrator |
+| `GET /api/execution/github/requests/{request_id}` | `get_github_validation_request` | Administrator | Administrator |
+| `POST /api/execution/github/requests/{request_id}/publish` | `publish_github_validation_request` | Administrator | Administrator |
+
+| Existing client method | Current authority | Final use |
+|---|---|---|
+| `__init__` | Administrator credential | Transport/resource lifecycle; no independent route authority |
+| `__enter__` | Administrator credential | Transport/resource lifecycle; no independent route authority |
+| `__exit__` | Administrator credential | Transport/resource lifecycle; no independent route authority |
+| `close` | Administrator credential | Transport/resource lifecycle; no independent route authority |
+| `list_manifests` | Administrator credential | Administrator/operator only |
+| `get_manifest` | Administrator credential | Worker lifecycle; separate worker client uses dedicated worker routes |
+| `health_ready` | Administrator credential | Administrator/operator only |
+| `list_workers` | Administrator credential | Administrator/operator only |
+| `repository_readiness` | Administrator credential | Administrator/operator only |
+| `create_work_order` | Administrator credential | Administrator/operator only |
+| `approve_work_order` | Administrator credential | Administrator/operator only |
+| `queue_work_order` | Administrator credential | Administrator/operator only |
+| `assess_work_order_route` | Administrator credential | Administrator/operator only |
+| `get_work_order_route` | Administrator credential | Administrator/operator only |
+| `list_runs` | Administrator credential | Administrator/operator only |
+| `get_run_evidence` | Administrator credential | Administrator/operator only |
+| `register_worker` | Administrator credential | Worker lifecycle; separate worker client uses dedicated worker routes |
+| `heartbeat_worker` | Administrator credential | Worker lifecycle; separate worker client uses dedicated worker routes |
+| `checkout` | Administrator credential | Worker lifecycle; separate worker client uses dedicated worker routes |
+| `get_work_order` | Administrator credential | Worker lifecycle; separate worker client uses dedicated worker routes |
+| `get_run` | Administrator credential | Worker lifecycle; separate worker client uses dedicated worker routes |
+| `heartbeat_run` | Administrator credential | Worker lifecycle; separate worker client uses dedicated worker routes |
+| `resolve_reuse_candidate` | Administrator credential | Worker lifecycle; separate worker client uses dedicated worker routes |
+| `complete_run` | Administrator credential | Worker lifecycle; separate worker client uses dedicated worker routes |
+| `_request_json` | Administrator credential | Transport/resource lifecycle; no independent route authority |
+| `_request` | Administrator credential | Transport/resource lifecycle; no independent route authority |
+
+The outbound `LocalWorker` and `_RunMonitor` use eight of the nine reviewed worker client methods; `get_run` is retained as an explicitly scoped owned-run read: `register_worker`, `heartbeat_worker`, `checkout`, `get_manifest`, `get_work_order`, `get_run`, `heartbeat_run`, `resolve_reuse_candidate`, `complete_run`. Each will use the equivalent dedicated `/api/execution/worker` route. Manifest reads additionally carry the assigned run ID and must match its immutable manifest; work-order reads require the current assigned run to belong to the principal; run reads/writes require the authoritative run worker ID. Path/body/query worker substitutions are rejected. Registration and checkout require the exact credential worker ID. Operator `health_ready` calls `/health/ready`, an existing separately classified public readiness probe; it is absent from the worker client. Private transport helpers are not authority grants.
+
+Credential management adds administrator-only `POST /api/execution/worker-credentials/{worker_id}/issue`, `POST .../rotate`, `POST .../revoke`, and `GET /api/execution/worker-credentials/{worker_id}`. Provisioning reserves an offline logical worker identity if needed, with no advertised repositories/capabilities until its authenticated registration. One credential row per worker bounds history, with random credential ID, SHA-256 verifier and timestamps. Rotation replaces the row atomically; no overlapping credentials or automatic write retries.
+
+### Implementation decisions and validation in progress (2026-09-14)
+
+- Existing 42 execution routes remain administrator-only with explicit route dependencies. Nine new worker routes and four credential-management routes make 55 execution routes in total. The matrix regression also compares the route inventory against generated OpenAPI so a new unclassified execution route fails the gate.
+- `WorkerExecutionClient` has exactly nine lifecycle methods plus resource `close`; it shares only transport and worker operations with the broad administrator subtype. It never inherits administrator methods. `LocalWorker` requires this narrow interface. Authentication rejection latches the worker client closed and cancels active execution without completion.
+- Dedicated routes reject identity substitution; manifest reads require the owned run ID. Credential management requires a configured administrator and expected credential ID for rotation/revocation. One new table is additive and bounds state to one row per worker; no previous table is changed.
+- The operator lifecycle preserves the existing report/progress schema and marker checks. Revocation failure makes the outcome fail with a bounded reason. Successful shutdown records revocation in the database before stopping the owned processes.
+- Focused validation is underway. Initial fixture and cancellation-ordering defects were corrected; no pre-correction result is acceptance evidence. The current pinned FastAPI uses included-router objects, so matrix validation inspects concrete routers and cross-checks OpenAPI instead of assuming application routes are already flattened.
+
+- Focused execution reached 125 passes, including scoped auth, actual long-process 401/403 cancellation, and all three non-Switchboard workload acceptances, before three real operator scenario teardowns exposed an unclosed SQLite connection in the newly added assertion. The connection is now explicitly closed; the partially cleaned failed synthetic roots remain preserved. This was a test resource-ownership defect, not a worker authority failure. The corrected focused matrix must pass before the full suite.
+- Pinned tool checks now pass: Ruff/format, both Windows and Linux-target Mypy (212 source files), Bandit, server/client dependency audits, full-history Gitleaks (353 commits), workload catalog (four entries), TODO checks, and Lychee (195 successes, five configured exclusions, no errors). Final candidate checks remain required after any further source changes.
+
+
+### Completed focused proof and compatibility correction
+
+- The corrected focused run passed 153 tests with two explicit Windows symlink skips. It includes all four real IPv4/IPv6 fresh-only/fresh-then-exact-reuse operator scenarios, marker/approval/progress/readiness compatibility, containment and process/port cleanup.
+- The final credential module passed all 19 cases, including deliberate rotation and revocation after an actual worker subprocess starts. The real server then rejects the old token; the process stops, the source checkout is removed only after containment proof, local failure evidence remains, and the authoritative run stays `running` with no finish timestamp. No completion or replacement checkout is fabricated.
+- Prior-schema migration now starts with a real existing worker row. Its identity, display name, capabilities and repository registry survive startup, issuance, and two repeated startups; the same verifier still authenticates. The credential table has exactly the six reviewed columns.
+- The strict browser gate exposed a legacy-demo compatibility regression: the UI sends a synthetic administrator sentinel when no administrator is configured. Restored the existing unconfigured-demo administrator behavior while the separate middleware still denies worker-shaped credentials outside worker routes. Credential issuance always requires a configured administrator. A regression covers both cases. Strict Playwright then passed all four cases with zero skips.
+- The timing-sensitive cancellation fixture discovers its fixed host capabilities before the timed operation. Its existing five-second cancellation assertion remains unchanged; real lifecycle and capability tests still perform their own discovery.
+- Python 3.13 and the catalog-pinned Node 24.12.0/pnpm 10.18.1 let all non-Switchboard workload acceptances execute locally. These are repository-owned synthetic acceptance fixtures, not live external-repository execution or production proof.
+- Factory coverage passed 25 tests: reviewed profile validation 240/240 lines (100%) and catalog readiness 62/67 lines (92.54%), both above the unchanged 90% thresholds. Windows and Linux-target Mypy pass over 212 files.
+
+### Final worker and management route additions
+
+| Route | Authority and ownership |
+|---|---|
+| `POST /api/execution/worker/workers` | Worker principal; matching body worker ID |
+| `POST /api/execution/worker/workers/{worker_id}/heartbeat` | Worker principal; matching path worker ID |
+| `POST /api/execution/worker/checkout` | Worker principal; matching body worker ID |
+| `GET /api/execution/worker/work-orders/{work_order_id}` | Worker principal owns latest assigned run |
+| `GET /api/execution/worker/runs/{run_id}` | Worker principal owns authoritative run |
+| `GET /api/execution/worker/manifests/{name}/{version}?run_id=...` | Owned run and exact assigned manifest |
+| `POST /api/execution/worker/runs/{run_id}/heartbeat` | Matching body worker ID and authoritative run/lease ownership |
+| `POST /api/execution/worker/runs/{run_id}/reuse-candidate` | Matching body worker ID and authoritative run/lease ownership |
+| `POST /api/execution/worker/runs/{run_id}/complete` | Matching body worker ID and authoritative run/lease ownership |
+| `POST /api/execution/worker-credentials/{worker_id}/issue` | Configured administrator; one-time secret return |
+| `POST /api/execution/worker-credentials/{worker_id}/rotate` | Configured administrator; atomic expected-ID transition |
+| `POST /api/execution/worker-credentials/{worker_id}/revoke` | Configured administrator; idempotent expected-ID revocation |
+| `GET /api/execution/worker-credentials/{worker_id}` | Configured administrator; non-secret metadata only |
+
+No public execution route is added. Malformed/unknown/revoked credentials, duplicate authentication headers, mixed administrator/worker headers and duplicate/substituted query IDs fail closed. Cross-worker registration, checkout, run reads, heartbeat, reuse lookup, completion and manifest/work-order reads are covered. One primary-key row bounds credential history; rotation and stale revocation use compare-and-set identity rather than retries. Authentication is uncached; requests authorized before revocation are not retrospectively undone.
+
+### Changed file inventory
+
+- `.agent/execplans/020_scoped_worker_identity.md`
+- `README.md`
+- `SECURITY.md`
+- `client/python/execution_operator/lifecycle.py`
+- `client/python/execution_operator/models.py`
+- `client/python/execution_operator/processes.py`
+- `client/python/execution_worker/__init__.py`
+- `client/python/execution_worker/client.py`
+- `client/python/execution_worker/config.py`
+- `client/python/execution_worker/runner.py`
+- `client/python/execution_worker/worker.py`
+- `client/python/tests/test_execution_operator.py`
+- `client/python/tests/test_execution_operator_progress.py`
+- `client/python/tests/test_execution_worker_capabilities.py`
+- `client/python/tests/test_execution_worker_checkout_race.py`
+- `client/python/tests/test_execution_worker_config_models.py`
+- `client/python/tests/test_execution_worker_foundations.py`
+- `client/python/tests/test_execution_worker_profile_contract.py`
+- `client/python/tests/test_execution_worker_reuse.py`
+- `client/python/tests/test_execution_worker_runner.py`
+- `client/python/tests/test_execution_worker_runtime.py`
+- `client/python/tests/test_execution_worker_server_smoke.py`
+- `client/python/tests/test_execution_worker_strict_containment.py`
+- `client/python/tests/test_execution_worker_strict_work_order.py`
+- `client/python/tests/test_scoped_worker_client.py`
+- `docs/API.md`
+- `docs/architecture/local-execution-broker.md`
+- `docs/message-schema.md`
+- `docs/operations/local-worker.md`
+- `docs/operations/operator-validation-lifecycle.md`
+- `docs/operations/worker-credentials.md`
+- `docs/reports/status.md`
+- `scripts/local_worker.py`
+- `server/api/__init__.py`
+- `server/api/dependencies.py`
+- `server/api/routers/execution.py`
+- `server/api/routers/github_execution.py`
+- `server/api/routers/worker_credentials.py`
+- `server/api/routers/worker_execution.py`
+- `server/execution/credentials.py`
+- `server/execution/text_policy.py`
+- `server/models.py`
+- `server/tests/test_worker_credentials.py`
+
+
+### Local validation ledger (2026-09-14)
+
+| Gate | Result |
+|---|---|
+| Final scoped credential/client regressions | PASS: 24 passed, zero skips |
+| Operator/readiness/progress/security regression bundle | PASS: 153 passed, two unavailable Windows symlink skips |
+| Standalone full pytest | PASS: 1,009 passed, 16 skips; ran before the two additional active-process transition cases |
+| `python scripts/dev.py verify` | PASS: 1,011 passed, 16 skips; Ruff, Windows Mypy, Bandit, all 20 module thresholds and installed-environment dependency audit passed |
+| Additional CI coverage thresholds | PASS: interfaces and task service; all 22 CI module gates satisfied |
+| Measured aggregate coverage | PASS: 90.09% (2,773/3,078 measured statements) |
+| Strict Playwright | PASS: four passed, zero skips; also enabled in the verify invocation |
+| Full pre-commit | PASS: ten hooks passed; Prettier skipped because the repository hook regex matched no files |
+| Ruff check/format and Black | PASS |
+| Windows / Linux-target Mypy | PASS: 212 source files each |
+| Bandit | PASS: repository server scope; no manager scan errors |
+| Dependency audits | PASS: server requirements, declared client requirements and installed validation environment; no known vulnerabilities |
+| detect-secrets | PASS with the existing baseline; no baseline regeneration |
+| Gitleaks | PASS: staged candidate; historical full-history scan covered 353 commits; final committed history must be rescanned before push |
+| Lychee 0.24.2 | PASS: 195 successes, five configured exclusions, two redirects, zero errors |
+| Workload catalog | PASS: four reviewed entries; no catalog changes |
+| Workload factory/readiness coverage | PASS: 25 tests; 100% and 92.54% against unchanged 90% gates |
+| Workload acceptances | PASS: all eight server-backed smoke/validation/reuse/GitHub-mock cases, including Accounting, Zscripts and Industry Resilience fixtures |
+| Windows containment/cleanup | PASS: all applicable cases, including nine real junction cases and real IPv4/IPv6 process/port lifecycle proof |
+| Actions/configuration | PASS: three workflows, 25 full-SHA action references, bounded job timeouts, read-only workflow contents permissions, checkout credentials not persisted, YAML/TOML syntax/duplicate-key checks |
+| TODO annotations / diff whitespace / public-path hygiene | PASS |
+
+The 16 full-suite skips are seven symlink tests unavailable under the current Windows privilege, five POSIX-only tests, three Linux-only containment tests, and one explicitly opt-in full Switchboard lifecycle acceptance. No browser or non-Switchboard workload acceptance was skipped. The real synthetic operator scenarios ran on both IPv4 and IPv6 in both lifecycle modes. No native Linux process execution is claimed by Linux-target Mypy; hosted Linux tests remain a separate gate.
+
+Gitleaks classified the literal malformed-token fixture as a generic API key. The negative case now truncates a freshly generated token; the administrator-negative case reads the already configured synthetic fixture header. No scanner exception or baseline change was added. The final 24-case security/client run passed after this test-only correction; production code was unchanged from the complete verify run.
+
+Validation files remain external to tracked evidence. The three earlier partially cleaned synthetic test roots remain preserved following the SQLite assertion connection failure. No historical runtime, branch, stash, worktree, or primary cache root was cleaned. Primary source state and all retained worktree heads remain unchanged.
+
+
+The existing optional commit-message hook invocation fails because its pinned `conventional-pre-commit` version does not support the configured `--config` option. The same pinned validator passed with strict parsing and the exact eleven types in `conventional.yaml`; the normal `pre-commit --all-files` gate remains passing. No hook/configuration change, hook bypass flag, scanner suppression, or Git stash change is part of this slice. Hosted Commitlint remains a separate required check. Ruff also removed the now-unused test-only S105 suppression after the generated malformed-token fixture replaced the literal.

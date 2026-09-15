@@ -38,7 +38,7 @@ def _config(tmp_path: Path) -> WorkerConfig:
         base_url="http://localhost:8000",
         worker_id="worker-1",
         display_name="Worker 1",
-        admin_token=_TEST_TOKEN,
+        worker_token=_TEST_TOKEN,
         worker_root=tmp_path / "worker-root",
         evidence_root=tmp_path / "evidence-root",
         repositories={
@@ -48,7 +48,7 @@ def _config(tmp_path: Path) -> WorkerConfig:
 
 
 def test_execution_client_requires_credentials() -> None:
-    with pytest.raises(ValueError, match="admin_token"):
+    with pytest.raises(ValueError, match="token"):
         ExecutionClient("http://example.com", "worker-1", "")
     with pytest.raises(ValueError, match="worker_id"):
         ExecutionClient("http://example.com", "", _TEST_TOKEN)
@@ -345,7 +345,7 @@ def test_worker_config_rejects_relative_and_invalid_registry_entries(
             base_url="http://localhost:8000",
             worker_id="worker-1",
             display_name="Worker 1",
-            admin_token=_TEST_TOKEN,
+            worker_token=_TEST_TOKEN,
             worker_root=Path("relative-root"),
             evidence_root=tmp_path / "evidence-root",
             repositories={"Nobodyworld/repo": tmp_path / "repo"},
@@ -356,7 +356,7 @@ def test_worker_config_rejects_relative_and_invalid_registry_entries(
             base_url="http://localhost:8000",
             worker_id="worker-1",
             display_name="Worker 1",
-            admin_token=_TEST_TOKEN,
+            worker_token=_TEST_TOKEN,
             worker_root=tmp_path / "worker-root",
             evidence_root=tmp_path / "evidence-root",
             repositories={"../escape": tmp_path / "repo"},

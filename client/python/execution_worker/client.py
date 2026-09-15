@@ -7,11 +7,14 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, cast
+from typing import Any, Self, cast
 
 from requests import Response, Session
 
-from server.execution.text_policy import contains_absolute_local_path
+from server.execution.text_policy import (
+    contains_absolute_local_path,
+    contains_worker_credential,
+)
 
 DEFAULT_EXECUTION_TIMEOUT = 10.0
 _OWNERSHIP_LOST_STATUSES = {404, 409}
@@ -76,8 +79,10 @@ def _safe_error_text(value: object, *, limit: int) -> str | None:
     normalized = " ".join(value.split())
     if not normalized:
         return None
-    if contains_absolute_local_path(normalized) or _SENSITIVE_ERROR_TEXT.search(
-        normalized
+    if (
+        contains_worker_credential(normalized)
+        or contains_absolute_local_path(normalized)
+        or _SENSITIVE_ERROR_TEXT.search(normalized)
     ):
         return "[REDACTED]"
     return normalized[:limit]
@@ -139,30 +144,35 @@ def _execution_http_error(response: Response) -> ExecutionHttpError:
     return ExecutionHttpError(response.status_code, reason, errors)
 
 
-class ExecutionClient:
-    """Small authenticated client dedicated to execution-plane endpoints."""
+class ExecutionCredentialRejectedError(ExecutionOwnershipLostError):
+    """Authentication loss permanently stops this worker client's requests."""
+
+
+class _ExecutionTransport:
+    _worker_scoped = False
 
     def __init__(  # noqa: PLR0913, RUF100
         self,
         base_url: str,
         worker_id: str,
-        admin_token: str,
+        token: str,
         *,
         session: Session | None = None,
         timeout: float = DEFAULT_EXECUTION_TIMEOUT,
     ) -> None:
-        if not admin_token.strip():
-            raise ValueError("admin_token is required for Phase 1 execution endpoints")
+        if not token.strip():
+            raise ValueError("token is required for execution endpoints")
         if not worker_id.strip():
             raise ValueError("worker_id must not be empty")
 
         self.base_url = base_url.rstrip("/")
         self.worker_id = worker_id
-        self._admin_token = admin_token
+        self._token = token
         self._session = session or Session()
         self._timeout = float(timeout)
+        self._credential_rejected = False
 
-    def __enter__(self) -> ExecutionClient:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(
@@ -178,19 +188,250 @@ class ExecutionClient:
 
         self._session.close()
 
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        ownership_sensitive: bool = False,
+        **kwargs: Any,
+    ) -> object:
+        if self._worker_scoped and self._credential_rejected:
+            raise ExecutionCredentialRejectedError(401)
+        response = self._request(method, path, **kwargs)
+        if self._worker_scoped and response.status_code in {401, 403}:
+            self._credential_rejected = True
+            raise ExecutionCredentialRejectedError(response.status_code)
+        if ownership_sensitive and response.status_code in _OWNERSHIP_LOST_STATUSES:
+            raise ExecutionOwnershipLostError(response.status_code)
+        if response.status_code >= _HTTP_ERROR_STATUS:
+            raise _execution_http_error(response)
+        response.raise_for_status()
+        return response.json()
+
+    def _request(self, method: str, path: str, **kwargs: Any) -> Response:
+        headers = dict(kwargs.pop("headers", {}))
+        headers["Authorization"] = f"Bearer {self._token}"
+        headers.setdefault("Accept", "application/json")
+        return self._session.request(
+            method,
+            f"{self.base_url}{path}",
+            headers=headers,
+            timeout=self._timeout,
+            **kwargs,
+        )
+
+
+class WorkerExecutionClient(_ExecutionTransport):
+    """Only the nine reviewed worker lifecycle operations; no administrator API."""
+
+    _prefix = "/api/execution/worker"
+    _worker_scoped = True
+
+    def __init__(
+        self,
+        base_url: str,
+        worker_id: str,
+        worker_token: str,
+        *,
+        session: Session | None = None,
+        timeout: float = DEFAULT_EXECUTION_TIMEOUT,
+    ) -> None:
+        super().__init__(
+            base_url, worker_id, worker_token, session=session, timeout=timeout
+        )
+
+    def get_manifest(
+        self, name: str, version: str, *, run_id: int | None = None
+    ) -> dict[str, Any]:
+        """Return safe metadata for one immutable manifest identity."""
+
+        payload = self._request_json(
+            "get",
+            f"{self._prefix}/manifests/{name}/{version}",
+            params={"run_id": run_id} if self._worker_scoped else {},
+        )
+        return cast(dict[str, Any], payload)
+
+    def register_worker(self, registration: Mapping[str, Any]) -> dict[str, Any]:
+        """Register or refresh this worker's declared capabilities."""
+
+        payload = dict(registration)
+        if payload.get("worker_id") != self.worker_id:
+            raise ValueError("registration worker_id must match the client worker_id")
+        result = self._request_json("post", f"{self._prefix}/workers", json=payload)
+        return cast(dict[str, Any], result)
+
+    def heartbeat_worker(self, *, status: str | None = None) -> dict[str, Any]:
+        """Refresh worker liveness and optionally update availability status."""
+
+        result = self._request_json(
+            "post",
+            f"{self._prefix}/workers/{self.worker_id}/heartbeat",
+            json={"status": status},
+        )
+        return cast(dict[str, Any], result)
+
+    def checkout(self) -> dict[str, Any]:
+        """Attempt one non-retried atomic work-order checkout."""
+
+        result = self._request_json(
+            "post",
+            f"{self._prefix}/checkout",
+            json={"worker_id": self.worker_id},
+        )
+        return cast(dict[str, Any], result)
+
+    def get_work_order(self, work_order_id: int) -> dict[str, Any]:
+        """Read repository, exact SHA, manifest, and policy for an assigned run."""
+
+        result = self._request_json(
+            "get", f"{self._prefix}/work-orders/{work_order_id}"
+        )
+        return cast(dict[str, Any], result)
+
+    def get_run(self, run_id: int) -> dict[str, Any]:
+        """Read one execution-run snapshot."""
+
+        result = self._request_json("get", f"{self._prefix}/runs/{run_id}")
+        return cast(dict[str, Any], result)
+
+    def heartbeat_run(self, run_id: int) -> dict[str, Any]:
+        """Renew the active run lease or raise when ownership has been lost."""
+
+        result = self._request_json(
+            "post",
+            f"{self._prefix}/runs/{run_id}/heartbeat",
+            json={"worker_id": self.worker_id},
+            ownership_sensitive=True,
+        )
+        return cast(dict[str, Any], result)
+
+    def resolve_reuse_candidate(
+        self,
+        run_id: int,
+        *,
+        reuse_identity: Mapping[str, Any],
+        reuse_identity_hash: str,
+    ) -> dict[str, Any]:
+        """Request one exact server-selected source without retrying the write."""
+
+        result = self._request_json(
+            "post",
+            f"{self._prefix}/runs/{run_id}/reuse-candidate",
+            json={
+                "worker_id": self.worker_id,
+                "reuse_identity": dict(reuse_identity),
+                "reuse_identity_hash": reuse_identity_hash,
+            },
+            ownership_sensitive=True,
+        )
+        return cast(dict[str, Any], result)
+
+    def complete_run(  # noqa: PLR0913 - mirrors the bounded completion contract
+        self,
+        run_id: int,
+        *,
+        status: str,
+        result_summary: str | None = None,
+        terminal_reason: str | None = None,
+        cleanup_status: str | None = None,
+        artifact_metadata: list[dict[str, Any]] | None = None,
+        evidence_metadata: Mapping[str, Any] | None = None,
+        reuse_decision: str | None = None,
+        reuse_reason: str | None = None,
+        reuse_identity: Mapping[str, Any] | None = None,
+        reuse_identity_hash: str | None = None,
+        evidence_retention_expires_at: str | None = None,
+    ) -> dict[str, Any]:
+        """Submit one terminal result without retrying ambiguous writes."""
+
+        payload: dict[str, Any] = {
+            "worker_id": self.worker_id,
+            "status": status,
+            "result_summary": result_summary,
+            "terminal_reason": terminal_reason,
+            "cleanup_status": cleanup_status,
+            "artifact_metadata": artifact_metadata or [],
+            "evidence_metadata": (
+                dict(evidence_metadata) if evidence_metadata is not None else None
+            ),
+        }
+        optional_reuse = {
+            "reuse_decision": reuse_decision,
+            "reuse_reason": reuse_reason,
+            "reuse_identity": (
+                dict(reuse_identity) if reuse_identity is not None else None
+            ),
+            "reuse_identity_hash": reuse_identity_hash,
+            "evidence_retention_expires_at": evidence_retention_expires_at,
+        }
+        payload.update(
+            {key: value for key, value in optional_reuse.items() if value is not None}
+        )
+        result = self._request_json(
+            "post",
+            f"{self._prefix}/runs/{run_id}/complete",
+            json=payload,
+            ownership_sensitive=True,
+        )
+        return cast(dict[str, Any], result)
+
+
+class ExecutionClient(WorkerExecutionClient):
+    """Existing administrator/operator API, including deliberate provisioning."""
+
+    _prefix = "/api/execution"
+    _worker_scoped = False
+
+    def __init__(
+        self,
+        base_url: str,
+        worker_id: str,
+        admin_token: str,
+        *,
+        session: Session | None = None,
+        timeout: float = DEFAULT_EXECUTION_TIMEOUT,
+    ) -> None:
+        super().__init__(
+            base_url, worker_id, admin_token, session=session, timeout=timeout
+        )
+
+    def issue_worker_credential(self) -> dict[str, Any]:
+        return cast(
+            dict[str, Any],
+            self._request_json(
+                "post",
+                f"/api/execution/worker-credentials/{self.worker_id}/issue",
+                json={},
+            ),
+        )
+
+    def rotate_worker_credential(self, credential_id: str) -> dict[str, Any]:
+        return cast(
+            dict[str, Any],
+            self._request_json(
+                "post",
+                f"/api/execution/worker-credentials/{self.worker_id}/rotate",
+                json={"credential_id": credential_id},
+            ),
+        )
+
+    def revoke_worker_credential(self, credential_id: str) -> dict[str, Any]:
+        return cast(
+            dict[str, Any],
+            self._request_json(
+                "post",
+                f"/api/execution/worker-credentials/{self.worker_id}/revoke",
+                json={"credential_id": credential_id},
+            ),
+        )
+
     def list_manifests(self) -> list[dict[str, Any]]:
         """Return safe metadata for all trusted manifests."""
 
         payload = self._request_json("get", "/api/execution/manifests")
         return cast(list[dict[str, Any]], payload)
-
-    def get_manifest(self, name: str, version: str) -> dict[str, Any]:
-        """Return safe metadata for one immutable manifest identity."""
-
-        payload = self._request_json(
-            "get", f"/api/execution/manifests/{name}/{version}"
-        )
-        return cast(dict[str, Any], payload)
 
     def health_ready(self) -> dict[str, Any]:
         """Read the bounded readiness probe for an owned local server."""
@@ -299,164 +540,14 @@ class ExecutionClient:
             self._request_json("get", f"/api/execution/runs/{run_id}/evidence"),
         )
 
-    def register_worker(self, registration: Mapping[str, Any]) -> dict[str, Any]:
-        """Register or refresh this worker's declared capabilities."""
-
-        payload = dict(registration)
-        if payload.get("worker_id") != self.worker_id:
-            raise ValueError("registration worker_id must match the client worker_id")
-        result = self._request_json("post", "/api/execution/workers", json=payload)
-        return cast(dict[str, Any], result)
-
-    def heartbeat_worker(self, *, status: str | None = None) -> dict[str, Any]:
-        """Refresh worker liveness and optionally update availability status."""
-
-        result = self._request_json(
-            "post",
-            f"/api/execution/workers/{self.worker_id}/heartbeat",
-            json={"status": status},
-        )
-        return cast(dict[str, Any], result)
-
-    def checkout(self) -> dict[str, Any]:
-        """Attempt one non-retried atomic work-order checkout."""
-
-        result = self._request_json(
-            "post",
-            "/api/execution/checkout",
-            json={"worker_id": self.worker_id},
-        )
-        return cast(dict[str, Any], result)
-
-    def get_work_order(self, work_order_id: int) -> dict[str, Any]:
-        """Read repository, exact SHA, manifest, and policy for an assigned run."""
-
-        result = self._request_json(
-            "get", f"/api/execution/work-orders/{work_order_id}"
-        )
-        return cast(dict[str, Any], result)
-
-    def get_run(self, run_id: int) -> dict[str, Any]:
-        """Read one execution-run snapshot."""
-
-        result = self._request_json("get", f"/api/execution/runs/{run_id}")
-        return cast(dict[str, Any], result)
-
-    def heartbeat_run(self, run_id: int) -> dict[str, Any]:
-        """Renew the active run lease or raise when ownership has been lost."""
-
-        result = self._request_json(
-            "post",
-            f"/api/execution/runs/{run_id}/heartbeat",
-            json={"worker_id": self.worker_id},
-            ownership_sensitive=True,
-        )
-        return cast(dict[str, Any], result)
-
-    def resolve_reuse_candidate(
-        self,
-        run_id: int,
-        *,
-        reuse_identity: Mapping[str, Any],
-        reuse_identity_hash: str,
-    ) -> dict[str, Any]:
-        """Request one exact server-selected source without retrying the write."""
-
-        result = self._request_json(
-            "post",
-            f"/api/execution/runs/{run_id}/reuse-candidate",
-            json={
-                "worker_id": self.worker_id,
-                "reuse_identity": dict(reuse_identity),
-                "reuse_identity_hash": reuse_identity_hash,
-            },
-            ownership_sensitive=True,
-        )
-        return cast(dict[str, Any], result)
-
-    def complete_run(  # noqa: PLR0913 - mirrors the bounded completion contract
-        self,
-        run_id: int,
-        *,
-        status: str,
-        result_summary: str | None = None,
-        terminal_reason: str | None = None,
-        cleanup_status: str | None = None,
-        artifact_metadata: list[dict[str, Any]] | None = None,
-        evidence_metadata: Mapping[str, Any] | None = None,
-        reuse_decision: str | None = None,
-        reuse_reason: str | None = None,
-        reuse_identity: Mapping[str, Any] | None = None,
-        reuse_identity_hash: str | None = None,
-        evidence_retention_expires_at: str | None = None,
-    ) -> dict[str, Any]:
-        """Submit one terminal result without retrying ambiguous writes."""
-
-        payload: dict[str, Any] = {
-            "worker_id": self.worker_id,
-            "status": status,
-            "result_summary": result_summary,
-            "terminal_reason": terminal_reason,
-            "cleanup_status": cleanup_status,
-            "artifact_metadata": artifact_metadata or [],
-            "evidence_metadata": (
-                dict(evidence_metadata) if evidence_metadata is not None else None
-            ),
-        }
-        optional_reuse = {
-            "reuse_decision": reuse_decision,
-            "reuse_reason": reuse_reason,
-            "reuse_identity": (
-                dict(reuse_identity) if reuse_identity is not None else None
-            ),
-            "reuse_identity_hash": reuse_identity_hash,
-            "evidence_retention_expires_at": evidence_retention_expires_at,
-        }
-        payload.update(
-            {key: value for key, value in optional_reuse.items() if value is not None}
-        )
-        result = self._request_json(
-            "post",
-            f"/api/execution/runs/{run_id}/complete",
-            json=payload,
-            ownership_sensitive=True,
-        )
-        return cast(dict[str, Any], result)
-
-    def _request_json(
-        self,
-        method: str,
-        path: str,
-        *,
-        ownership_sensitive: bool = False,
-        **kwargs: Any,
-    ) -> object:
-        response = self._request(method, path, **kwargs)
-        if ownership_sensitive and response.status_code in _OWNERSHIP_LOST_STATUSES:
-            raise ExecutionOwnershipLostError(response.status_code)
-        if response.status_code >= _HTTP_ERROR_STATUS:
-            raise _execution_http_error(response)
-        response.raise_for_status()
-        return response.json()
-
-    def _request(self, method: str, path: str, **kwargs: Any) -> Response:
-        headers = dict(kwargs.pop("headers", {}))
-        headers["Authorization"] = f"Bearer {self._admin_token}"
-        headers.setdefault("Accept", "application/json")
-        return self._session.request(
-            method,
-            f"{self.base_url}{path}",
-            headers=headers,
-            timeout=self._timeout,
-            **kwargs,
-        )
-
 
 __all__ = [
     "DEFAULT_EXECUTION_TIMEOUT",
     "ExecutionClient",
     "ExecutionClientError",
+    "ExecutionCredentialRejectedError",
     "ExecutionHttpError",
     "ExecutionOwnershipLostError",
     "ExecutionValidationError",
+    "WorkerExecutionClient",
 ]

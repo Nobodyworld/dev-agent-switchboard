@@ -85,10 +85,11 @@ particular, `/api/tasks/checkout` continues to lease high-level coordination
 tasks and does not create an execution run; `/api/execution/checkout` uses its
 own work-order, worker, run, and active-lease records.
 
-All execution routes currently reuse `SWITCHBOARD_ADMIN_TOKEN` when it is
-configured, including worker registration, checkout, heartbeat, and completion.
-This is a deliberate Phase 1 credential limitation, not a worker identity
-system. A scoped worker credential belongs to the later worker work.
+Administrator execution routes use `SWITCHBOARD_ADMIN_TOKEN`. The nine dedicated
+`/api/execution/worker/...` routes require a credential bound to one worker ID.
+See [credential management and the complete worker allowlist](operations/worker-credentials.md).
+Worker credentials cannot use administrator routes; existing administrator
+clients and explicit approval semantics remain supported.
 
 Creation is deny-by-default: approval requires a catalog repository, a manifest
 explicitly associated with that repository, an
