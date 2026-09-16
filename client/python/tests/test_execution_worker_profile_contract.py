@@ -26,7 +26,7 @@ def _config(tmp_path: Path, **overrides: object) -> WorkerConfig:
         "base_url": "http://switchboard.test",
         "worker_id": "profile-contract-worker",
         "display_name": "Profile contract worker",
-        "admin_token": _TOKEN,
+        "worker_token": _TOKEN,
         "worker_root": tmp_path / "worker-root",
         "repositories": {"Nobodyworld/dev-logger-zscripts": tmp_path / "source"},
         "evidence_root": tmp_path / "evidence",

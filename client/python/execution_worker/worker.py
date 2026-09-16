@@ -38,7 +38,11 @@ from server.execution.registry import TrustedManifest, TrustedStep, get_trusted_
 from server.execution.text_policy import contains_absolute_local_path
 
 from .capabilities import discover_worker_registration
-from .client import ExecutionClient, ExecutionOwnershipLostError
+from .client import (
+    ExecutionCredentialRejectedError,
+    ExecutionOwnershipLostError,
+    WorkerExecutionClient,
+)
 from .config import WorkerConfig
 from .containment import ContainmentCleanupError
 from .evidence import (
@@ -435,6 +439,10 @@ class _RunMonitor:
             return
         try:
             self.worker.client.heartbeat_worker(status="busy")
+        except ExecutionCredentialRejectedError:
+            self.token.cancel("ownership_lost")
+            self.worker.request_shutdown()
+            return
         except OSError:
             # Worker liveness is independent from the owned run lease. A single
             # bounded transport failure must not suppress run renewal.
@@ -443,8 +451,10 @@ class _RunMonitor:
             run = ExecutionRun.from_payload(
                 self.worker.client.heartbeat_run(self.run_id)
             )
-        except ExecutionOwnershipLostError:
+        except ExecutionOwnershipLostError as error:
             self.token.cancel("ownership_lost")
+            if isinstance(error, ExecutionCredentialRejectedError):
+                self.worker.request_shutdown()
             return
         except ValueError:
             # Invalid control-plane data must fail closed, including requests'
@@ -482,7 +492,7 @@ class _RunMonitor:
 @dataclass(slots=True)
 class LocalWorker:
     config: WorkerConfig
-    client: ExecutionClient
+    client: WorkerExecutionClient
     _shutdown: threading.Event = field(default_factory=threading.Event, init=False)
     _state_lock: threading.Lock = field(default_factory=threading.Lock, init=False)
     _executed_run_ids: set[int] = field(default_factory=set, init=False)
@@ -738,7 +748,11 @@ class LocalWorker:
 
         if self.shutting_down:
             return False
-        checkout = Checkout.from_payload(self.client.checkout())
+        try:
+            checkout = Checkout.from_payload(self.client.checkout())
+        except ExecutionCredentialRejectedError:
+            self.request_shutdown()
+            raise
         if checkout.run_id is None:
             return False
         assert checkout.work_order_id is not None
@@ -783,7 +797,9 @@ class LocalWorker:
                 ),
                 remote=SafeManifest.from_payload(
                     self.client.get_manifest(
-                        order.manifest_name, order.manifest_version
+                        order.manifest_name,
+                        order.manifest_version,
+                        run_id=checkout.run_id,
                     )
                 ),
                 order=order,
@@ -852,8 +868,10 @@ class LocalWorker:
                             )
                         )
                         reuse_reason = lookup.reason
-                    except ExecutionOwnershipLostError:
+                    except ExecutionOwnershipLostError as error:
                         token.cancel("ownership_lost")
+                        if isinstance(error, ExecutionCredentialRejectedError):
+                            self.request_shutdown()
                     except (OSError, ValueError):
                         reuse_reason = "reuse_lookup_unavailable"
                     if token.cancelled:
@@ -966,7 +984,9 @@ class LocalWorker:
         except ContainmentCleanupError:
             source_quiescent = False
             terminal, reason = "failed", "descendant_cleanup_failed"
-        except ExecutionOwnershipLostError:
+        except ExecutionOwnershipLostError as error:
+            if isinstance(error, ExecutionCredentialRejectedError):
+                self.request_shutdown()
             skip_completion, terminal, reason = True, "cancelled", "ownership_lost"
         except LocalCommitUnavailableError:
             terminal, reason = "failed", "requested_sha_not_available_locally"
@@ -1203,8 +1223,9 @@ class LocalWorker:
                     else None
                 ),
             )
-        except ExecutionOwnershipLostError:
-            pass
+        except ExecutionOwnershipLostError as error:
+            if isinstance(error, ExecutionCredentialRejectedError):
+                self.request_shutdown()
         return True
 
 

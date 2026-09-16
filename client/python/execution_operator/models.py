@@ -11,7 +11,10 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from server.execution.evidence import validate_relative_path
-from server.execution.text_policy import contains_absolute_local_path
+from server.execution.text_policy import (
+    contains_absolute_local_path,
+    contains_worker_credential,
+)
 
 from .report_contract import (
     ReportContractError,
@@ -216,7 +219,11 @@ def _validate_public_value(value: object, *, depth: int = 0) -> None:
     if depth > _MAX_DEPTH:
         raise OperatorLifecycleFailure("report_depth_limit_exceeded")
     if isinstance(value, str):
-        if len(value) > _MAX_STRING or contains_absolute_local_path(value):
+        if (
+            len(value) > _MAX_STRING
+            or contains_absolute_local_path(value)
+            or contains_worker_credential(value)
+        ):
             raise OperatorLifecycleFailure("report_text_policy_rejected")
         return
     if value is None or isinstance(value, (bool, int)):

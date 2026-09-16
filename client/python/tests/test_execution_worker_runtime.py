@@ -11,7 +11,11 @@ from typing import Any
 
 import pytest
 
-from client.python.execution_worker.client import ExecutionOwnershipLostError
+from client.python.execution_worker.capabilities import discover_worker_registration
+from client.python.execution_worker.client import (
+    ExecutionCredentialRejectedError,
+    ExecutionOwnershipLostError,
+)
 from client.python.execution_worker.config import WorkerConfig
 from client.python.execution_worker.worker import LocalWorker
 from client.python.tests.execution_worker_test_support import (
@@ -62,7 +66,10 @@ class _FakeClient:
     def get_work_order(self, _work_order_id: int) -> dict[str, Any]:
         return self.order
 
-    def get_manifest(self, _name: str, _version: str) -> dict[str, Any]:
+    def get_manifest(
+        self, _name: str, _version: str, *, run_id: int | None = None
+    ) -> dict[str, Any]:
+        assert run_id is not None
         return remote_manifest_payload(self.manifest)
 
     def heartbeat_worker(self, *, status: str | None = None) -> dict[str, object]:
@@ -89,7 +96,7 @@ def _config(tmp_path: Path, repository: Path, **overrides: object) -> WorkerConf
         "base_url": "http://localhost:8000",
         "worker_id": "worker-1",
         "display_name": "Worker 1",
-        "admin_token": _TOKEN,
+        "worker_token": _TOKEN,
         "worker_root": tmp_path / "worker-root",
         "evidence_root": tmp_path / "evidence-root",
         "repositories": {"Nobodyworld/dev-agent-switchboard": repository},
@@ -162,8 +169,9 @@ def test_ownership_loss_before_worktree_skips_completion(tmp_path: Path) -> None
     assert client.completed == []
 
 
+@pytest.mark.parametrize("status", [401, 403, 409])
 def test_mid_step_ownership_loss_cancels_without_success(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: int
 ) -> None:
     canonical, sha = _repository(tmp_path)
     step = TrustedStep(
@@ -194,7 +202,9 @@ def test_mid_step_ownership_loss_cancels_without_success(
 
     def lose_after_initial(run_id: int) -> dict[str, object]:
         if client.heartbeat_count >= 1:
-            raise ExecutionOwnershipLostError(409)
+            if status in {401, 403}:
+                raise ExecutionCredentialRejectedError(status)
+            raise ExecutionOwnershipLostError(status)
         return original(run_id)
 
     client.heartbeat_run = lose_after_initial  # type: ignore[method-assign]
@@ -207,11 +217,22 @@ def test_mid_step_ownership_loss_cancels_without_success(
         client,  # type: ignore[arg-type]
     )
 
+    # This orchestration fixture has a fixed host/manifest. Discover its real
+    # capabilities once before timing cancellation; unrelated Node/pnpm version
+    # probes are separately covered by capability and full lifecycle tests.
+    registration = discover_worker_registration(worker.config)
+    monkeypatch.setattr(
+        "client.python.execution_worker.worker.discover_worker_registration",
+        lambda _config: registration,
+    )
     started = time.monotonic()
     assert worker.poll_once() is True
 
     assert time.monotonic() - started < _CANCELLATION_SECONDS
     assert client.completed == []
+    if status in {401, 403}:
+        assert worker.shutting_down
+        assert worker.poll_once() is False
     assert list((tmp_path / "worker-root").glob("run-*")) == []
     assert (tmp_path / "evidence-root" / "run-7" / "result.json").is_file()
 

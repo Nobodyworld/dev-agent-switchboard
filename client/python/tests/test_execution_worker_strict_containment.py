@@ -26,7 +26,7 @@ def _config(tmp_path: Path) -> WorkerConfig:
         base_url="http://localhost:8000",
         worker_id="strict-containment-worker",
         display_name="Strict containment worker",
-        admin_token=_TOKEN,
+        worker_token=_TOKEN,
         worker_root=tmp_path / "worker-root",
         evidence_root=tmp_path / "evidence-root",
         repositories={"Nobodyworld/example": tmp_path / "canonical"},

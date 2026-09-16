@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from client.python.execution_worker.client import (
     ExecutionClient,
     ExecutionOwnershipLostError,
+    WorkerExecutionClient,
 )
 from client.python.execution_worker.config import WorkerConfig
 from client.python.execution_worker.worker import LocalWorker
@@ -23,6 +24,7 @@ from client.python.tests.test_execution_worker_server_smoke import (
     _AsgiSession,
     _repository,
     _request,
+    _scoped_client,
 )
 from server.api import AppConfig, create_app
 from server.api.dependencies import get_session
@@ -151,11 +153,17 @@ def test_ownership_loss_while_disposing_admission_rejection_exits_safely(
     assert worker._active_run_id is None
 
 
-class _ServerRaceClient(ExecutionClient):
+class _ServerRaceClient(WorkerExecutionClient):
     def __init__(
         self, *args: object, on_checkout: Callable[[], None], **kwargs: object
     ):
-        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        admin = ExecutionClient(*args, **kwargs)
+        with patch(
+            "server.api.routers.worker_credentials.get_admin_token", return_value=_TOKEN
+        ):
+            issued = admin.issue_worker_credential()
+        scoped_args = (*args[:2], issued["worker_token"])
+        super().__init__(*scoped_args, **kwargs)  # type: ignore[arg-type]
         self._on_checkout = on_checkout
 
     def checkout(self) -> dict[str, object]:
@@ -211,7 +219,7 @@ def test_server_backed_rejection_releases_capacity_for_second_worker(  # noqa: P
             base_url="http://switchboard.test",
             worker_id=f"race-worker-{mode}",
             display_name="Race worker",
-            admin_token=_TOKEN,
+            worker_token=_TOKEN,
             worker_root=tmp_path / "worker-root",
             evidence_root=tmp_path / "evidence-root",
             repositories={"Nobodyworld/dev-agent-switchboard": canonical},
@@ -223,7 +231,7 @@ def test_server_backed_rejection_releases_capacity_for_second_worker(  # noqa: P
         client = _ServerRaceClient(
             config.base_url,
             config.worker_id,
-            config.admin_token,
+            config.worker_token,
             session=_AsgiSession(app),  # type: ignore[arg-type]
             on_checkout=lambda: callback(),  # noqa: PLW0108 - intentional late binding
         )
@@ -272,15 +280,15 @@ def test_server_backed_rejection_releases_capacity_for_second_worker(  # noqa: P
             base_url="http://switchboard.test",
             worker_id=f"second-worker-{mode}",
             display_name="Second worker",
-            admin_token=_TOKEN,
+            worker_token=_TOKEN,
             worker_root=tmp_path / "second-worker-root",
             evidence_root=tmp_path / "second-evidence-root",
             repositories={"Nobodyworld/dev-agent-switchboard": canonical},
         )
-        with ExecutionClient(
+        with _scoped_client(
             second_config.base_url,
             second_config.worker_id,
-            second_config.admin_token,
+            second_config.worker_token,
             session=_AsgiSession(app),  # type: ignore[arg-type]
         ) as second_client:
             second_worker = LocalWorker(second_config, second_client)

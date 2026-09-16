@@ -39,6 +39,9 @@ Before exposing the service beyond localhost or a trusted network:
 The repository includes controls and tests for:
 
 - admin-token protection on privileged mutations;
+- worker credentials bound to one logical worker, with explicit issue/atomic rotation/idempotent revocation;
+- a worker-only HTTP allowlist and authoritative run/lease ownership checks;
+- verifier-only persistence and process-private worker secrets, without administrator credentials in the worker;
 - live-file path containment;
 - upload-size enforcement;
 - lease ownership, expiry, and heartbeat behavior;
@@ -66,3 +69,17 @@ Please allow reasonable time for investigation and remediation before public dis
 [docs/dependencies.md](docs/dependencies.md) records the server and Python-client dependency surface. Vulnerability reports involving third-party packages should identify the package, affected version, and relevant advisory when known.
 
 Release validation includes `pip-audit`, Bandit, Gitleaks, and the repository's broader quality gates. These controls complement, but do not replace, GitHub CodeQL or Secret Protection when those services are available.
+
+## Worker credential boundary
+
+See [worker credential operations](docs/operations/worker-credentials.md) for
+provisioning, migration, rotation and revocation. A worker token is accepted
+only on its nine lifecycle routes; existing administrator and GitHub actions
+remain separate. Legacy unauthenticated coordination and safe metadata retain
+their existing access policy, but requests presenting a worker-shaped token
+outside the worker routes are rejected.
+
+Authentication loss stops subsequent worker requests and cancels active work
+through existing containment checks without fabricated completion. Credential
+scope does not isolate OS accounts, processes, filesystems or networks. This
+remains PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY.

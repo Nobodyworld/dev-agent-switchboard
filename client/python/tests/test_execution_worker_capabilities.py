@@ -29,7 +29,7 @@ def _config(tmp_path: Path) -> WorkerConfig:
         base_url="http://localhost:8000",
         worker_id="worker-capabilities",
         display_name="Worker capabilities",
-        admin_token=_TOKEN,
+        worker_token=_TOKEN,
         worker_root=tmp_path / "worker-root",
         evidence_root=tmp_path / "evidence-root",
         repositories={

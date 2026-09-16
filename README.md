@@ -294,3 +294,8 @@ unsupported.
 5. Run the quick start locally.
 6. Review [SECURITY.md](SECURITY.md), the [public status page](docs/reports/status.md), and the [release audit](PUBLIC_RELEASE_AUDIT.md).
 7. Inspect the task, lease, execution-worker, evidence, live-file, WebSocket, and browser tests.
+
+Scoped outbound workers use process-private `SWITCHBOARD_WORKER_TOKEN`, bound to
+one worker ID. The administrator explicitly issues, rotates and revokes that
+credential. Worker processes must not receive `SWITCHBOARD_ADMIN_TOKEN`.
+See [worker credential operations](docs/operations/worker-credentials.md).

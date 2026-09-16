@@ -599,13 +599,12 @@ Lease renewal, completion, cancellation, and expiry all use guarded DML against
 the exact active lease so a stale expiry cannot override a renewed heartbeat
 and only one actor can release capacity.
 
-For the temporary Phase 1 credential model, worker registration, checkout,
-heartbeats, and completion reuse the configured admin token alongside the
-privileged operator routes. This is explicitly not a worker identity system and
-must be replaced by a scoped worker credential before a worker can execute
-anything. Repository-write capability and work-order policy remain false, and
-no #112 code launches a process, writes a target repository, or collects
-artifacts.
+Issue #159 replaces the temporary Phase 1 shared credential with distinct worker
+identity and administrator authority. Dedicated worker routes authenticate one
+logical worker and enforce assigned run/lease ownership. Credential lifecycle
+uses a single verifier row and explicit administrator issue/rotate/revoke.
+See [the scoped credential contract](../operations/worker-credentials.md).
+Repository-write capability remains false; this change adds no OS isolation.
 
 ### Phase 1B — Safe pull worker
 

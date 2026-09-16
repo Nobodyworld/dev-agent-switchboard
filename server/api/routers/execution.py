@@ -99,7 +99,7 @@ from server.execution.schemas import (
 )
 from server.settings import get_execution_routing_settings
 
-router = APIRouter(dependencies=[Depends(require_admin_token)])
+router = APIRouter()
 _MAX_READINESS_WORKERS = 100
 _CATALOG_SOURCE_AVAILABILITY_CAVEAT = (
     "Exact source availability requires an operator-configured canonical checkout "
@@ -138,7 +138,11 @@ RepositoryReadinessReason: TypeAlias = Literal[
 ]
 
 
-@router.get("/api/execution/catalog", response_model=TrustedCatalogOut)
+@router.get(
+    "/api/execution/catalog",
+    response_model=TrustedCatalogOut,
+    dependencies=[Depends(require_admin_token)],
+)
 async def get_trusted_catalog() -> TrustedCatalogOut:
     """Return safe source-controlled repository and manifest associations."""
 
@@ -178,6 +182,7 @@ async def get_trusted_catalog() -> TrustedCatalogOut:
 @router.get(
     "/api/execution/catalog-readiness",
     response_model=CatalogReadinessOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def get_catalog_readiness(
     service: ExecutionServiceDependency,
@@ -232,6 +237,7 @@ async def get_catalog_readiness(
 @router.get(
     "/api/execution/trusted-repositories",
     response_model=TrustedCatalogOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def list_trusted_repositories() -> TrustedCatalogOut:
     """Return the canonical bounded trusted-workload catalog."""
@@ -242,6 +248,7 @@ async def list_trusted_repositories() -> TrustedCatalogOut:
 @router.get(
     "/api/execution/trusted-repositories/{owner}/{repository}",
     response_model=TrustedRepositoryOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def get_trusted_repository_detail(
     owner: str,
@@ -262,6 +269,7 @@ async def get_trusted_repository_detail(
 @router.get(
     "/api/execution/trusted-repositories/{owner}/{repository}/readiness",
     response_model=TrustedRepositoryReadinessOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def get_named_trusted_repository_readiness(  # noqa: PLR0913
     *,
@@ -292,6 +300,7 @@ async def get_named_trusted_repository_readiness(  # noqa: PLR0913
 @router.get(
     "/api/execution/catalog/{repository_full_name:path}/readiness",
     response_model=TrustedRepositoryReadinessOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def get_trusted_repository_readiness(  # noqa: PLR0913
     *,
@@ -458,6 +467,7 @@ def _repository_activity_state(
 @router.get(
     "/api/execution/operator/overview",
     response_model=ExecutionOperatorOverviewOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def get_operator_overview(
     session: SessionDependency,
@@ -476,6 +486,7 @@ async def get_operator_overview(
 @router.get(
     "/api/execution/operator/history",
     response_model=ExecutionHistoryPageOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def list_operator_history(  # noqa: PLR0913
     *,
@@ -520,7 +531,11 @@ async def list_operator_history(  # noqa: PLR0913
     )
 
 
-@router.get("/api/execution/workers", response_model=ExecutionWorkerPageOut)
+@router.get(
+    "/api/execution/workers",
+    response_model=ExecutionWorkerPageOut,
+    dependencies=[Depends(require_admin_token)],
+)
 async def list_execution_workers(
     session: SessionDependency,
     limit: int = Query(default=25, ge=1, le=MAX_OPERATOR_LIMIT),
@@ -585,7 +600,11 @@ async def _rollback_and_raise(
     _raise_domain_error(error)
 
 
-@router.get("/api/execution/manifests", response_model=list[CommandManifestOut])
+@router.get(
+    "/api/execution/manifests",
+    response_model=list[CommandManifestOut],
+    dependencies=[Depends(require_admin_token)],
+)
 async def list_manifests(
     service: ExecutionServiceDependency,
     session: SessionDependency,
@@ -601,7 +620,9 @@ async def list_manifests(
 
 
 @router.get(
-    "/api/execution/manifests/{name}/{version}", response_model=CommandManifestOut
+    "/api/execution/manifests/{name}/{version}",
+    response_model=CommandManifestOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def get_manifest(
     name: str,
@@ -619,7 +640,11 @@ async def get_manifest(
     return CommandManifestOut.model_validate(manifest)
 
 
-@router.post("/api/execution/work-orders", response_model=WorkOrderOut)
+@router.post(
+    "/api/execution/work-orders",
+    response_model=WorkOrderOut,
+    dependencies=[Depends(require_admin_token)],
+)
 async def create_work_order(
     body: WorkOrderCreateIn,
     service: ExecutionServiceDependency,
@@ -658,7 +683,11 @@ async def create_work_order(
     return WorkOrderOut.model_validate(work_order)
 
 
-@router.get("/api/execution/work-orders", response_model=list[WorkOrderOut])
+@router.get(
+    "/api/execution/work-orders",
+    response_model=list[WorkOrderOut],
+    dependencies=[Depends(require_admin_token)],
+)
 async def list_work_orders(
     service: ExecutionServiceDependency,
 ) -> list[WorkOrderOut]:
@@ -670,7 +699,11 @@ async def list_work_orders(
     ]
 
 
-@router.get("/api/execution/work-orders/{work_order_id}", response_model=WorkOrderOut)
+@router.get(
+    "/api/execution/work-orders/{work_order_id}",
+    response_model=WorkOrderOut,
+    dependencies=[Depends(require_admin_token)],
+)
 async def get_work_order(
     work_order_id: int,
     service: ExecutionServiceDependency,
@@ -686,7 +719,9 @@ async def get_work_order(
 
 
 @router.post(
-    "/api/execution/work-orders/{work_order_id}/approve", response_model=WorkOrderOut
+    "/api/execution/work-orders/{work_order_id}/approve",
+    response_model=WorkOrderOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def approve_work_order(
     work_order_id: int,
@@ -705,7 +740,9 @@ async def approve_work_order(
 
 
 @router.post(
-    "/api/execution/work-orders/{work_order_id}/queue", response_model=WorkOrderOut
+    "/api/execution/work-orders/{work_order_id}/queue",
+    response_model=WorkOrderOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def queue_work_order(
     work_order_id: int,
@@ -723,7 +760,9 @@ async def queue_work_order(
 
 
 @router.post(
-    "/api/execution/work-orders/{work_order_id}/reject", response_model=WorkOrderOut
+    "/api/execution/work-orders/{work_order_id}/reject",
+    response_model=WorkOrderOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def reject_work_order(
     work_order_id: int,
@@ -742,7 +781,9 @@ async def reject_work_order(
 
 
 @router.post(
-    "/api/execution/work-orders/{work_order_id}/cancel", response_model=WorkOrderOut
+    "/api/execution/work-orders/{work_order_id}/cancel",
+    response_model=WorkOrderOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def cancel_work_order(
     work_order_id: int,
@@ -761,7 +802,9 @@ async def cancel_work_order(
 
 
 @router.post(
-    "/api/execution/work-orders/{work_order_id}/expire", response_model=WorkOrderOut
+    "/api/execution/work-orders/{work_order_id}/expire",
+    response_model=WorkOrderOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def expire_work_order(
     work_order_id: int,
@@ -780,7 +823,9 @@ async def expire_work_order(
 
 
 @router.post(
-    "/api/execution/work-orders/{work_order_id}/requeue", response_model=WorkOrderOut
+    "/api/execution/work-orders/{work_order_id}/requeue",
+    response_model=WorkOrderOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def requeue_stale_work_order(
     work_order_id: int,
@@ -800,6 +845,7 @@ async def requeue_stale_work_order(
 @router.get(
     "/api/execution/work-orders/{work_order_id}/route-assessment",
     response_model=RouteAssessmentOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def assess_work_order_route(
     work_order_id: int,
@@ -819,6 +865,7 @@ async def assess_work_order_route(
 @router.get(
     "/api/execution/work-orders/{work_order_id}/route",
     response_model=RouteProvenanceOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def get_work_order_route(
     work_order_id: int,
@@ -839,6 +886,7 @@ async def get_work_order_route(
 @router.post(
     "/api/execution/routing-profiles",
     response_model=WorkerRoutingProfileOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def create_routing_profile(
     body: WorkerRoutingProfileCreateIn,
@@ -869,6 +917,7 @@ async def create_routing_profile(
 @router.get(
     "/api/execution/routing-profiles",
     response_model=list[WorkerRoutingProfileOut],
+    dependencies=[Depends(require_admin_token)],
 )
 async def list_routing_profiles(
     service: ExecutionServiceDependency,
@@ -884,6 +933,7 @@ async def list_routing_profiles(
 @router.get(
     "/api/execution/routing-profiles/{worker_id}",
     response_model=WorkerRoutingProfileOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def get_routing_profile(
     worker_id: str,
@@ -902,6 +952,7 @@ async def get_routing_profile(
 @router.put(
     "/api/execution/routing-profiles/{worker_id}",
     response_model=WorkerRoutingProfileOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def replace_routing_profile(
     worker_id: str,
@@ -933,6 +984,7 @@ async def replace_routing_profile(
 @router.post(
     "/api/execution/routing-profiles/{worker_id}/quota-reset",
     response_model=WorkerRoutingProfileOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def reset_routing_quota(
     worker_id: str,
@@ -957,13 +1009,17 @@ async def reset_routing_quota(
     return WorkerRoutingProfileOut.model_validate(profile)
 
 
-@router.post("/api/execution/workers", response_model=WorkerOut)
+@router.post(
+    "/api/execution/workers",
+    response_model=WorkerOut,
+    dependencies=[Depends(require_admin_token)],
+)
 async def register_worker(
     body: WorkerRegistrationIn,
     service: ExecutionServiceDependency,
     session: SessionDependency,
 ) -> WorkerOut:
-    """Register or refresh a worker using the documented Phase 1 credential."""
+    """Register or refresh a worker using the administrator credential."""
 
     registration = WorkerRegistration(
         worker_id=body.worker_id,
@@ -993,7 +1049,11 @@ async def register_worker(
     return WorkerOut.model_validate(worker)
 
 
-@router.post("/api/execution/workers/{worker_id}/heartbeat", response_model=WorkerOut)
+@router.post(
+    "/api/execution/workers/{worker_id}/heartbeat",
+    response_model=WorkerOut,
+    dependencies=[Depends(require_admin_token)],
+)
 async def heartbeat_worker(
     worker_id: str,
     body: WorkerHeartbeatIn,
@@ -1010,7 +1070,11 @@ async def heartbeat_worker(
     return WorkerOut.model_validate(worker)
 
 
-@router.post("/api/execution/checkout", response_model=CheckoutOut)
+@router.post(
+    "/api/execution/checkout",
+    response_model=CheckoutOut,
+    dependencies=[Depends(require_admin_token)],
+)
 async def checkout_execution_work(
     body: CheckoutIn,
     service: ExecutionServiceDependency,
@@ -1032,7 +1096,11 @@ async def checkout_execution_work(
     return CheckoutOut(run=ExecutionRunOut.model_validate(run))
 
 
-@router.get("/api/execution/runs", response_model=list[ExecutionRunOut])
+@router.get(
+    "/api/execution/runs",
+    response_model=list[ExecutionRunOut],
+    dependencies=[Depends(require_admin_token)],
+)
 async def list_runs(
     service: ExecutionServiceDependency,
     work_order_id: int | None = Query(default=None, ge=1),
@@ -1045,7 +1113,11 @@ async def list_runs(
     ]
 
 
-@router.get("/api/execution/runs/{run_id}", response_model=ExecutionRunOut)
+@router.get(
+    "/api/execution/runs/{run_id}",
+    response_model=ExecutionRunOut,
+    dependencies=[Depends(require_admin_token)],
+)
 async def get_run(
     run_id: int,
     service: ExecutionServiceDependency,
@@ -1063,6 +1135,7 @@ async def get_run(
 @router.get(
     "/api/execution/runs/{run_id}/route",
     response_model=RouteProvenanceOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def get_run_route(
     run_id: int,
@@ -1078,7 +1151,11 @@ async def get_run_route(
     return RouteProvenanceOut.model_validate(run.route_provenance)
 
 
-@router.get("/api/execution/runs/{run_id}/evidence", response_model=ExecutionEvidence)
+@router.get(
+    "/api/execution/runs/{run_id}/evidence",
+    response_model=ExecutionEvidence,
+    dependencies=[Depends(require_admin_token)],
+)
 async def get_run_evidence(
     run_id: int,
     service: ExecutionServiceDependency,
@@ -1095,6 +1172,7 @@ async def get_run_evidence(
 @router.post(
     "/api/execution/runs/{run_id}/reuse-candidate",
     response_model=ReuseCandidateOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def resolve_reuse_candidate(
     run_id: int,
@@ -1121,7 +1199,11 @@ async def resolve_reuse_candidate(
     )
 
 
-@router.post("/api/execution/runs/{run_id}/heartbeat", response_model=ExecutionRunOut)
+@router.post(
+    "/api/execution/runs/{run_id}/heartbeat",
+    response_model=ExecutionRunOut,
+    dependencies=[Depends(require_admin_token)],
+)
 async def heartbeat_run(
     run_id: int,
     body: RunHeartbeatIn,
@@ -1138,7 +1220,11 @@ async def heartbeat_run(
     return ExecutionRunOut.model_validate(run)
 
 
-@router.post("/api/execution/runs/{run_id}/complete", response_model=ExecutionRunOut)
+@router.post(
+    "/api/execution/runs/{run_id}/complete",
+    response_model=ExecutionRunOut,
+    dependencies=[Depends(require_admin_token)],
+)
 async def complete_run(
     run_id: int,
     body: ExecutionCompletionIn,
@@ -1172,7 +1258,11 @@ async def complete_run(
     return ExecutionRunOut.model_validate(run)
 
 
-@router.post("/api/execution/leases/expire", response_model=ExpireLeasesOut)
+@router.post(
+    "/api/execution/leases/expire",
+    response_model=ExpireLeasesOut,
+    dependencies=[Depends(require_admin_token)],
+)
 async def expire_stale_execution_leases(
     service: ExecutionServiceDependency,
     session: SessionDependency,

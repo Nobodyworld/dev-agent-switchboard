@@ -39,12 +39,13 @@ from server.github_adapter.schemas import (
     GitHubValidationRequestOut,
 )
 
-router = APIRouter(dependencies=[Depends(require_admin_token)])
+router = APIRouter()
 
 
 @router.get(
     "/api/execution/github/requests",
     response_model=ExecutionHistoryPageOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def list_github_validation_requests(  # noqa: PLR0913
     *,
@@ -128,6 +129,7 @@ async def _commit(session: SessionDependency) -> None:
 @router.post(
     "/api/execution/github/pull-requests/validate",
     response_model=GitHubValidationRequestOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def request_pull_request_validation(
     body: GitHubValidationCreateIn,
@@ -161,6 +163,7 @@ async def request_pull_request_validation(
 @router.get(
     "/api/execution/github/requests/{request_id}",
     response_model=GitHubValidationRequestOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def get_github_validation_request(
     request_id: int,
@@ -180,6 +183,7 @@ async def get_github_validation_request(
 @router.post(
     "/api/execution/github/requests/{request_id}/publish",
     response_model=GitHubValidationRequestOut,
+    dependencies=[Depends(require_admin_token)],
 )
 async def publish_github_validation_request(
     request_id: int,

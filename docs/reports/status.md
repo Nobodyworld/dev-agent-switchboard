@@ -1,6 +1,6 @@
 # Public Developer Preview Status
 
-_Last reviewed: 2026-09-07_
+_Last reviewed: 2026-09-14_
 
 ## Classification
 
@@ -14,21 +14,41 @@ The repository is public for source inspection, controlled local evaluation, and
 
 ```text
 repository: Nobodyworld/dev-agent-switchboard
-current merged main: 78ff87a87e2322f6a77732b5b0368c4379dc0b62
-source: squash merge of PR #152
-completed predecessor issue: #151
-active issue: #157
-active draft PR: #158
-active branch: feat/operator-readiness-progress
-active ExecPlan: .agent/execplans/019_operator_readiness_progress.md
-current PR head and hosted checks: GitHub PR #158 is authoritative after publication
+current merged main: ce0cb9e9fdfadf8e31a751789c795743330e8624
+source: squash merge of PR #158
+completed predecessor issue: #157
+active issue: #159
+active draft PR: #160
+active branch: feat/scoped-worker-identity
+active ExecPlan: .agent/execplans/020_scoped_worker_identity.md
+current PR head and hosted checks: GitHub PR #160 is authoritative after publication
 ```
+
+## Scoped worker identity (validated draft)
+
+Issue #159 / draft PR #160 implements separate administrator and worker authority.
+A server-generated worker secret is bound to one worker ID; persistence retains
+one verifier row with bounded lifecycle metadata. The worker uses nine scoped
+routes and stops after credential rejection without fabricated completion.
+Both manual and owned-lifecycle paths keep the administrator credential out of
+the accepted worker process. The existing unconfigured demo mode is separately
+documented and cannot provision worker credentials.
+
+Implementation `b0632c4427029ae0ac96b32ff57da63a9097eb54` passed complete local
+verification (1,012 tests, 16 explicit skips), native Linux focused proof (31
+passes), strict Playwright (four passes, zero skips), security/secret scans and
+all 22 module coverage thresholds. Hosted CI `34925371826`, Workload acceptance
+`34925371888` and Commitlint `34925371841` passed. ExecPlan 020 records exact
+route/client matrices, migration proof, genuine skips and the 45-file inventory.
+PR #160 records any subsequent documentation-only head and its hosted results.
+The PR remains draft/unmerged pending independent connector review and separate
+owner ready/merge decisions. This adds no isolation or production authorization.
 
 PR #145 merged the public workload onboarding factory after exact-head local validation, hosted validation, and connector review. The merge retained the repository’s developer-preview classification and did not authorize release, deployment, live external target execution, MCP, paid-provider routing, or expanded worker types.
 
 ## Operator readiness and progress
 
-Issue #157 / draft PR #158 extends the existing lifecycle with read-only
+Merged issue #157 / PR #158 extends the existing lifecycle with read-only
 `validation-preflight --config <private-json>`, optional bounded progress,
 reviewed corrective guidance, and explicit human versus JSON CLI output.
 Readiness and execution share one authoritative preflight sequence; readiness
@@ -55,11 +75,10 @@ factory thresholds also passed. Initial invalid concurrent test isolation is
 recorded in the plan, not counted as passing evidence. Connector review also
 reproduced bound-but-not-listening socket and dangling-runtime-junction readiness
 gaps; the shared preflight correction and all four new regressions now pass.
-Exact-head hosted state
-after publication remains authoritative in GitHub. PR #158 stays draft and
-unmerged pending hosted validation, connector review, and a separate owner
-decision. No dependency, workload, credential,
-isolation, provider, MCP, source-write, release, or deployment scope is added.
+PR #158 is now merged. These counts describe predecessor validation; the
+scoped credential candidate and its hosted publication evidence are recorded
+in ExecPlan 020. That predecessor added no credential, isolation, provider,
+MCP, source-write, release or deployment authority.
 
 ## Owned operator validation lifecycle (merged predecessor)
 
@@ -410,13 +429,21 @@ The execution-broker roadmap is tracked in issue #111.
 
 The current sequence is:
 
-1. complete exact-head hosted validation and connector review of draft PR #150;
-2. obtain a separate owner merge decision for the documentation-only acceptance record;
-3. use the accepted fresh/reuse evidence and recorded operator friction to scope any later work;
-4. define scoped worker identity and an accepted isolation mode before exposing broader remote request surfaces;
+1. complete scoped worker identity validation and review in issue #159 / draft PR #160;
+2. obtain a separate owner decision before changing draft or merge state;
+3. use accepted scoped-worker, fresh/reuse and readiness/progress evidence to scope later work;
+4. define any accepted isolation mode separately before exposing broader remote request surfaces;
 5. define a separate typed MCP/Secure MCP Tunnel architecture only after local-first utility is proven;
 6. keep paid-provider handoff, browser workers, Docker workers, Unity workers, desktop/RPA, and write-capable workers behind separate accepted issues and threat models.
 
 ## Release and deployment boundary
 
 Technical validation, public source visibility, and a developer-preview tag do not authorize production or public hosting. A later tag, release, deployment, expanded network exposure, untrusted multi-tenant claim, paid-provider execution, or write-capable worker remains a separate owner-controlled decision with its own immutable candidate, accepted contract, and evidence.
+
+## Scoped worker identity
+
+Issue #159 / draft PR #160 adds separate worker credentials, one verifier record
+per worker, administrator issue/atomic rotation/idempotent revocation, nine
+worker-only API routes, and child-worker environment separation. The living
+ExecPlan 020 records candidate validation and explicit blockers. PR remains
+draft and unmerged; this work does not grant production or OS isolation claims.

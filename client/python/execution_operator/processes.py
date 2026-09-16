@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import stat
 import subprocess
@@ -79,6 +80,8 @@ def _minimal_environment(
     layout: RuntimeLayout,
     token: str,
     control_plane_root: Path,
+    *,
+    worker: bool = False,
 ) -> dict[str, str]:
     environment = {
         key: os.environ[key]
@@ -92,8 +95,10 @@ def _minimal_environment(
             "PYTHONDONTWRITEBYTECODE": "1",
             "TEMP": str(layout.temporary),
             "TMP": str(layout.temporary_alt),
-            "SWITCHBOARD_ADMIN_TOKEN": token,
         }
+    )
+    environment["SWITCHBOARD_WORKER_TOKEN" if worker else "SWITCHBOARD_ADMIN_TOKEN"] = (
+        token
     )
     return environment
 
@@ -200,6 +205,7 @@ class OwnedProcess:
         output = bytes(self._output)
         if self._redacted_token:
             output = output.replace(self._redacted_token, b"[REDACTED]")
+        output = re.sub(rb"(?i)swb_w1\.[A-Za-z0-9.]*", b"[REDACTED]", output)
         if self._output_truncated:
             output += b"\n[OUTPUT TRUNCATED]\n"
         _write_private_bytes(
@@ -357,7 +363,9 @@ def launch_worker(
             str(layout.stop_worker),
         ),
         cwd=control_plane_root,
-        environment=_minimal_environment(layout, token, control_plane_root),
+        environment=_minimal_environment(
+            layout, token, control_plane_root, worker=True
+        ),
         layout=layout,
         summary=summary,
         stop_file=layout.stop_worker,

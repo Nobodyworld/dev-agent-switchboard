@@ -33,7 +33,7 @@ def _config(tmp_path: Path, **overrides: object) -> WorkerConfig:
         "base_url": "http://localhost:8000",
         "worker_id": "worker-1",
         "display_name": "Worker 1",
-        "admin_token": _TOKEN,
+        "worker_token": _TOKEN,
         "worker_root": tmp_path / "worker-root",
         "evidence_root": tmp_path / "evidence-root",
         "repositories": {"Nobodyworld/example": tmp_path / "canonical"},

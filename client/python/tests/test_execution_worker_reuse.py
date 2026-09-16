@@ -50,7 +50,7 @@ def _config(tmp_path: Path, repository: Path) -> WorkerConfig:
         base_url="http://localhost:8000",
         worker_id="worker-1",
         display_name="Reuse Worker",
-        admin_token=_TOKEN,
+        worker_token=_TOKEN,
         worker_root=tmp_path / "worker-root",
         evidence_root=tmp_path / "evidence-root",
         repositories={"Nobodyworld/dev-agent-switchboard": repository},
@@ -87,7 +87,10 @@ class _ReuseClient:
     def get_work_order(self, _work_order_id: int) -> dict[str, Any]:
         return self.order
 
-    def get_manifest(self, _name: str, _version: str) -> dict[str, Any]:
+    def get_manifest(
+        self, _name: str, _version: str, *, run_id: int | None = None
+    ) -> dict[str, Any]:
+        assert run_id is not None
         return remote_manifest_payload(self.manifest)
 
     def heartbeat_worker(self, *, status: str | None = None) -> dict[str, object]:

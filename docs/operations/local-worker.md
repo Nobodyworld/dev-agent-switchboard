@@ -7,11 +7,12 @@ an executable, a script body, an argv element, or a filesystem path.
 ## Install and configure
 
 Install the repository's development requirements on the trusted workstation,
-ensure `python` and `git` are on `PATH`, and set the Phase 1 credential in the
-process environment:
+ensure `python` and `git` are on `PATH`, and deliberately provision a scoped
+credential as described in [worker credential operations](worker-credentials.md).
+Launch with only the worker credential in its process environment:
 
 ```powershell
-$env:SWITCHBOARD_ADMIN_TOKEN = "operator-provisioned-token"
+$env:SWITCHBOARD_WORKER_TOKEN = "<one-time-worker-credential>"
 python -m scripts.local_worker --config C:\worker\local-worker.json
 ```
 
@@ -22,14 +23,14 @@ python -m scripts.local_worker --config C:\worker\local-worker.json --once
 ```
 
 The token is deliberately excluded from the JSON file. Do not pass it on the
-command line or place it in source control. Phase 1 reuses the admin token and
-does not provide an individual worker-identity system.
+command line or place it in source control. The token authorizes only this
+worker ID. `SWITCHBOARD_ADMIN_TOKEN` must be absent from the worker process.
 
 Use the module form from a source checkout. Directly invoking
 `python scripts/local_worker.py` does not establish the repository root on
 Python's import path and can fail before registration with a package import
 error. Worker configuration remains an operator trust decision: repository
-mappings, the admin token, and approval must not be inferred or automated.
+mappings, credential provisioning, and approval must not be inferred or automated.
 
 The operator-owned JSON configuration has strict JSON types. A minimal example
 is:

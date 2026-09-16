@@ -8,10 +8,12 @@ import json
 import os
 import shutil
 import socket
+import sqlite3
 import stat
 import subprocess
 import tempfile
 import uuid
+from contextlib import closing
 from dataclasses import asdict, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -1110,6 +1112,24 @@ def test_real_server_worker_synthetic_lifecycle_modes(  # noqa: PLR0913, PLR0915
     assert (control_plane / "scripts" / "local_worker.py").is_file()
     token = f"operator-synthetic-{uuid.uuid4().hex}"
     monkeypatch.setenv("SWITCHBOARD_ADMIN_TOKEN", token)
+    launched_environments: list[tuple[str, bool, bool]] = []
+    worker_secrets: list[bytes] = []
+    real_launch = processes_module._launch
+
+    def checked_launch(**kwargs):
+        environment = kwargs["environment"]
+        launched_environments.append(
+            (
+                kwargs["kind"],
+                "SWITCHBOARD_ADMIN_TOKEN" in environment,
+                "SWITCHBOARD_WORKER_TOKEN" in environment,
+            )
+        )
+        if kwargs["kind"] == "worker":
+            worker_secrets.append(environment["SWITCHBOARD_WORKER_TOKEN"].encode())
+        return real_launch(**kwargs)
+
+    monkeypatch.setattr(processes_module, "_launch", checked_launch)
     approvals: list[str] = []
     observations: list[ProgressEvent] = []
     verified = False
@@ -1136,6 +1156,21 @@ def test_real_server_worker_synthetic_lifecycle_modes(  # noqa: PLR0913, PLR0915
             observer=observations.append,
         )
         assert report.outcome == "succeeded"
+        assert launched_environments == [
+            ("server", True, False),
+            ("worker", False, True),
+        ]
+        layout, _ = inspect_runtime(runtime_root)
+        with closing(sqlite3.connect(layout.database)) as database:
+            rows = database.execute(
+                "SELECT worker_id, revoked_at FROM execution_worker_credentials"
+            ).fetchall()
+        assert (
+            len(rows) == 1 and rows[0][0] == config.worker_id and rows[0][1] is not None
+        )
+        for path in runtime_root.rglob("*"):
+            if path.is_file():
+                assert all(secret not in path.read_bytes() for secret in worker_secrets)
         assert [run.reuse_decision for run in report.runs] == expected_decisions
         assert report.operator_action_count == expected_actions
         assert len(approvals) == expected_actions
@@ -1185,6 +1220,11 @@ def test_real_server_worker_synthetic_lifecycle_modes(  # noqa: PLR0913, PLR0915
                 manifest.execution_steps
             )
         assert inspect_validation_runtime(runtime_root).as_dict() == report.as_dict()
+        server_log = (runtime_root / "processes" / "server.log").read_text(
+            encoding="utf-8"
+        )
+        assert "Traceback" not in server_log
+        assert "ValidationError" not in server_log
         for path in (
             runtime_root / "operator-runtime.json",
             runtime_root / "worker-config.json",
