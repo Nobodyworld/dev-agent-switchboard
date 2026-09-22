@@ -32,6 +32,8 @@ Autonomous coding agents, deterministic local workers, script runners, and human
 
 Switchboard provides that coordination layer as a small, inspectable application rather than a hosted production service.
 
+For the long-form history of the project—including its original coordination goal, the 2026 execution-broker pivot, the repeated refactors and acceptance failures, and the rationale for preparing the repository as a public archive—see **[HISTORY.md](HISTORY.md)**.
+
 ## Quick Start
 
 ### 1. Set up the environment
@@ -221,6 +223,7 @@ See [SECURITY.md](SECURITY.md) and [docs/configuration.md](docs/configuration.md
 
 ## Documentation
 
+- **[Project History](HISTORY.md)** — original intent, architectural pivots, failed acceptance lessons, and archival rationale.
 - **[Architecture](docs/visuals/ARCHITECTURE_DIAGRAM.md)** — components, data flow, and security boundaries.
 - **[API Reference](docs/API.md)** — endpoints and examples, including compact execution evidence.
 - **[Configuration](docs/configuration.md)** — environment variables and runtime settings.
