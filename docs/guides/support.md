@@ -1,25 +1,24 @@
 # Support
 
-Need help with Switchboard? Start with the resources below.
+> [!IMPORTANT]
+> **Switchboard is an archived reference implementation. Active support has ended.**
 
-## Self-Service Resources
+There is no current feature roadmap, release train, production support commitment, or guaranteed response time.
 
-- [README](../../README.md) – Quickstart, configuration, and workflow overview.
-- [Operations report](../reports/operations-report.md) – Architectural summary and current risk hotspots.
-- [Modernization roadmap](plan-operations.md) – Active roadmap and task breakdown.
-- [Documentation hub](../index.md) – Deep dives into architecture, rate limiting, and historical ExecPlans.
+## Self-service references
 
-## Getting Help
+- [Project history](../../HISTORY.md) — why Switchboard was created, how it evolved, and why development ended.
+- [Archive status](../reports/status.md) — final public posture and security boundary.
+- [README](../../README.md) — project overview and historical local reproduction.
+- [Documentation hub](../index.md) — architecture and operational documentation retained from active development.
+- [Security policy](../../SECURITY.md) — archived security and disclosure posture.
 
-If you are blocked or have questions that are not answered in the documentation:
+## Issues and questions
 
-- Open a GitHub Discussion or issue with the appropriate label (`type/question`).
-- Report security-sensitive topics following the [Security Policy](../../SECURITY.md).
+Existing issues and pull requests remain valuable historical evidence. New feature requests and refactor campaigns are not planned for this repository.
 
-Please include environment details, reproduction steps, and expected vs. actual results. The maintainer team responds to issues based on availability and priority.
+Do not post secrets, credentials, private machine details, or exploit material publicly. Security-sensitive findings should follow [SECURITY.md](../../SECURITY.md).
 
-## Support Model
+## Successor work
 
-Switchboard is maintained by volunteers. Response times and support depend on maintainer availability.
-
-Thank you for using Switchboard!
+No successor repository is declared from this public archive yet. Any later extraction or reassignment of reusable ideas is a separate project decision and does not reactivate Switchboard.
