@@ -192,7 +192,7 @@ No later preview or formal release is planned from this archived repository. Pro
 
 ## Security Model
 
-The public developer preview is intended for localhost or controlled trusted networks. Public repository visibility makes the source available for review; it does not make a running Switchboard instance safe for public hosting. Untrusted multi-tenant and direct internet-facing deployments are unsupported.
+The archived codebase was designed only for localhost or controlled trusted-network evaluation. Public repository visibility makes the source available for review; it does not make a running Switchboard instance safe for public hosting. Untrusted multi-tenant and direct internet-facing deployments are unsupported.
 
 Trusted external workload profiles are reviewed Python source under
 `server/execution/workload_profiles.py`. Their fixed argv, runtime requirements,
@@ -201,7 +201,7 @@ exclusions are digest-bound. The public API and dashboard expose only safe
 identity and readiness metadata; they never expose a canonical checkout path,
 command argv, environment value, full log, or artifact bytes.
 
-Before using Switchboard on a trusted shared network, review and configure:
+The following settings were part of the historical controlled-network guidance; they are retained for reference, not as a supported deployment recipe:
 
 | Area              | Guidance                                                                                                              |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------- |
