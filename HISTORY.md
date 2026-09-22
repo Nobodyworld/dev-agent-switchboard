@@ -217,7 +217,69 @@ That distinction eventually became critical.
 
 ---
 
-## 5. 2026: Switchboard changes identity
+## 5. Repository-aware connectivity changed the coordination frontier
+
+Another change happened outside the Switchboard codebase, but it materially changed how useful the original architecture felt in my own development workflow.
+
+When Switchboard began, my practical experience with LLM-assisted development was much more **repository-bound**.
+
+A model or coding session generally operated inside one repository and one body of context. If another repository mattered, I had to move that context manually: open another session, copy status between conversations, upload or paste files, relay decisions, or build explicit infrastructure that gave otherwise separated agents a shared view of the work.
+
+Under those conditions, the original Switchboard architecture made intuitive sense.
+
+If the agents themselves could not naturally see one another's repository state, Switchboard could provide the missing common layer:
+
+- one task graph;
+- one dependency model;
+- one ownership/lease system;
+- one place for shared live documents;
+- one view of what changed while another agent was working.
+
+That was a real constraint, not merely an architectural preference.
+
+Later, **repository-aware GitHub connectivity became available in my ChatGPT workflow**, and that changed the frontier substantially.
+
+A single conversation could increasingly inspect multiple repositories through GitHub itself: issues, pull requests, branches, commits, files, reviews, workflow runs, and repository history. The same coordinating conversation could perform supported GitHub operations remotely, while local Codex or PowerShell could be reserved for the comparatively small set of tasks that actually required a machine checkout, dependency installation, runtime execution, native UI inspection, or other local state.
+
+That did not make coordination unnecessary.
+
+It changed **where coordination needed to live**.
+
+Some of the global awareness that Switchboard had been built to manufacture inside its own application layer could now come from the external model-and-connector layer. Cross-repository reasoning no longer required every participating repository or agent to publish all of its state into one custom service before a coordinator could understand what was happening.
+
+That changed the economics of the architecture.
+
+The original Switchboard had been valuable partly because agent contexts were effectively islands. Once a coordinating model could inspect GitHub state across those islands directly, a thick central coordination application became less necessary for many of the jobs I originally wanted Switchboard to perform.
+
+At the same time, one class of work **did not** become easier simply because GitHub became visible to the model:
+
+trusted local execution.
+
+A GitHub connector can understand repository state and perform repository operations. It does not, by itself, safely execute a deterministic validation workload on a private Windows machine, isolate that workload from unrelated files and credentials, control its process tree, retain full local artifacts, or prove cleanup afterward.
+
+That distinction clarified the eventual architectural split.
+
+The coordination side could become thinner and more context-aware:
+
+> understand repositories, tasks, dependencies, agents, capabilities, and handoffs.
+
+The local execution side could become narrower and more security-focused:
+
+> accept a typed approved request, execute only reviewed capabilities against exact source, isolate the operation, and return bounded evidence.
+
+In retrospect, this was another reason repeated attempts to make Switchboard itself the permanent answer felt increasingly strained.
+
+The environment around the project had changed.
+
+Some of the problem Switchboard was created to solve had moved upward into repository-aware model tooling, while the hardest remaining problem had moved downward into operating-system execution and isolation.
+
+Those two directions did not need another shared application layer.
+
+They needed a clean boundary.
+
+---
+
+## 6. 2026: Switchboard changes identity
 
 The largest change in the project’s history happened during the summer of 2026.
 
@@ -281,7 +343,7 @@ They were also the beginning of the second Switchboard.
 
 ---
 
-## 6. Two products begin living in one repository
+## 7. Two products begin living in one repository
 
 The original Switchboard model was:
 
@@ -323,7 +385,7 @@ Instead of recognizing that divergence as a potential repository boundary, I kep
 
 ---
 
-## 7. The execution-broker buildout
+## 8. The execution-broker buildout
 
 The work after PR #115 was much more structured than the early 2025 period.
 
@@ -352,7 +414,7 @@ But the amount of machinery required to make it trustworthy kept revealing anoth
 
 ---
 
-## 8. The failed acceptance attempts
+## 9. The failed acceptance attempts
 
 One of the most useful chapters in Switchboard’s history was also one of the most frustrating.
 
@@ -390,7 +452,7 @@ A failure in any one of those layers could invalidate an otherwise successful ru
 
 ---
 
-## 9. The first authoritative proof
+## 10. The first authoritative proof
 
 [Issue #149](https://github.com/Nobodyworld/dev-agent-switchboard/issues/149) eventually produced the first fully authoritative operator-controlled proof of the newer execution architecture.
 
@@ -412,7 +474,7 @@ But rather than ending the architecture work, success exposed the next layer of 
 
 ---
 
-## 10. Another round of refactoring: operating the system safely
+## 11. Another round of refactoring: operating the system safely
 
 [PR #152](https://github.com/Nobodyworld/dev-agent-switchboard/pull/152) added an owned validation lifecycle.
 
@@ -452,7 +514,7 @@ And again, the system became larger.
 
 ---
 
-## 11. The credential problem
+## 12. The credential problem
 
 Eventually the security model exposed another fundamental weakness.
 
@@ -494,7 +556,7 @@ That is where an important question became unavoidable.
 
 ---
 
-## 12. What was still missing?
+## 13. What was still missing?
 
 After all of that work, Switchboard still could not truthfully claim that arbitrary or insufficiently trusted target code was safely isolated from the host machine.
 
@@ -540,7 +602,7 @@ and started asking:
 
 ---
 
-## 13. The refactor treadmill
+## 14. The refactor treadmill
 
 Looking back, there is a recognizable pattern.
 
@@ -598,7 +660,7 @@ That does not mean they belong in the same product.
 
 ---
 
-## 14. The most important failed refactor
+## 15. The most important failed refactor
 
 The biggest failed refactor was therefore not one particular pull request.
 
@@ -624,7 +686,7 @@ That is a different kind of failure, and it is worth preserving because it is mu
 
 ---
 
-## 15. What Switchboard got right
+## 16. What Switchboard got right
 
 Preparing Switchboard for archival should not erase what worked.
 
@@ -652,7 +714,7 @@ That knowledge is more valuable than pretending the architecture emerged fully f
 
 ---
 
-## 16. Why archive instead of refactor again
+## 17. Why archive instead of refactor again
 
 There is an obvious alternative:
 
@@ -706,7 +768,7 @@ Switchboard has generated enough evidence to justify the reset.
 
 ---
 
-## 17. The successor architecture
+## 18. The successor architecture
 
 The strongest lesson from Switchboard is that its two most valuable responsibilities should become **two independently useful components**.
 
@@ -775,7 +837,7 @@ That is a much cleaner boundary than another internal Switchboard refactor.
 
 ---
 
-## 18. Why this still matters
+## 19. Why this still matters
 
 One reason I am comfortable preparing Switchboard for archival is that the experiment’s original assumptions no longer need to be defended.
 
@@ -799,7 +861,7 @@ It documents one developer independently encountering many of the same problems 
 
 ---
 
-## 19. The decision: turn Switchboard into a public archive
+## 20. The decision: turn Switchboard into a public archive
 
 The appropriate final state for `dev-agent-switchboard` is not deletion.
 
@@ -847,7 +909,7 @@ Switchboard should be allowed to finish.
 
 ---
 
-## 20. What the archive represents
+## 21. What the archive represents
 
 I do not view this outcome as a failed application.
 
