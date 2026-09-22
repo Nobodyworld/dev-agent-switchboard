@@ -1,5 +1,8 @@
 # Project Ruleset
 
+> [!NOTE]
+> **Historical governance record.** Active Switchboard development ended in September 2026. These rules are preserved to explain how the project was governed while active; they do not authorize a new development campaign. See [HISTORY.md](HISTORY.md) and [docs/reports/status.md](docs/reports/status.md).
+
 ## 1. Document control
 
 | Field | Value |
