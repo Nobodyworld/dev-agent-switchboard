@@ -72,9 +72,9 @@ The implemented [Local Execution Broker Architecture](architecture/local-executi
 defines approved work orders, pull-based local workers, trusted command
 manifests, exact-SHA validation, and structured evidence. The
 [validate-switchboard manifest](examples/execution/validate-switchboard-v1.yaml)
-is a stable contract reference; use the Validation Broker and
-[local-worker operations guide](operations/local-worker.md) for the current
-operator path.
+is a stable historical contract reference; the Validation Broker and
+[local-worker operations guide](operations/local-worker.md) document the final
+operator path used during active development.
 The [owned operator validation lifecycle](operations/operator-validation-lifecycle.md)
 composes those reviewed interfaces into one fail-closed local command.
 
