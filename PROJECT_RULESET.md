@@ -10,12 +10,12 @@
 | Project | Switchboard / `Nobodyworld/dev-agent-switchboard` |
 | Filename | `PROJECT_RULESET.md` |
 | Ruleset version | `1.0.0` |
-| Status | Authoritative after merge |
-| Classification | `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY` |
+| Status | Historical governance record |
+| Historical classification | `PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY` |
 
-This file governs project-specific planning, implementation, review, validation, GitHub operations, local execution, agent handoffs, and publication decisions for Switchboard. It does not override higher-level platform, legal, security, or safety requirements.
+While Switchboard was active, this file governed project-specific planning, implementation, review, validation, GitHub operations, local execution, agent handoffs, and publication decisions. It does not override higher-level platform, legal, security, or safety requirements.
 
-This file contains **stable operating rules only**. Current SHAs, active issues, active PRs, workflow IDs, test counts, coverage values, environment blockers, and current next actions belong in:
+The remainder of this file preserves the **stable operating rules used during active development**. Current SHAs, active issues, active PRs, workflow IDs, test counts, coverage values, environment blockers, and current next actions belong in:
 
 - `docs/reports/status.md`;
 - current GitHub issues and pull requests;
