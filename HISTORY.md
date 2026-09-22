@@ -867,7 +867,7 @@ The appropriate final state for `dev-agent-switchboard` is not deletion.
 
 It is preservation.
 
-The repository is being prepared to become a **public archived reference implementation**.
+The repository is preserved as a **public archived reference implementation**.
 
 Its final public posture should be impossible to misunderstand:
 
@@ -893,7 +893,7 @@ A cleaned-up repository containing only the final architecture would hide the mo
 
 > **how the architecture was discovered.**
 
-Before GitHub’s actual archive switch is enabled, the remaining public-facing housekeeping should be reconciled deliberately. Current status documentation should be brought to the final merged state. The long-lived roadmap epic should receive a closing retrospective. Any remaining maintenance pull request should be accepted or closed deliberately. The README should explain the archived posture and, once they exist publicly, point readers toward successor projects.
+The public-facing closeout reconciles the README, status, support, security, contribution guidance, long-lived roadmap, and remaining maintenance work before the repository-level GitHub archive setting is applied. If successor projects are later made public, they can be linked from this archive without reopening Switchboard development.
 
 Then development should stop.
 

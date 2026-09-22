@@ -1,85 +1,46 @@
 # Security Policy
 
-## Supported Versions
+## Archived status
 
-Security fixes are applied to the `main` branch. This repository does not currently promise support for older snapshots or unmaintained releases.
+```text
+ARCHIVED REFERENCE IMPLEMENTATION — NOT PRODUCTION READY
+```
 
-## Reporting a Vulnerability
+Active development and security maintenance have ended. **No versions of Switchboard are currently supported for production use**, and no remediation timeline or future security release is promised.
 
-Do not open a public issue for a suspected vulnerability or credential exposure.
+Do not deploy this repository as an internet-facing, untrusted multi-tenant, or production service.
 
-Use the repository's private GitHub Security Advisory flow when it is available. Include:
+## Reporting sensitive findings
 
-- a description of the vulnerability and likely impact;
-- affected components or versions;
-- reproduction steps or a minimal proof of concept;
-- known mitigations or workarounds;
-- whether the issue is believed to be actively exploited.
+Do not publish credentials, private data, or weaponized exploit details in a public issue.
 
-If private advisory reporting is unavailable, contact the maintainer privately through GitHub without posting exploit details, credentials, or personal information in a public channel.
+If GitHub private vulnerability reporting is available and you believe a finding is important to the historical record, you may use that channel. Reports are handled on a best-effort basis only; archival status means a patch or release should not be expected.
 
-Reports are reviewed on a best-effort basis according to severity and maintainer availability. No fixed acknowledgment, remediation, or disclosure timeline is guaranteed.
+## Final known security boundary
 
-## Deployment Posture
+The final codebase contains meaningful controls developed during the project, including:
 
-Switchboard is intended for controlled agent-coordination environments. A local demonstration configuration must not be treated as production-safe.
+- administrator-token protection for privileged mutations;
+- worker credentials bound to one worker identity, with explicit issuance, rotation, and revocation;
+- worker-only API routes and authoritative run/lease ownership checks;
+- verifier-only credential persistence and process-private worker secrets;
+- live-file path containment and upload-size enforcement;
+- lease ownership/expiry behavior and concurrent checkout controls;
+- exact-SHA work orders, immutable reviewed manifests, bounded evidence, and process cleanup checks.
 
-Before exposing the service beyond localhost or a trusted network:
+Those controls are **not** equivalent to an operating-system sandbox.
 
-- set a strong, randomly generated `SWITCHBOARD_ADMIN_TOKEN`;
-- use TLS, a reverse proxy, and network access controls;
-- keep `FILES_ROOT` within the intended storage boundary;
-- configure `SWITCHBOARD_MAX_LIVE_FILE_BYTES` appropriately;
-- validate symlink containment on the target operating system;
-- protect environment variables and deployment credentials;
-- run the documented release and dependency-security checks.
+The project explicitly stopped before accepting a complete OS-backed isolation mode. In particular, worker credential scope does not isolate OS identities, filesystems, unrelated host credentials, networks, or every process-escape mechanism. Cooperative repository read-only policy and process-tree containment must not be represented as stronger boundaries than they are.
 
-## Implemented Controls
+## Historical validation
 
-The repository includes controls and tests for:
+Historical security validation included Bandit, dependency auditing, Gitleaks, secret scanning, type checks, browser tests, and targeted containment/credential regressions. Those results apply only to the exact revisions and environments recorded in the associated pull requests, ExecPlans, and audits.
 
-- admin-token protection on privileged mutations;
-- worker credentials bound to one logical worker, with explicit issue/atomic rotation/idempotent revocation;
-- a worker-only HTTP allowlist and authoritative run/lease ownership checks;
-- verifier-only persistence and process-private worker secrets, without administrator credentials in the worker;
-- live-file path containment;
-- upload-size enforcement;
-- lease ownership, expiry, and heartbeat behavior;
-- concurrent checkout rejection;
-- rate limiting;
-- security and dependency scanning in the release workflow.
+See:
 
-Implementation alone is not a deployment guarantee. Review [PUBLIC_RELEASE_AUDIT.md](PUBLIC_RELEASE_AUDIT.md) for the current executed validation, supported deployment boundary, and remaining owner-controlled release decisions.
+- [HISTORY.md](HISTORY.md)
+- [archive status](docs/reports/status.md)
+- [PUBLIC_RELEASE_AUDIT.md](PUBLIC_RELEASE_AUDIT.md)
+- [worker credential operations](docs/operations/worker-credentials.md)
 
-## Coordinated Disclosure
-
-Please allow reasonable time for investigation and remediation before public disclosure. Timing will depend on severity, exploitability, maintainer availability, and whether a safe patch or mitigation is ready.
-
-## Patch Process
-
-1. Reproduce and confirm the issue.
-2. Assess severity, affected surfaces, and immediate mitigations.
-3. Develop a focused fix and regression tests.
-4. Run the relevant local and clean-clone quality/security gates.
-5. Publish remediation guidance or release notes when appropriate.
-6. Credit reporters who request acknowledgment, unless doing so would create additional risk.
-
-## Dependency Security
-
-[docs/dependencies.md](docs/dependencies.md) records the server and Python-client dependency surface. Vulnerability reports involving third-party packages should identify the package, affected version, and relevant advisory when known.
-
-Release validation includes `pip-audit`, Bandit, Gitleaks, and the repository's broader quality gates. These controls complement, but do not replace, GitHub CodeQL or Secret Protection when those services are available.
-
-## Worker credential boundary
-
-See [worker credential operations](docs/operations/worker-credentials.md) for
-provisioning, migration, rotation and revocation. A worker token is accepted
-only on its nine lifecycle routes; existing administrator and GitHub actions
-remain separate. Legacy unauthenticated coordination and safe metadata retain
-their existing access policy, but requests presenting a worker-shaped token
-outside the worker routes are rejected.
-
-Authentication loss stops subsequent worker requests and cancels active work
-through existing containment checks without fabricated completion. Credential
-scope does not isolate OS accounts, processes, filesystems or networks. This
-remains PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY.
+Public source availability is for inspection and historical reference; it is not a continuing security warranty.

@@ -1,449 +1,68 @@
-# Public Developer Preview Status
+# Switchboard Archive Status
 
-_Last reviewed: 2026-09-14_
+_Last reviewed: 2026-09-22_
 
 ## Classification
 
 ```text
-PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY
+ARCHIVED REFERENCE IMPLEMENTATION — NOT PRODUCTION READY
 ```
 
-The repository is public for source inspection, controlled local evaluation, and contribution. This does not authorize production deployment, a public hosted service, direct internet exposure, or untrusted multi-tenant operation. Switchboard remains intended for localhost or controlled trusted networks.
+Active product development has ended. The repository is preserved publicly for source inspection, engineering history, and optional local reproduction. No new feature roadmap, release line, production deployment, or security-maintenance commitment is active.
 
-## Current canonical state
+## Final development line
 
 ```text
 repository: Nobodyworld/dev-agent-switchboard
-current merged main: ce0cb9e9fdfadf8e31a751789c795743330e8624
-source: squash merge of PR #158
-completed predecessor issue: #157
-active issue: #159
-active draft PR: #160
-active branch: feat/scoped-worker-identity
-active ExecPlan: .agent/execplans/020_scoped_worker_identity.md
-current PR head and hosted checks: GitHub PR #160 is authoritative after publication
+last feature-bearing main before archive closeout: ada28f080a908cbdc6f29a761e5402664c7d3c87
+public-history PR: #164 — merged
+workspace-hygiene PR: #148 — merged
+execution-broker epic: #111 — closing with archive disposition
+GitHub repository archive toggle: pending repository-level final action
 ```
 
-## Scoped worker identity (validated draft)
-
-Issue #159 / draft PR #160 implements separate administrator and worker authority.
-A server-generated worker secret is bound to one worker ID; persistence retains
-one verifier row with bounded lifecycle metadata. The worker uses nine scoped
-routes and stops after credential rejection without fabricated completion.
-Both manual and owned-lifecycle paths keep the administrator credential out of
-the accepted worker process. The existing unconfigured demo mode is separately
-documented and cannot provision worker credentials.
-
-Implementation `b0632c4427029ae0ac96b32ff57da63a9097eb54` passed complete local
-verification (1,012 tests, 16 explicit skips), native Linux focused proof (31
-passes), strict Playwright (four passes, zero skips), security/secret scans and
-all 22 module coverage thresholds. Hosted CI `34925371826`, Workload acceptance
-`34925371888` and Commitlint `34925371841` passed. ExecPlan 020 records exact
-route/client matrices, migration proof, genuine skips and the 45-file inventory.
-PR #160 records any subsequent documentation-only head and its hosted results.
-The PR remains draft/unmerged pending independent connector review and separate
-owner ready/merge decisions. This adds no isolation or production authorization.
-
-PR #145 merged the public workload onboarding factory after exact-head local validation, hosted validation, and connector review. The merge retained the repository’s developer-preview classification and did not authorize release, deployment, live external target execution, MCP, paid-provider routing, or expanded worker types.
-
-## Operator readiness and progress
-
-Merged issue #157 / PR #158 extends the existing lifecycle with read-only
-`validation-preflight --config <private-json>`, optional bounded progress,
-reviewed corrective guidance, and explicit human versus JSON CLI output.
-Readiness and execution share one authoritative preflight sequence; readiness
-creates no runtime, database, server, worker, work order, approval, or report.
-It reports passed, failed, and unperformed checks with safe logical identity
-and configured versus required timeout facts. Execution reruns those checks
-immediately before runtime creation; readiness reserves nothing and grants no
-approval.
-
-Progress carries only closed transition names and actually observed run states.
-Queuing does not imply running. Observer failure disables presentation and
-cannot authorize work, cause retries, or suppress owned shutdown. Both fresh
-and reuse approval boundaries remain explicit. Machine stdout contains one
-JSON object; prompts, progress, and human diagnostics use stderr. Stored
-inspection states `stored state only; live evidence not reverified` and keeps
-historical schema-2 JSON unchanged.
-
-The substantive local implementation and validation evidence are maintained in
-ExecPlan 019. The Windows Python 3.11 full suite and repository verification each
-passed 983 tests with 18 explicit platform/runtime/gated skips; aggregate measured
-coverage is 90.09%, all 20 verification and 22 CI module gates passed, and strict
-Playwright passed all four cases with zero browser skips. The separate workload
-factory thresholds also passed. Initial invalid concurrent test isolation is
-recorded in the plan, not counted as passing evidence. Connector review also
-reproduced bound-but-not-listening socket and dangling-runtime-junction readiness
-gaps; the shared preflight correction and all four new regressions now pass.
-PR #158 is now merged. These counts describe predecessor validation; the
-scoped credential candidate and its hosted publication evidence are recorded
-in ExecPlan 020. That predecessor added no credential, isolation, provider,
-MCP, source-write, release or deployment authority.
-
-## Owned operator validation lifecycle (merged predecessor)
-
-Completed issue #151 / merged PR #152 added one repository-supported local orchestration
-surface around the existing reviewed execution plane:
-
-```text
-python scripts/dev.py validation-lifecycle --config <private-json>
-python scripts/dev.py inspect-validation-runtime <owned-runtime-root>
-```
-
-It supports `fresh-only` and `fresh-then-exact-reuse`, requires a separate
-explicit approval for every work order, creates only a new atomically
-marker-owned runtime, and preserves all failed or uncertain state. Strict
-preflight verifies clean exact source, origin, manifest, host tools,
-capabilities, containment, safe roots, loopback port, process-only token
-presence, and bounded reporting before mutation. It starts the existing server
-and outbound worker from Switchboard's internally derived control-plane source,
-not from the selected target checkout. The target remains only the worker's
-operator-approved logical repository mapping. The lifecycle verifies authoritative terminal
-and retained evidence, and requires zero leases/capacity plus stopped processes
-and a released port before success.
-
-The machine JSON and human report come from one bounded safe model. Tokens,
-paths, machine/user identity, raw environment, argv, commands, HTTP bodies,
-database content, logs, artifacts, and raw exceptions are excluded. Existing,
-foreign, malformed, linked, or ambiguous runtime state fails closed; inspection
-does not resume, repair, clean, or mutate it. Manual server and worker entry
-points remain supported.
-
-Every post-creation private write, stop signal, termination, finalization,
-cleanup, and report write revalidates the complete original random marker
-identity through one bounded, regular-file-only, no-follow stable read. Valid
-marker replacement, missing or malformed markers, changed-during-read state,
-and marker/root/ancestry junction or reparse state forbid further mutation and
-preserve the runtime and held process state.
-
-Real server/worker synthetic coverage proves fresh-only and exact reuse with
-distinct work-order/run identities, same-worker retained evidence, unchanged
-source expiry, no reuse fallback, zero repeated deterministic steps/artifacts,
-and seven avoided steps. Failure-preservation, cancellation, port, process,
-cleanup, approval, report-size, and credential-leak boundaries have focused
-coverage.
-
-Blocking exact-head review 5055382298 and CI run 33213404514 identified the
-Linux Mypy portability error, Actions' valid non-`.git` origin mismatch,
-Switchboard-only control-plane launch assumption, replaceable runtime marker,
-and incomplete fresh/report identity contract at head
-`7db2fb4674ffba4c2f92497871f4cf0931234e7a`. The additive correction uses
-guarded reparse metadata, a closed semantic GitHub origin parser, distinct
-control-plane and target roots, full original-marker binding, mandatory
-retained-evidence identity/hash verification in both modes, and exact pinned
-`first_available` zero-quota route proof.
-
-Report schema 2 retains the verified identity hash, source run ID, route policy
-and bounded reason, required and reserved quota units, reservation state,
-eligible-candidate count, exact artifact total bytes, evidence fingerprint,
-expiry, and existing cleanup facts. The same validator feeds human and JSON
-serialization and rejects paths, tokens, argv, raw bodies, environments,
-private identity, unsafe values, and oversize output.
-
-Historical Python 3.11 correction evidence includes Linux-target Mypy over 199 source
-files; 83 operator tests with four explicit capability/gated skips; both
-separate-target lifecycle modes individually and together; real Windows marker,
-root, ancestry, and destination-parent junction rejection; three repeated
-two-mode process/port/cleanup passes; and the affected worker/server/CLI
-matrix. The complete `scripts/dev.py verify` sequence at correction candidate
-`2c85948ce7bf5eda37bf36da263a9e42d8fa6865` passed 822 tests with 16 explicit
-platform/runtime skips, 88% aggregate coverage, all 20 configured thresholds,
-strict Mypy, Ruff, Bandit, and an environment audit with no known
-vulnerabilities. The first environment audit identified PYSEC-2026-3447 in the
-task-owned virtualenv's bootstrap `setuptools` 79.0.1; advancing only that
-disposable environment to fixed 84.0.0 cleared the audit without changing a
-repository requirement. Zscripts validation used only cached pnpm 10.18.1
-through ignored task-local infrastructure; host-default pnpm 10.24.0 was
-unchanged. The final documentation-head matrix and push parity are recorded in
-the delivery report so the tracked evidence does not invalidate its own exact
-SHA.
-
-One retained real full-manifest exercise completed mechanically at implementation
-head `c16599c398083e9c8d4c89d1c4ce7b58cfd95aae`, including zero-step reuse, but
-is not treated as security-clean acceptance: pinned Bandit 1.8.6 under Python
-3.14 emitted manager errors for the requested files while returning zero. The
-developer gate and worker parser now fail closed on that condition; a separate
-Python 3.13 Bandit run passed. PR #152 was draft and unmerged at that historical
-checkpoint; it subsequently merged as the current main identified above. No
-release, deployment, production-readiness, or expanded-authority claim follows.
-
-## Current merged product capability
-
-Switchboard is a trusted local execution and evidence broker for AI-assisted development. It provides:
-
-- dependency-aware task coordination, leases, heartbeats, and live plan/file updates;
-- exact-SHA work orders and explicit approval;
-- outbound local workers using immutable reviewed manifests and fixed shell-free argv;
-- disposable exact-SHA worktrees with canonical-source integrity checks;
-- bounded/redacted remote evidence with full local logs and retained artifact hashes;
-- full process-tree cancellation, ownership checks, cleanup, and evidence retention;
-- authenticated GitHub exact-PR resolution and explicit current/stale publication;
-- same-worker exact evidence reuse after retained local cryptographic proof;
-- deterministic `first_available` and `cheapest_capable` local routing;
-- operator-visible route, quota, capacity, evidence, and history projections;
-- the Validation Broker browser workspace;
-- a strict source-controlled four-repository workload catalog;
-- `validate-switchboard@1`;
-- `validate-accounting-modular@1`;
-- `validate-zscripts@1`;
-- `validate-industry-resilience@1`;
-- deterministic offline `python scripts/dev.py validate-workload-catalog` validation;
-- isolated hosted synthetic acceptances for the external workload profiles.
-
-Trusted workload profiles are reviewed Python source under `server/execution/workload_profiles.py`. Runtime YAML, JSON, TOML, database rows, API payloads, target metadata, or caller-provided values cannot author executable commands.
-
-## Earlier workload-factory merge evidence
-
-The exact PR #145 head was:
-
-```text
-aa4d236ae3c8d54ead03d00fcaf920d26b18f374
-```
-
-It passed:
-
-```text
-Commitlint          32735060831  success
-Workload acceptance 32735060770  success
-Main CI             32735060715  success
-```
-
-Main CI included:
-
-- lint, all-files pre-commit, and TODO policy;
-- strict Mypy;
-- Bandit and hosted pip-audit;
-- full-history Gitleaks;
-- Lychee link validation;
-- Accounting Python 3.12 acceptance;
-- the complete Python 3.11 suite with exact Node 24.12.0 and pnpm 10.18.1 setup;
-- strict Chromium UI tests with zero skips;
-- aggregate coverage at 91%;
-- all configured module thresholds.
-
-The isolated workload workflow passed Zscripts, Industry Resilience, and focused workload-factory coverage. The resulting signed squash commit has the same source tree as the exact validated PR head.
-
-The connector’s commit-associated workflow lookup currently filters to pull-request-triggered runs, so it cannot enumerate ordinary `main` push runs for the squash commit. This document therefore does not claim separate merged-main push-run identifiers.
-
-## Reviewed-main acceptance and reconciliation slice
-
-Issue #149 / draft PR #150 proved merged reviewed `main` itself:
-
-```text
-repository: Nobodyworld/dev-agent-switchboard
-commit: e9b56ac0d5936e39d811b240a8091a54e1b4ff26
-manifest: validate-switchboard@1
-manifest digest: 10e99418e4e6f0e9f4a6e95fb5b9a267dab4eeac4671cf58533c8b9afe1fed98
-worker: issue-149-acceptance-worker
-routing: first_available
-```
-
-Fresh direct-API request/work order `1` created run `1`. Explicit approval
-queued the exact target with `reuse_policy: never`. The one eligible worker ran
-all seven reviewed steps successfully. The accepted test result was `733`
-passed, `12` documented version-gated skips, zero failures, zero errors, and
-`93%` aggregate server coverage. Fresh execution took `888.262961` seconds and
-persisted `14` retained command-log artifacts totaling `16,006` bytes.
-
-The fresh evidence fingerprint is
-`532d18c17fad9ff94e0ad86f40f874bb088fa82ff7014eef97f06968ced1d600`.
-Its reuse identity hash is
-`6f48f28d30c2b1a17d3d56e3054dca749269a6b61ef076f5906aedd3acca3343`.
-The source retention expiry is `2026-09-10T21:39:04.718334Z`.
-
-Distinct direct-API request/work order `2` created run `2` with
-`reuse_policy: allow_exact`. The same worker verified the source ownership
-marker, local result identity, evidence fingerprint, containment, regular-file
-status, size, and SHA-256 of all 14 source artifacts. Run `2` linked exactly to
-run `1`, reused the same identity hash and source fingerprint, executed zero
-deterministic validation steps, created zero new artifacts, and did not fall
-back to fresh execution. Its evidence duration was `2.870935` seconds; worker
-wall time was `6.016` seconds. Seven deterministic steps were avoided. This is
-not a claim about money, credits, tokens, provider cost, or financial savings.
-The source expiry remained unchanged.
-
-Both work orders and both runs are authoritatively `succeeded`. Final lease
-count and worker active capacity are zero; quota was not required and reserved
-zero units; all acceptance processes exited; the server port was released; the
-worker source root is empty; and no transient source worktree remains. The
-canonical checkout stayed on clean `main` with unchanged tree
-`43fa13c666b12c6f1c27d090331f443a5ef58014`.
-
-Post-acceptance validation passed the `201`-case focused boundary suite with two
-documented version skips, the exact candidate command and independent full
-suite at `733` passed / `12` skipped, all 16 configured module thresholds,
-strict Playwright at four passed / zero skipped, all-files pre-commit, catalog,
-TODO policy, Ruff, Black, Mypy, Bandit, Gitleaks, detect-secrets, TOML/YAML,
-Node syntax, and diff checks. The isolated `pip-audit` reported no known
-vulnerabilities. Lychee is not installed locally, so exact-head hosted link
-validation remains required.
-
-The only material operator friction was in runtime-only verification: one
-missing import root, one overbroad drive-path matcher that treated sanitized
-HTTPS text as a drive, UTC expiry representation normalization, and a
-Windows console UTF-8 requirement. These did not create another fresh request,
-did not alter product source or retained evidence, and did not weaken any
-acceptance assertion. All predecessor failed environments and
-`security-deferral-wip` remain preserved.
-
-PR #150 remains draft and unmerged. The documentation-only acceptance record
-was pushed normally with exact local/remote feature-ref parity. The remaining
-steps are exact-head hosted validation and connector review, then a separate
-owner merge decision. No release, deployment, production, or expanded
-execution authority follows from this acceptance.
-
-## Historical issue #146 acceptance slice
-
-Issue #146 / draft PR #147 was intended to prove one real operator-controlled
-run against the then-current merged Switchboard target:
-
-```text
-repository: Nobodyworld/dev-agent-switchboard
-commit: a21aa33cabd143dbfefebe4ba32572ddb5765752
-manifest: validate-switchboard@1
-```
-
-The slice was intended to execute:
-
-1. one explicitly approved fresh run through the real FastAPI server, outbound worker, routing, leases, worktree, runner, evidence, and cleanup path;
-2. one distinct equivalent `allow_exact` request on the same worker;
-3. retained-evidence verification with zero repeated deterministic validation steps;
-4. exact source, route, evidence, artifact, integrity, and cleanup verification;
-5. operator-friction and duration recording;
-6. reconciliation of project authority and historical documentation;
-7. safe disposition of stale local merged worktrees and branch names without losing stashes or unpublished work.
-
-This slice adds no new execution architecture unless a real acceptance defect requires a narrow correction with regression coverage.
-
-### 2026-08-27 issue #146 acceptance disposition: target-state blocked
-
-Three isolated attempts against immutable target
-`a21aa33cabd143dbfefebe4ba32572ddb5765752` are retained as failed evidence:
-
-1. The first attempt executed all seven reviewed steps and finalized local
-   evidence, but completion returned HTTP `422` because serialized relative
-   Windows backslashes matched the absolute-local-path policy.
-2. The second attempt exposed combined-suite load behavior: three Windows
-   cancellation cases exceeded their end-to-end four-second expectation and
-   two server-backed smoke cases self-throttled with HTTP `429`. Those same
-   nodes passed when isolated; the failed database and evidence remain
-   unchanged.
-3. The third attempt used a fresh isolated environment. Five deterministic
-   steps passed, the exact target test step reported `696` passed, `12` skipped,
-   and two failed server-smoke cases, and the required security step did not
-   run. Completion then returned a bounded HTTP `422` diagnostic because compact
-   stdout retained source text shaped like a local SQLite DSN. Its work order,
-   run, lease, and capacity state remain unchanged for diagnosis.
-
-The exact target is now **TARGET-STATE-BLOCKED**. Its two server-smoke tests use
-`0.05`-second heartbeats beneath the default `120` requests per `60` seconds
-limiter and can self-throttle when reached after preceding suite workload. The
-production worker cadence remains caller-configured; the correction changes
-only those two test fixtures to the existing realistic five-second server-smoke
-cadence. Compact worker summaries now recursively replace local SQLite DSNs
-with `[LOCAL_DATABASE_URI]`, while raw SQLite DSNs still fail server schema and
-API validation. Typed HTTP diagnostics retain only bounded safe status, reason,
-location, type, and sanitized message fields; they never retain raw response or
-request content.
-
-No fourth live acceptance and no `allow_exact` request ran, and no fourth run
-against `a21aa33cabd143dbfefebe4ba32572ddb5765752` is authorized. There is no
-authoritative successful fresh source run, reuse run, zero-step reuse proof, or
-avoided-work claim. All three failed environments remain preserved. Exact-head
-connector review `5038453077` found no blocking implementation defect, but the
-target-state blocker remains. PR #147 remains draft and unmerged; the next step
-is a separate owner target/merge decision. Focused or full local tests are not
-substitutes for the missing live fresh/reuse evidence, and no release or
-production authorization exists.
-
-Correction validation passed `735` tests with `10` documented platform skips
-both through the exact candidate command and an independent full-suite run.
-Aggregate server coverage was `94%`; every configured module threshold passed,
-and strict Playwright passed four cases with zero skips. Pinned Ruff and Bandit,
-Mypy, scoped pre-commit, Gitleaks, detect-secrets, TOML/YAML, Node syntax,
-full-SHA action pins, catalog, TODO, formatting, diff, and public-path hygiene
-passed. All-files pre-commit was blocked by the local safety boundary, Lychee is
-unavailable, and the shared-environment `pip-audit` result contained `117`
-advisories across `29` packages rather than providing isolated project evidence.
-
-## External target state
-
-### Zscripts
-
-```text
-repository: Nobodyworld/dev-logger-zscripts
-planned live PR #119: closed and merged
-live dogfood disposition: TARGET-STATE-BLOCKED
-```
-
-No substitute PR is authorized. Synthetic acceptance remains valid, but current-main execution must not be represented as exact live PR #119 evidence.
-
-### Industry Resilience
-
-```text
-repository: Nobodyworld/app-industry-resilience
-planned live PR #130: closed and merged
-reviewed head: e3fea89db624414fe3cad7980768f0265cf9570a
-merge commit: f99abbf42c898f0fe4a7494f09b4aae13bed5c40
-live dogfood disposition: TARGET-STATE-BLOCKED
-```
-
-The exact reviewed-head Quality Gate run `32536731040` and Docker Smoke run
-`32536731320` succeeded. The generic profile is merged and synthetically proven,
-but no substitute current-main execution may be represented as live exact-PR
-dogfood. The earlier environment-isolation boundary also remains valid for any
-future external-target campaign; green target checks do not remove it.
-
-## Security and execution boundary
-
-Switchboard does not authorize:
-
-- arbitrary or runtime-authored commands;
-- caller-controlled argv, executable paths, working directories, parsers, artifact paths, environment values, URLs, or cleanup targets;
-- private repository metadata in the public catalog;
-- target source writes;
-- external PR comments or state changes from deterministic workers;
-- paid-provider execution or billing claims;
-- MCP or Secure MCP Tunnel implementation without a separate accepted contract;
-- browser, Docker, Unity, GPU, desktop, or RPA worker expansion without separate threat models;
-- release, publication, deployment, auto-merge, force-push, rebase, or history rewriting.
-
-`repository_write_policy=read_only` is cooperative trust plus integrity detection, not an operating-system sandbox. Untrusted target code requires a separate least-privilege identity and an accepted container, VM, ACL, mount, or equivalent isolation boundary.
-
-## Published preview
-
-The historical developer-preview checkpoint remains:
-
-```text
-tag: v0.1.0-preview.1
-commit: dcac19fb211e105474cf74831a9cc53ef2138ea3
-```
-
-That tag predates exact evidence reuse, cost-aware routing, the Validation Broker, the multi-repository catalog, and the workload factory. It is a historical public checkpoint, not current `main`, a general-availability release, or production authorization.
-
-Any later preview or formal release requires a new immutable candidate and separate owner authorization.
-
-## Roadmap boundary
-
-The execution-broker roadmap is tracked in issue #111.
-
-The current sequence is:
-
-1. complete scoped worker identity validation and review in issue #159 / draft PR #160;
-2. obtain a separate owner decision before changing draft or merge state;
-3. use accepted scoped-worker, fresh/reuse and readiness/progress evidence to scope later work;
-4. define any accepted isolation mode separately before exposing broader remote request surfaces;
-5. define a separate typed MCP/Secure MCP Tunnel architecture only after local-first utility is proven;
-6. keep paid-provider handoff, browser workers, Docker workers, Unity workers, desktop/RPA, and write-capable workers behind separate accepted issues and threat models.
-
-## Release and deployment boundary
-
-Technical validation, public source visibility, and a developer-preview tag do not authorize production or public hosting. A later tag, release, deployment, expanded network exposure, untrusted multi-tenant claim, paid-provider execution, or write-capable worker remains a separate owner-controlled decision with its own immutable candidate, accepted contract, and evidence.
-
-## Scoped worker identity
-
-Issue #159 / draft PR #160 adds separate worker credentials, one verifier record
-per worker, administrator issue/atomic rotation/idempotent revocation, nine
-worker-only API routes, and child-worker environment separation. The living
-ExecPlan 020 records candidate validation and explicit blockers. PR remains
-draft and unmerged; this work does not grant production or OS isolation claims.
+The exact final archive-closeout merge SHA is represented by GitHub `main` after the archive documentation PR lands. This file intentionally avoids a self-referential commit hash.
+
+## What is preserved
+
+The archive retains:
+
+- the original dependency-aware task/agent/lease coordinator;
+- live-file and WebSocket coordination work;
+- the later deterministic local execution broker;
+- exact-SHA work orders and reviewed manifests;
+- compact evidence and exact evidence reuse;
+- local worker routing and operator workflows;
+- readiness/progress and owned validation lifecycle work;
+- scoped worker credentials with rotation and revocation;
+- historical ExecPlans, pull requests, issues, tests, failures, and acceptance evidence.
+
+See [HISTORY.md](../../HISTORY.md) for the narrative history and architectural conclusions.
+
+## Why development stopped
+
+The repository ultimately contained two distinct domains:
+
+1. **agent coordination** — tasks, dependencies, ownership, leases, capabilities, handoffs, and shared state;
+2. **trusted local execution** — exact source identity, reviewed operations, worker credentials, process control, isolation, artifacts, cleanup, and evidence.
+
+Repeated refactors improved the implementation but did not make those responsibilities one coherent product. Repository-aware GitHub connectivity also reduced the need for a thick custom cross-repository coordination layer, while trusted local execution remained a separate machine-security problem.
+
+The decision was therefore to preserve Switchboard rather than add another major subsystem such as OS-backed isolation or a new remote transport.
+
+## Security boundary
+
+The final codebase is **not** a production sandbox.
+
+In particular:
+
+- cooperative repository read-only policy is not OS isolation;
+- process-tree containment is not a complete host-security boundary;
+- scoped worker credentials limit API authority but do not isolate filesystems, identities, networks, or unrelated host secrets;
+- direct public-internet and untrusted multi-tenant operation were never accepted.
+
+The historical developer-preview tag `v0.1.0-preview.1` predates major later execution-broker capabilities and remains historical evidence only.
+
+## Successor work
+
+No successor repository is declared here yet. Reusable ideas or logic may be reassigned later, but that work is intentionally separate from the public archive and does not make this repository active again.

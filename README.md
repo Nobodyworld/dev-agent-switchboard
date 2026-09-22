@@ -1,8 +1,13 @@
 # Switchboard
 
+> [!IMPORTANT]
+> **ARCHIVED REFERENCE IMPLEMENTATION — NOT PRODUCTION READY**
+>
+> Active product development ended in September 2026. This repository is preserved for engineering history, source inspection, and optional local reproduction. No new features, releases, production support, or security maintenance are planned. See **[HISTORY.md](HISTORY.md)** for the full project retrospective.
+
 **Real-time agent coordination with dependency-aware leasing, trusted local execution, and compact exact-SHA evidence.**
 
-Switchboard is a reference implementation for coordinating multiple agents against a shared task graph. Agents can discover ready work, lease tasks, publish mutable reference files, and observe plan changes without each project needing its own orchestration service. The merged execution foundation also supports explicitly approved, outbound local work against operator-allowlisted repositories using exact-SHA disposable worktrees and immutable reviewed commands. Completed validation runs retain full logs locally while exposing strict compact evidence, hashes, parsed results, cleanup state, and deterministic fingerprints through the control plane.
+Switchboard is an archived reference implementation for coordinating multiple agents against a shared task graph. Agents can discover ready work, lease tasks, publish mutable reference files, and observe plan changes without each project needing its own orchestration service. The merged execution foundation also supports explicitly approved, outbound local work against operator-allowlisted repositories using exact-SHA disposable worktrees and immutable reviewed commands. Completed validation runs retain full logs locally while exposing strict compact evidence, hashes, parsed results, cleanup state, and deterministic fingerprints through the control plane.
 
 ![Switchboard dashboard state demonstration](docs/assets/switchboard-dashboard.png)
 
@@ -32,9 +37,12 @@ Autonomous coding agents, deterministic local workers, script runners, and human
 
 Switchboard provides that coordination layer as a small, inspectable application rather than a hosted production service.
 
-For the long-form history of the project—including its original coordination goal, the 2026 execution-broker pivot, the repeated refactors and acceptance failures, and the rationale for preparing the repository as a public archive—see **[HISTORY.md](HISTORY.md)**.
+For the long-form history of the project—including its original coordination goal, the 2026 execution-broker pivot, the repeated refactors and acceptance failures, and the rationale for preserving the repository as a public archive—see **[HISTORY.md](HISTORY.md)**.
 
-## Quick Start
+## Historical Local Reproduction
+
+The commands below reproduce the final development-era application for study. They are **not** an active support or deployment path, and successful local execution does not make the archived project production-ready.
+
 
 ### 1. Set up the environment
 
@@ -143,9 +151,9 @@ python -m pytest server/tests/test_websocket_plan.py -v
 
 The scenario demonstrates Task A being leased and completed, Task B unlocking, a second agent leasing Task B, and the dashboard receiving live updates.
 
-## Validation
+## Historical Validation
 
-Use the current checkout and protected workflow as the source of truth:
+During active development, the repository used the following local validation commands:
 
 ```bash
 python scripts/dev.py verify
@@ -173,21 +181,18 @@ repository only. They do not clone, execute, publish to, or retain artifacts
 from either external target repository. Live dogfood remains an operator-owned
 local exact-SHA activity with its own source and authorization preconditions.
 
-Exact counts, coverage percentages, workflow identifiers, and environment limitations change as the repository evolves. They are intentionally recorded in active pull requests, living ExecPlans, the [public status page](docs/reports/status.md), and [PUBLIC_RELEASE_AUDIT.md](PUBLIC_RELEASE_AUDIT.md) rather than duplicated here as permanent claims.
+Exact historical counts, workflow identifiers, and environment limitations remain recorded in merged pull requests, ExecPlans, the [archive status page](docs/reports/status.md), and [PUBLIC_RELEASE_AUDIT.md](PUBLIC_RELEASE_AUDIT.md). They should not be interpreted as continuing compatibility or support guarantees.
 
 The `v0.1.0-preview.1` developer preview completed its recorded Linux,
 clean-install, Docker, test, browser, security, and repository-control gates.
 That tag predates current `main` and the later execution-broker capabilities. It
 is a historical public checkpoint, not current-main release evidence.
 
-Any later preview or formal release requires a newly selected immutable
-candidate, complete candidate-specific evidence, and separate owner
-authorization. Production deployment and untrusted internet-facing use remain
-unsupported.
+No later preview or formal release is planned from this archived repository. Production deployment and untrusted internet-facing use remain unsupported.
 
 ## Security Model
 
-The public developer preview is intended for localhost or controlled trusted networks. Public repository visibility makes the source available for review; it does not make a running Switchboard instance safe for public hosting. Untrusted multi-tenant and direct internet-facing deployments are unsupported.
+The archived codebase was designed only for localhost or controlled trusted-network evaluation. Public repository visibility makes the source available for review; it does not make a running Switchboard instance safe for public hosting. Untrusted multi-tenant and direct internet-facing deployments are unsupported.
 
 Trusted external workload profiles are reviewed Python source under
 `server/execution/workload_profiles.py`. Their fixed argv, runtime requirements,
@@ -196,7 +201,7 @@ exclusions are digest-bound. The public API and dashboard expose only safe
 identity and readiness metadata; they never expose a canonical checkout path,
 command argv, environment value, full log, or artifact bytes.
 
-Before using Switchboard on a trusted shared network, review and configure:
+The following settings were part of the historical controlled-network guidance; they are retained for reference, not as a supported deployment recipe:
 
 | Area              | Guidance                                                                                                              |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------- |
@@ -254,17 +259,17 @@ scripts/                   # Development, validation, and demo helpers
 docs/                      # Architecture, API, integration, and operations docs
 ```
 
-## Release Status
+## Archive Status
 
 ```text
-PUBLIC DEVELOPER PREVIEW — NOT PRODUCTION READY
+ARCHIVED REFERENCE IMPLEMENTATION — NOT PRODUCTION READY
 ```
 
-This classification distinguishes four separate decisions:
+The final public posture distinguishes four separate facts:
 
-1. **Repository visibility:** the source may be publicly visible for inspection, evaluation, and contribution.
-2. **Developer-preview availability:** developers may run the project locally or on a controlled trusted network.
-3. **Release authorization:** no production release, version tag, or general-availability claim is authorized.
+1. **Repository visibility:** the source remains public for inspection and historical evaluation.
+2. **Historical reproducibility:** readers may reproduce the final development-era application locally at their own discretion.
+3. **Maintenance status:** active feature development, release preparation, and support have ended.
 4. **Production deployment safety:** untrusted multi-tenant and internet-facing deployment remain unsupported.
 
 The `v0.1.0-preview.1` developer preview completed its recorded Linux,
@@ -273,10 +278,7 @@ That tag predates current `main` and the merged execution-broker, exact-reuse,
 routing, Validation Broker, and workload-factory capabilities. It is a
 historical public checkpoint, not current-main release evidence.
 
-Any later preview or formal release requires a newly selected immutable
-candidate, complete candidate-specific evidence, and separate owner
-authorization. Production deployment and untrusted internet-facing use remain
-unsupported.
+No later preview or formal release is planned from this archived repository. Production deployment and untrusted internet-facing use remain unsupported.
 
 ## Governance
 
@@ -294,7 +296,7 @@ unsupported.
 2. Read the [two-agent workflow](docs/visuals/TWO_AGENT_WORKFLOW.md).
 3. Review the [local worker operations guide](docs/operations/local-worker.md).
 4. Review the compact execution/evidence endpoints in [docs/API.md](docs/API.md).
-5. Run the quick start locally.
+5. Optionally reproduce the historical local setup.
 6. Review [SECURITY.md](SECURITY.md), the [public status page](docs/reports/status.md), and the [release audit](PUBLIC_RELEASE_AUDIT.md).
 7. Inspect the task, lease, execution-worker, evidence, live-file, WebSocket, and browser tests.
 
