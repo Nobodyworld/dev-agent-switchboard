@@ -1,22 +1,29 @@
 # Switchboard Documentation Hub
 
-Welcome to the Switchboard operator and agent guide. This site explains how the
-queue and agent orchestration router is structured, how to run it locally, and
-how to integrate agents safely.
+> [!IMPORTANT]
+> **Archived reference implementation — not production ready.** Active development has ended. This documentation is preserved to explain the final codebase and its history; operational instructions are historical reproduction guidance, not an active support contract.
 
-## Quick Start
+This hub explains how the queue, agent coordinator, and later local execution broker were structured at the end of development.
 
-1. **Install dependencies**
+## Historical Local Reproduction
 
-   ```bash
-   make install
-   ```
-
-2. **Start the API and dashboard**
+1. **Create a virtual environment and install dependencies**
 
    ```bash
-   make serve
+   python -m venv .venv
+   # Linux/macOS: source .venv/bin/activate
+   # Windows PowerShell: .\\.venv\\Scripts\\Activate.ps1
+   python -m pip install --upgrade pip
+   pip install -r server/requirements-dev.txt
    ```
+
+2. **Start the API and dashboard on the historical local-only default**
+
+   ```bash
+   python scripts/run_uvicorn.py
+   ```
+
+   The helper defaults to `127.0.0.1:8000`. Do not treat this archived project as production-safe.
 
 3. **Verify health checks**
 
@@ -116,8 +123,7 @@ issues without juggling active agents:
    server broadcasts the change to all WebSocket listeners so agents can resume
    work.
 
-The admin token is optional in development but should be configured in
-production via `SWITCHBOARD_ADMIN_TOKEN`.
+The historical development configuration allowed an optional admin token. This archived project has no supported production deployment mode.
 
 ## Task Analytics
 
@@ -133,12 +139,14 @@ Track backlog health without scanning every task manually:
 
 ## End-to-End Example
 
-Follow these steps to process a task locally:
+For historical reproduction, these steps demonstrate a minimal local task flow:
 
 1. Seed a task using the REST API:
 
    ```bash
-   http POST http://localhost:8000/api/tasks title="Sample" description="Demo"
+   curl -X POST http://localhost:8000/api/tasks \
+     -H "Content-Type: application/json" \
+     -d '{"title":"Sample","description":"Demo"}'
    ```
 
 2. Run the local runner in auto-complete mode:
@@ -152,6 +160,8 @@ Follow these steps to process a task locally:
 
 ## Additional Resources
 
+- [Project history](../HISTORY.md)
+- [Archive status](reports/status.md)
 - [Project ruleset](../PROJECT_RULESET.md)
 - [Architecture](architecture.md)
 - [API reference](API.md)
